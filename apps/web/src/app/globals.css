@@ -1,0 +1,50 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --rail: #0f172a;
+  --rail-text: #94a3b8;
+  --rail-active: #f97316;
+  --rail-active-bg: rgba(249, 115, 22, 0.15);
+  --background: #f1f5f9;
+  --surface: #ffffff;
+  --border: #e2e8f0;
+  --foreground: #0f172a;
+  --muted: #64748b;
+  --chart-a: #1e3a5f;
+  --chart-b: #f97316;
+  --chip-progress-bg: #dbeafe;
+  --chip-progress-fg: #1d4ed8;
+  --chip-parts-bg: #fef3c7;
+  --chip-parts-fg: #b45309;
+  --chip-ready-bg: #d1fae5;
+  --chip-ready-fg: #047857;
+  --delta-up-bg: #d1fae5;
+  --delta-down-bg: #fee2e2;
+  --delta-warn-bg: #fef3c7;
+}
+
+.dark {
+  --background: #0b1120;
+  --surface: #1e293b;
+  --border: #475569;
+  --foreground: #f1f5f9;
+  --muted: #cbd5e1;
+  --chart-a: #60a5fa;
+  --chip-progress-bg: #1e3a5f;
+  --chip-progress-fg: #93c5fd;
+  --chip-parts-bg: #422006;
+  --chip-parts-fg: #fcd34d;
+  --chip-ready-bg: #064e3b;
+  --chip-ready-fg: #6ee7b7;
+  --delta-up-bg: #064e3b;
+  --delta-down-bg: #450a0a;
+  --delta-warn-bg: #422006;
+}
+
+body {
+  @apply bg-background text-foreground antialiased;
+  background-color: var(--background);
+  color: var(--foreground);
+}

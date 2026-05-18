@@ -1,0 +1,27 @@
+# Staging deploy is configured in your hosting provider (Railway / Render)
+# connected to this repo's `main` branch. This workflow only verifies build on main.
+
+name: Staging build check
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "pnpm"
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: Staging deploy note
+        run: |
+          echo "Push to main passed build. Railway/Render deploys automatically if connected."
+          echo "See docs/GITHUB_SETUP.md for team access and staging URL."

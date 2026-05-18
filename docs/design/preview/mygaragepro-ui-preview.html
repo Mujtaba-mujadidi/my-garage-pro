@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MyGaragePro — UI preview</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --rail:#0f172a; --rail-text:#94a3b8; --rail-active:#f97316; --rail-active-bg:rgba(249,115,22,.15);
+      --bg:#f1f5f9; --surface:#fff; --border:#e2e8f0; --text:#0f172a; --muted:#64748b;
+      --chart-a:#1e3a5f; --chart-b:#f97316; --success:#34d399; --warning:#fbbf24; --danger:#f87171;
+      --chip-progress-bg:#dbeafe; --chip-progress-fg:#1d4ed8;
+      --chip-parts-bg:#fef3c7; --chip-parts-fg:#b45309;
+      --chip-ready-bg:#d1fae5; --chip-ready-fg:#047857;
+      --chip-overdue-bg:#fee2e2; --chip-overdue-fg:#b91c1c;
+      --delta-up-bg:#d1fae5; --delta-down-bg:#fee2e2; --delta-warn-bg:#fef3c7;
+      --rail-width:220px; --rail-width-collapsed:68px;
+    }
+    [data-theme=dark] {
+      --bg:#0b1120; --surface:#1e293b; --border:#475569; --text:#f1f5f9; --muted:#cbd5e1;
+      --chart-a:#60a5fa;
+      --chip-progress-bg:#1e3a5f; --chip-progress-fg:#93c5fd;
+      --chip-parts-bg:#422006; --chip-parts-fg:#fcd34d;
+      --chip-ready-bg:#064e3b; --chip-ready-fg:#6ee7b7;
+      --chip-overdue-bg:#450a0a; --chip-overdue-fg:#fca5a5;
+      --delta-up-bg:#064e3b; --delta-down-bg:#450a0a; --delta-warn-bg:#422006;
+    }
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:Inter,system-ui,sans-serif;font-size:14px;background:#0f172a;min-height:100vh;padding:24px}
+    .preview-banner{max-width:1280px;margin:0 auto 16px;padding:12px 16px;background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;color:#92400e;font-size:13px}
+    .controls{max-width:1280px;margin:0 auto 16px;display:flex;flex-wrap:wrap;gap:8px}
+    .controls button{font:inherit;padding:8px 14px;border-radius:8px;border:1px solid #475569;background:#1e293b;color:#f1f5f9;cursor:pointer}
+    .controls button.active{background:#f97316;border-color:#f97316;color:#fff}
+    .app{max-width:1280px;margin:0 auto;display:flex;min-height:720px;border-radius:12px;overflow:hidden;box-shadow:0 25px 50px -12px rgba(0,0,0,.5);color:var(--text);background:var(--bg)}
+    .rail{width:var(--rail-width);flex-shrink:0;background:var(--rail);color:#fff;display:flex;flex-direction:column;padding:16px 0;transition:width .2s ease;overflow:hidden}
+    .app.rail-collapsed .rail{width:var(--rail-width-collapsed)}
+    .app.rail-collapsed .brand-text,.app.rail-collapsed .nav-label,.app.rail-collapsed .group-label{display:none}
+    .app.rail-collapsed .nav a{justify-content:center;padding:10px}
+    .brand{padding:0 16px 20px;border-bottom:1px solid rgba(255,255,255,.08);margin-bottom:12px;display:flex;align-items:flex-start;gap:10px}
+    .app.rail-collapsed .brand{justify-content:center;padding:0 8px 16px}
+    .brand-mark{width:36px;height:36px;flex-shrink:0;background:linear-gradient(135deg,#f97316,#fb923c);border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:11px}
+    .brand h1{font-size:15px;font-weight:700;white-space:nowrap}.brand p{font-size:11px;color:var(--rail-text);margin-top:2px;white-space:nowrap}
+    .nav{flex:1;padding:0 8px}
+    .nav a{display:flex;align-items:center;gap:10px;padding:10px 12px;margin-bottom:2px;color:var(--rail-text);text-decoration:none;border-radius:8px;font-size:13px;font-weight:500;cursor:pointer;white-space:nowrap}
+    .nav a:hover{color:#fff;background:rgba(255,255,255,.06)}.nav a.active{background:var(--rail-active);color:#fff}
+    .nav-icon{width:20px;text-align:center;flex-shrink:0;font-size:12px}
+    .nav .group-label{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:#64748b;padding:12px 12px 6px}
+    .main{flex:1;display:flex;flex-direction:column;background:var(--bg);min-width:0;color:var(--text)}
+    .topbar{background:var(--surface);border-bottom:1px solid var(--border);padding:12px 16px;display:flex;align-items:center;gap:12px}
+    .rail-toggle{width:36px;height:36px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);cursor:pointer;font-size:18px;flex-shrink:0}
+    .search{flex:1;max-width:320px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font:inherit}
+    .search::placeholder{color:var(--muted);opacity:1}
+    .topbar-actions{margin-left:auto;display:flex;align-items:center;gap:12px}
+    .icon-btn{width:36px;height:36px;border-radius:8px;border:1px solid var(--border);background:var(--bg);display:flex;align-items:center;justify-content:center;position:relative;color:var(--text)}
+    .badge{position:absolute;top:-4px;right:-4px;background:#dc2626;color:#fff;font-size:10px;font-weight:700;width:16px;height:16px;border-radius:50%;display:flex;align-items:center;justify-content:center}
+    .user{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:500;color:var(--text)}
+    .avatar{width:32px;height:32px;border-radius:50%;background:var(--chart-a);color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600}
+    .content{padding:20px;flex:1;overflow:auto;color:var(--text)}
+    .breadcrumb{font-size:12px;color:var(--muted);margin-bottom:8px}.breadcrumb span{color:var(--rail-active)}
+    .page-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:12px}
+    .page-head h2{font-size:22px;font-weight:700;color:var(--text)}
+    .btn{padding:8px 14px;border-radius:8px;font:inherit;font-weight:600;border:none;cursor:pointer}
+    .btn-primary{background:var(--rail-active);color:#fff}.btn-outline{background:var(--surface);border:1px solid var(--border);color:var(--text)}
+    .kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px;margin-bottom:20px}
+    .kpi{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px;color:var(--text)}
+    .kpi label{font-size:12px;color:var(--muted);font-weight:500}.kpi .value{font-size:28px;font-weight:700;margin:6px 0;font-variant-numeric:tabular-nums;color:var(--text)}
+    .delta{font-size:12px;font-weight:600;display:inline-block;padding:2px 8px;border-radius:999px}
+    .delta.up{background:var(--delta-up-bg);color:var(--success)}.delta.down{background:var(--delta-down-bg);color:var(--danger)}.delta.warn{background:var(--delta-warn-bg);color:var(--warning)}
+    .grid-2{display:grid;grid-template-columns:1.2fr .8fr;gap:16px}@media(max-width:900px){.grid-2{grid-template-columns:1fr}}
+    .card{background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden;color:var(--text)}
+    .card-head{padding:14px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
+    .card-head h3{font-size:14px;font-weight:600;color:var(--text)}.card-head a{font-size:12px;color:var(--rail-active);font-weight:600;text-decoration:none}
+    table{width:100%;border-collapse:collapse;font-size:13px;color:var(--text)}
+    th,td{padding:10px 16px;text-align:left;border-bottom:1px solid var(--border);color:var(--text)}
+    th{color:var(--muted);font-weight:600;font-size:11px;text-transform:uppercase}
+    .reg{font-family:ui-monospace,monospace;font-weight:600}
+    .chip{display:inline-block;padding:3px 8px;border-radius:6px;font-size:11px;font-weight:600}
+    .chip-progress{background:var(--chip-progress-bg);color:var(--chip-progress-fg)}
+    .chip-parts{background:var(--chip-parts-bg);color:var(--chip-parts-fg)}
+    .chip-ready{background:var(--chip-ready-bg);color:var(--chip-ready-fg)}
+    .chart-body{padding:20px 16px}.bars{display:flex;align-items:flex-end;gap:8px;height:120px}
+    .bar-group{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px}
+    .bar-stack{display:flex;gap:3px;align-items:flex-end;height:100px}
+    .bar{width:14px;border-radius:4px 4px 0 0}.bar-a{background:var(--chart-a)}.bar-b{background:var(--chart-b)}
+    .bar-label{font-size:10px;color:var(--muted)}.legend{display:flex;gap:16px;margin-top:12px;font-size:12px;color:var(--muted)}
+    .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;vertical-align:middle}
+    .screen{display:none}.screen.active{display:block}.money{font-variant-numeric:tabular-nums;text-align:right}
+    .filters{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
+    .filter{padding:6px 12px;border-radius:8px;border:1px solid var(--border);background:var(--surface);font-size:12px;color:var(--muted);cursor:pointer}
+    .filter.active{border-color:var(--rail-active);color:var(--rail-active);background:var(--rail-active-bg)}
+  </style>
+</head>
+<body>
+  <div class="preview-banner"><strong>MyGaragePro — UI preview</strong> Click <strong>☰</strong> to collapse the sidebar. Dark mode contrast fixed.</div>
+  <div class="controls">
+    <button type="button" class="active" data-screen="dashboard">Dashboard</button>
+    <button type="button" data-screen="repair">Repair jobs</button>
+    <button type="button" data-theme-toggle>Light / dark</button>
+  </div>
+  <div class="app" id="app" data-theme="light">
+    <aside class="rail">
+      <div class="brand"><div class="brand-mark">MGP</div><div class="brand-text"><h1>MyGaragePro</h1><p>Demo Garage Ltd</p></div></div>
+      <nav class="nav">
+        <a class="active" data-nav="dashboard"><span class="nav-icon">◉</span><span class="nav-label">Dashboard</span></a>
+        <a data-nav="repair"><span class="nav-icon">⚙</span><span class="nav-label">Repair jobs</span></a>
+        <a><span class="nav-icon">🚗</span><span class="nav-label">Used cars</span></a>
+        <a><span class="nav-icon">◎</span><span class="nav-label">Tyres &amp; parts</span></a>
+        <a><span class="nav-icon">👤</span><span class="nav-label">Customers</span></a>
+        <a><span class="nav-icon">📄</span><span class="nav-label">Invoices</span></a>
+        <a><span class="nav-icon">📊</span><span class="nav-label">Reports</span></a>
+        <div class="group-label">Settings</div>
+        <a class="sub"><span class="nav-icon">·</span><span class="nav-label">Garage profile</span></a>
+      </nav>
+    </aside>
+    <div class="main">
+      <header class="topbar">
+        <button type="button" class="rail-toggle" id="rail-toggle" title="Collapse sidebar">☰</button>
+        <input class="search" placeholder="Search reg, customer, job #…" />
+        <div class="topbar-actions"><div class="icon-btn">🔔<span class="badge">3</span></div><div class="user"><span class="avatar">JO</span><span>James Owner</span></div></div>
+      </header>
+      <div class="content screen active" id="screen-dashboard">
+        <div class="breadcrumb">Home / <span>Dashboard</span></div>
+        <div class="page-head"><h2>Dashboard</h2><button class="btn btn-outline">This week ▾</button></div>
+        <div class="kpis">
+          <div class="kpi"><label>Today's profit</label><div class="value">£2,840</div><span class="delta up">+12%</span></div>
+          <div class="kpi"><label>Open repair jobs</label><div class="value">14</div><span class="delta warn">4 awaiting parts</span></div>
+          <div class="kpi"><label>Unpaid invoices</label><div class="value">£6,200</div><span class="delta down">3 overdue</span></div>
+          <div class="kpi"><label>Cars in stock</label><div class="value">9</div><span class="delta up">2 sold</span></div>
+        </div>
+        <div class="grid-2">
+          <div class="card"><div class="card-head"><h3>Open repair jobs</h3><a href="#">See all</a></div>
+            <table><thead><tr><th>Reg</th><th>Customer</th><th>Job</th><th>Status</th></tr></thead>
+            <tbody>
+              <tr><td class="reg">AB12 CDE</td><td>A. Khan</td><td>Brake pads</td><td><span class="chip chip-progress">In progress</span></td></tr>
+              <tr><td class="reg">LM71 XYZ</td><td>City Cabs</td><td>Service</td><td><span class="chip chip-parts">Awaiting parts</span></td></tr>
+            </tbody></table></div>
+          <div class="card"><div class="card-head"><h3>This week</h3></div><div class="chart-body">
+            <div class="bars">
+              <div class="bar-group"><div class="bar-stack"><div class="bar bar-a" style="height:72%"></div><div class="bar bar-b" style="height:48%"></div></div><span class="bar-label">Mon</span></div>
+              <div class="bar-group"><div class="bar-stack"><div class="bar bar-a" style="height:85%"></div><div class="bar bar-b" style="height:55%"></div></div><span class="bar-label">Tue</span></div>
+            </div>
+            <div class="legend"><span><i style="background:var(--chart-a)"></i>Income</span><span><i style="background:var(--chart-b)"></i>Expenses</span></div>
+          </div></div>
+        </div>
+      </div>
+      <div class="content screen" id="screen-repair">
+        <div class="breadcrumb">Home / <span>Repair jobs</span></div>
+        <div class="page-head"><h2>Repair jobs</h2><div style="display:flex;gap:8px"><button class="btn btn-outline">Export</button><button class="btn btn-primary">+ New job</button></div></div>
+        <div class="card"><table><thead><tr><th>#</th><th>Reg</th><th>Customer</th><th class="money">Total</th><th>Status</th></tr></thead>
+          <tbody><tr><td>1042</td><td class="reg">AB12 CDE</td><td>A. Khan</td><td class="money">£485</td><td><span class="chip chip-progress">In progress</span></td></tr></tbody></table></div>
+      </div>
+    </div>
+  </div>
+  <script>
+    const app=document.getElementById('app'),railToggle=document.getElementById('rail-toggle');
+    document.querySelectorAll('[data-screen]').forEach(btn=>{btn.addEventListener('click',()=>{document.querySelectorAll('.controls button[data-screen]').forEach(b=>b.classList.remove('active'));btn.classList.add('active');document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));document.getElementById('screen-'+btn.dataset.screen).classList.add('active');document.querySelectorAll('.nav a[data-nav]').forEach(a=>a.classList.toggle('active',a.dataset.nav===btn.dataset.screen));});});
+    document.querySelector('[data-theme-toggle]').addEventListener('click',()=>{app.dataset.theme=app.dataset.theme==='light'?'dark':'light';});
+    railToggle.addEventListener('click',()=>{app.classList.toggle('rail-collapsed');railToggle.title=app.classList.contains('rail-collapsed')?'Expand sidebar':'Collapse sidebar';});
+    document.querySelectorAll('.nav a[data-nav]').forEach(a=>{a.addEventListener('click',e=>{e.preventDefault();document.querySelector('[data-screen="'+a.dataset.nav+'"]')?.click();});});
+    if(window.matchMedia('(max-width:1024px)').matches)app.classList.add('rail-collapsed');
+  </script>
+</body>
+</html>

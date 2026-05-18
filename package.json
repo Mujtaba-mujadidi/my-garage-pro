@@ -1,0 +1,19 @@
+{
+  "name": "mygaragepro",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Modular garage / business management SaaS",
+  "scripts": {
+    "dev": "concurrently -n web,api -c blue,green \"pnpm --filter @mygaragepro/web dev\" \"pnpm --filter @mygaragepro/api dev\"",
+    "build": "pnpm -r build",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  },
+  "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": ">=20"
+  }
+}
