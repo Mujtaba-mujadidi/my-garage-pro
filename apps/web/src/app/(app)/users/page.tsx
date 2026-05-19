@@ -2,10 +2,12 @@
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { PermissionGate } from "@/components/layout/permission-gate";
+import { useSession } from "@/components/providers/session-provider";
+import { Modal } from "@/components/ui/modal";
+import { TeamUserFormFields, type RoleOption } from "@/components/users/team-user-form-fields";
+import { TeamUsersTable } from "@/components/users/team-users-table";
 import { apiFetch, ApiError } from "@/lib/api-client";
 import type { TeamUserDto } from "@mygaragepro/shared";
-
-type RoleOption = { id: string; name: string; slug: string };
 
 type EditState = {
   user: TeamUserDto;
@@ -16,13 +18,21 @@ type EditState = {
   password: string;
 };
 
+const defaultCreate = {
+  email: "",
+  displayName: "",
+  password: "demo",
+  garageRoleId: "",
+};
+
 export default function UsersPage() {
+  const { hasPermission } = useSession();
+  const canWrite = hasPermission("users.write");
+
   const [users, setUsers] = useState<TeamUserDto[]>([]);
   const [roles, setRoles] = useState<RoleOption[]>([]);
-  const [email, setEmail] = useState("");
-  const [displayName, setDisplayName] = useState("");
-  const [password, setPassword] = useState("demo");
-  const [garageRoleId, setGarageRoleId] = useState("");
+  const [create, setCreate] = useState(defaultCreate);
+  const [showCreate, setShowCreate] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [edit, setEdit] = useState<EditState | null>(null);
@@ -35,16 +45,31 @@ export default function UsersPage() {
     ]);
     setUsers(userRows);
     setRoles(roleList);
-    setGarageRoleId((current) => {
-      if (current) return current;
-      const mechanic = roleList.find((r) => r.slug === "mechanic");
-      return mechanic?.id ?? roleList[0]?.id ?? "";
-    });
+    const mechanic = roleList.find((r) => r.slug === "mechanic");
+    const defaultRoleId = mechanic?.id ?? roleList[0]?.id ?? "";
+    setCreate((c) => ({ ...c, garageRoleId: c.garageRoleId || defaultRoleId }));
   }, []);
 
   useEffect(() => {
     void load().catch(() => setError("Could not load users"));
   }, [load]);
+
+  function openCreate() {
+    const mechanic = roles.find((r) => r.slug === "mechanic");
+    setCreate({
+      email: "",
+      displayName: "",
+      password: "demo",
+      garageRoleId: mechanic?.id ?? roles[0]?.id ?? "",
+    });
+    setError("");
+    setShowCreate(true);
+  }
+
+  function closeCreate() {
+    setShowCreate(false);
+    setError("");
+  }
 
   function openEdit(user: TeamUserDto) {
     setEdit({
@@ -65,19 +90,21 @@ export default function UsersPage() {
 
   async function onCreate(e: FormEvent) {
     e.preventDefault();
+    setSaving(true);
     setMessage("");
     setError("");
     try {
       await apiFetch("/users", {
         method: "POST",
-        body: JSON.stringify({ email, displayName, password, garageRoleId }),
+        body: JSON.stringify(create),
       });
-      setEmail("");
-      setDisplayName("");
       setMessage("User created.");
+      closeCreate();
       await load();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Create failed");
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -117,193 +144,107 @@ export default function UsersPage() {
     }
   }
 
-  const isStaff = (u: TeamUserDto) => u.role === "STAFF";
-
   return (
     <PermissionGate permission="users.read">
-      <h1 className="mb-6 text-2xl font-bold text-[var(--foreground)]">Team users</h1>
-      {message && <p className="mb-4 text-sm text-green-700 dark:text-green-400">{message}</p>}
-      {error && !edit && <p className="mb-4 text-sm text-red-600">{error}</p>}
-
-      <ul className="mb-8 space-y-2">
-        {users.map((u) => (
-          <li
-            key={u.id}
-            className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-sm"
+      <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <p className="mb-1 text-xs text-[var(--muted)]">
+            Home / <span className="text-accent">Team</span>
+          </p>
+          <h1 className="text-2xl font-bold text-[var(--foreground)]">Team users</h1>
+        </div>
+        {canWrite && (
+          <button
+            type="button"
+            onClick={openCreate}
+            className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:opacity-90"
           >
-            <div className="min-w-0 flex-1">
-              <span className="font-medium">{u.displayName}</span>
-              {u.status === "DISABLED" && (
-                <span className="ml-2 rounded-full bg-red-100 px-2 py-0.5 text-xs text-red-700 dark:bg-red-950 dark:text-red-300">
-                  Disabled
-                </span>
-              )}
-              <p className="text-[var(--muted)]">{u.email}</p>
-            </div>
-            <span className="rounded-full bg-[var(--background)] px-2 py-0.5 text-xs">
-              {u.role === "OWNER" ? "Owner" : (u.garageRoleName ?? u.role)}
-            </span>
-            <PermissionGate permission="users.write">
+            Add user
+          </button>
+        )}
+      </div>
+
+      {message && <p className="mb-4 text-sm text-green-700 dark:text-green-400">{message}</p>}
+      {error && !showCreate && !edit && (
+        <p className="mb-4 text-sm text-red-600">{error}</p>
+      )}
+
+      <TeamUsersTable users={users} canWrite={canWrite} onEdit={openEdit} />
+
+      <Modal title="Add team member" open={showCreate} onClose={closeCreate}>
+        <form onSubmit={onCreate} className="space-y-4">
+          <TeamUserFormFields
+            mode="create"
+            displayName={create.displayName}
+            email={create.email}
+            password={create.password}
+            garageRoleId={create.garageRoleId}
+            status="ACTIVE"
+            roles={roles}
+            onDisplayNameChange={(v) => setCreate((c) => ({ ...c, displayName: v }))}
+            onEmailChange={(v) => setCreate((c) => ({ ...c, email: v }))}
+            onPasswordChange={(v) => setCreate((c) => ({ ...c, password: v }))}
+            onGarageRoleIdChange={(v) => setCreate((c) => ({ ...c, garageRoleId: v }))}
+            onStatusChange={() => {}}
+          />
+          {error && <p className="text-sm text-red-600">{error}</p>}
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              type="button"
+              onClick={closeCreate}
+              className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={saving}
+              className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+            >
+              {saving ? "Creating…" : "Create user"}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal title="Edit team member" open={edit !== null} onClose={closeEdit}>
+        {edit && (
+          <form onSubmit={onSaveEdit} className="space-y-4">
+            <TeamUserFormFields
+              mode="edit"
+              user={edit.user}
+              displayName={edit.displayName}
+              email={edit.email}
+              password={edit.password}
+              garageRoleId={edit.garageRoleId}
+              status={edit.status}
+              roles={roles}
+              onDisplayNameChange={(v) => setEdit({ ...edit, displayName: v })}
+              onEmailChange={(v) => setEdit({ ...edit, email: v })}
+              onPasswordChange={(v) => setEdit({ ...edit, password: v })}
+              onGarageRoleIdChange={(v) => setEdit({ ...edit, garageRoleId: v })}
+              onStatusChange={(v) => setEdit({ ...edit, status: v })}
+            />
+            {error && <p className="text-sm text-red-600">{error}</p>}
+            <div className="flex justify-end gap-2 pt-2">
               <button
                 type="button"
-                onClick={() => openEdit(u)}
-                className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs hover:bg-[var(--background)]"
+                onClick={closeEdit}
+                className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm"
               >
-                Edit
+                Cancel
               </button>
-            </PermissionGate>
-          </li>
-        ))}
-      </ul>
-
-      <PermissionGate permission="users.write">
-        <form
-          onSubmit={onCreate}
-          className="max-w-md space-y-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4"
-        >
-          <h2 className="text-sm font-semibold">Add user</h2>
-          <input
-            value={displayName}
-            onChange={(e) => setDisplayName(e.target.value)}
-            placeholder="Display name"
-            className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
-            required
-          />
-          <input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="Email"
-            className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
-            required
-          />
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="Password"
-            className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
-            required
-          />
-          <select
-            value={garageRoleId}
-            onChange={(e) => setGarageRoleId(e.target.value)}
-            className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
-            required
-          >
-            {roles.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.name}
-              </option>
-            ))}
-          </select>
-          <button type="submit" className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white">
-            Create user
-          </button>
-        </form>
-      </PermissionGate>
-
-      {edit && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-          role="dialog"
-          aria-modal="true"
-        >
-          <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-xl">
-            <h2 className="mb-4 text-lg font-semibold">Edit team member</h2>
-            <form onSubmit={onSaveEdit} className="space-y-3">
-              <div>
-                <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Display name</label>
-                <input
-                  value={edit.displayName}
-                  onChange={(e) => setEdit({ ...edit, displayName: e.target.value })}
-                  required
-                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Email</label>
-                <input
-                  type="email"
-                  value={edit.email}
-                  onChange={(e) => setEdit({ ...edit, email: e.target.value })}
-                  required
-                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
-                />
-              </div>
-              {isStaff(edit.user) && (
-                <>
-                  <div>
-                    <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Role</label>
-                    <select
-                      value={edit.garageRoleId}
-                      onChange={(e) => setEdit({ ...edit, garageRoleId: e.target.value })}
-                      className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
-                      required
-                    >
-                      {roles.map((r) => (
-                        <option key={r.id} value={r.id}>
-                          {r.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Status</label>
-                    <select
-                      value={edit.status}
-                      onChange={(e) =>
-                        setEdit({
-                          ...edit,
-                          status: e.target.value as "ACTIVE" | "DISABLED",
-                        })
-                      }
-                      className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
-                    >
-                      <option value="ACTIVE">Active</option>
-                      <option value="DISABLED">Disabled</option>
-                    </select>
-                  </div>
-                </>
-              )}
-              {edit.user.role === "OWNER" && (
-                <p className="text-xs text-[var(--muted)]">
-                  Owner name and email can be updated. Role and status cannot be changed here.
-                </p>
-              )}
-              <div>
-                <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
-                  New password (optional)
-                </label>
-                <input
-                  type="password"
-                  value={edit.password}
-                  onChange={(e) => setEdit({ ...edit, password: e.target.value })}
-                  placeholder="Leave blank to keep current"
-                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
-                />
-              </div>
-              {error && <p className="text-sm text-red-600">{error}</p>}
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={closeEdit}
-                  className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={saving}
-                  className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-                >
-                  {saving ? "Saving…" : "Save"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+              <button
+                type="submit"
+                disabled={saving}
+                className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+              >
+                {saving ? "Saving…" : "Save"}
+              </button>
+            </div>
+          </form>
+        )}
+      </Modal>
     </PermissionGate>
   );
 }

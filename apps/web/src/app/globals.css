@@ -67,3 +67,58 @@ body {
     -webkit-overflow-scrolling: touch;
   }
 }
+
+/* DataTables — match app theme */
+.team-users-datatable .dt-container {
+  color: var(--foreground);
+}
+
+.team-users-datatable .dt-search label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  color: var(--muted);
+}
+
+.team-users-datatable .dt-search input {
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--background);
+  color: var(--foreground);
+  padding: 0.375rem 0.75rem;
+  font-size: 0.875rem;
+}
+
+.team-users-datatable table.dataTable thead th {
+  border-bottom: 1px solid var(--border);
+  color: var(--foreground);
+  font-weight: 600;
+}
+
+.team-users-datatable table.dataTable tbody td {
+  border-bottom: 1px solid var(--border);
+  color: var(--foreground);
+  vertical-align: middle;
+}
+
+.team-users-datatable table.dataTable tbody tr:hover {
+  background: var(--background);
+}
+
+.team-users-datatable .dt-info,
+.team-users-datatable .dt-paging {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.team-users-datatable .dt-paging .dt-paging-button {
+  border-radius: 0.375rem;
+  color: var(--foreground) !important;
+}
+
+.team-users-datatable .dt-paging .dt-paging-button.current {
+  background: var(--accent) !important;
+  color: white !important;
+  border: none !important;
+}
