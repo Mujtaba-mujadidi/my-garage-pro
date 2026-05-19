@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
-import { BillingCycle, CustomerType, Prisma, UserRole } from "@prisma/client";
+import { BillingCycle, CustomerType, Prisma } from "@prisma/client";
 import { AuditService } from "../audit/audit.service";
 import { PrismaService } from "../prisma/prisma.service";
 import type { RequestUser } from "../auth/auth.types";
@@ -239,7 +239,7 @@ export class CustomersService {
   }
 
   async restore(user: RequestUser, id: string) {
-    if (user.role !== UserRole.OWNER && user.role !== UserRole.MANAGER) {
+    if (!user.permissions.includes("customers.write")) {
       throw new ForbiddenException("Only owner or manager can restore customers");
     }
     const garageAccountId = this.garageId(user);

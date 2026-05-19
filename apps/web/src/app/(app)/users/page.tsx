@@ -1,31 +1,34 @@
 "use client";
 
+import { FormEvent, useCallback, useEffect, useState } from "react";
 import { PermissionGate } from "@/components/layout/permission-gate";
 import { apiFetch, ApiError } from "@/lib/api-client";
-import { USER_ROLES, type UserRole } from "@mygaragepro/shared";
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import type { TeamUserDto } from "@mygaragepro/shared";
 
-type UserRow = {
-  id: string;
-  email: string;
-  displayName: string;
-  role: UserRole;
-  status: string;
-};
-
-const GARAGE_ROLES = USER_ROLES.filter((r) => r !== "SUPER_ADMIN");
+type RoleOption = { id: string; name: string; slug: string };
 
 export default function UsersPage() {
-  const [users, setUsers] = useState<UserRow[]>([]);
+  const [users, setUsers] = useState<TeamUserDto[]>([]);
+  const [roles, setRoles] = useState<RoleOption[]>([]);
   const [email, setEmail] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("demo");
-  const [role, setRole] = useState<UserRole>("MECHANIC");
+  const [garageRoleId, setGarageRoleId] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
   const load = useCallback(async () => {
-    setUsers(await apiFetch<UserRow[]>("/users"));
+    const [userRows, roleList] = await Promise.all([
+      apiFetch<TeamUserDto[]>("/users"),
+      apiFetch<RoleOption[]>("/users/roles"),
+    ]);
+    setUsers(userRows);
+    setRoles(roleList);
+    setGarageRoleId((current) => {
+      if (current) return current;
+      const mechanic = roleList.find((r) => r.slug === "mechanic");
+      return mechanic?.id ?? roleList[0]?.id ?? "";
+    });
   }, []);
 
   useEffect(() => {
@@ -39,7 +42,7 @@ export default function UsersPage() {
     try {
       await apiFetch("/users", {
         method: "POST",
-        body: JSON.stringify({ email, displayName, password, role }),
+        body: JSON.stringify({ email, displayName, password, garageRoleId }),
       });
       setEmail("");
       setDisplayName("");
@@ -64,13 +67,18 @@ export default function UsersPage() {
           >
             <span className="font-medium">{u.displayName}</span>
             <span className="text-[var(--muted)]">{u.email}</span>
-            <span className="rounded-full bg-[var(--background)] px-2 py-0.5 text-xs">{u.role}</span>
+            <span className="rounded-full bg-[var(--background)] px-2 py-0.5 text-xs">
+              {u.role === "OWNER" ? "Owner" : (u.garageRoleName ?? u.role)}
+            </span>
           </li>
         ))}
       </ul>
 
       <PermissionGate permission="users.write">
-        <form onSubmit={onSubmit} className="max-w-md space-y-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
+        <form
+          onSubmit={onSubmit}
+          className="max-w-md space-y-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4"
+        >
           <h2 className="text-sm font-semibold">Add user</h2>
           <input
             value={displayName}
@@ -96,13 +104,14 @@ export default function UsersPage() {
             required
           />
           <select
-            value={role}
-            onChange={(e) => setRole(e.target.value as UserRole)}
+            value={garageRoleId}
+            onChange={(e) => setGarageRoleId(e.target.value)}
             className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+            required
           >
-            {GARAGE_ROLES.map((r) => (
-              <option key={r} value={r}>
-                {r}
+            {roles.map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.name}
               </option>
             ))}
           </select>

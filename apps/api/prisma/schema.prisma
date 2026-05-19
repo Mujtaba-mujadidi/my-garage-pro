@@ -15,6 +15,7 @@ enum GarageAccountStatus {
 enum UserRole {
   SUPER_ADMIN
   OWNER
+  STAFF
   MANAGER
   MECHANIC
   ACCOUNTANT
@@ -52,7 +53,7 @@ model GarageAccount {
   settings  SettingOption[]
   auditLogs AuditLog[]
   customers       Customer[]
-  rolePermissions GarageRolePermission[]
+  garageRoles     GarageRole[]
 
   @@map("garage_account")
 }
@@ -78,6 +79,7 @@ model User {
   passwordHash    String     @map("password_hash")
   displayName     String     @map("display_name")
   role            UserRole
+  garageRoleId    String?    @map("garage_role_id") @db.Uuid
   status          UserStatus @default(ACTIVE)
   themePreference String?    @map("theme_preference")
   createdAt       DateTime   @default(now()) @map("created_at")
@@ -86,6 +88,7 @@ model User {
   deletedBy       String?    @map("deleted_by") @db.Uuid
 
   garageAccount GarageAccount? @relation(fields: [garageAccountId], references: [id], onDelete: Cascade)
+  garageRole    GarageRole?    @relation(fields: [garageRoleId], references: [id], onDelete: SetNull)
   auditLogs     AuditLog[]
 
   @@map("users")
@@ -191,18 +194,35 @@ model CustomerVehicle {
   @@map("customer_vehicle")
 }
 
-model GarageRolePermission {
+model GarageRole {
   id              String   @id @default(uuid()) @db.Uuid
   garageAccountId String   @map("garage_account_id") @db.Uuid
-  role            UserRole
-  permission      String
-  granted         Boolean  @default(true)
+  name            String
+  slug            String
+  isDefault       Boolean  @default(false) @map("is_default")
+  sortOrder       Int      @default(0) @map("sort_order")
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
 
-  garageAccount GarageAccount @relation(fields: [garageAccountId], references: [id], onDelete: Cascade)
+  garageAccount GarageAccount            @relation(fields: [garageAccountId], references: [id], onDelete: Cascade)
+  permissions   GarageRolePermission[]
+  users         User[]
 
-  @@unique([garageAccountId, role, permission])
-  @@index([garageAccountId, role])
+  @@unique([garageAccountId, slug])
+  @@index([garageAccountId])
+  @@map("garage_role")
+}
+
+model GarageRolePermission {
+  id           String   @id @default(uuid()) @db.Uuid
+  garageRoleId String   @map("garage_role_id") @db.Uuid
+  permission   String
+  granted      Boolean  @default(true)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  garageRole GarageRole @relation(fields: [garageRoleId], references: [id], onDelete: Cascade)
+
+  @@unique([garageRoleId, permission])
   @@map("garage_role_permission")
 }

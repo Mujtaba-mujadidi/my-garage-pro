@@ -61,16 +61,16 @@ export default function SettingsPage() {
 
       {hasPermission("permissions.manage") && (
         <section className="mb-6 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
-          <h2 className="mb-1 text-sm font-semibold">Staff permissions</h2>
+          <h2 className="mb-1 text-sm font-semibold">Roles & access</h2>
           <p className="mb-3 text-sm text-[var(--muted)]">
-            Control which modules each role can view or edit (e.g. hide customers or finance from
+            Create roles and control what each can view or edit (e.g. hide customers or finance from
             mechanics).
           </p>
           <Link
             href="/settings/permissions"
             className="inline-block rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white"
           >
-            Manage role permissions
+            Manage roles
           </Link>
         </section>
       )}

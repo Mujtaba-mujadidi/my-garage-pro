@@ -10,14 +10,14 @@ import { PrismaModule } from "./prisma/prisma.module";
 import { SettingsModule } from "./settings/settings.module";
 import { UsersModule } from "./users/users.module";
 import { CustomersModule } from "./customers/customers.module";
-import { RolePermissionsModule } from "./role-permissions/role-permissions.module";
+import { GarageRolesModule } from "./garage-roles/garage-roles.module";
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     PrismaModule,
     AuditModule,
-    RolePermissionsModule,
+    GarageRolesModule,
     AuthModule,
     SettingsModule,
     PlatformModule,

@@ -8,6 +8,8 @@ export type AuthUserDto = {
   displayName: string;
   role: UserRole;
   garageAccountId: string | null;
+  garageRoleId: string | null;
+  garageRoleName: string | null;
 };
 
 export type AuthGarageDto = {
@@ -55,4 +57,14 @@ export type AuditLogDto = {
   userEmail: string | null;
   garageName: string | null;
   createdAt: string;
+};
+
+export type TeamUserDto = {
+  id: string;
+  email: string;
+  displayName: string;
+  role: UserRole;
+  status: string;
+  garageRoleId: string | null;
+  garageRoleName: string | null;
 };

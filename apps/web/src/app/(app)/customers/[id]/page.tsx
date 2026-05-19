@@ -66,10 +66,7 @@ export default function CustomerDetailPage() {
     );
   }
 
-  const canRestore =
-    customer.deletedAt &&
-    hasPermission("customers.write") &&
-    (session?.user.role === "OWNER" || session?.user.role === "MANAGER");
+  const canRestore = customer.deletedAt && hasPermission("customers.write");
 
   return (
     <PermissionGate permission="customers.read">

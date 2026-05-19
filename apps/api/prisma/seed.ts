@@ -1,12 +1,10 @@
 import { PrismaClient, UserRole } from "@prisma/client";
 import * as argon2 from "argon2";
 import {
-  CONFIGURABLE_ROLES,
   DEFAULT_ENABLED_MODULES,
-  DEFAULT_ROLE_PERMISSIONS,
+  DEFAULT_GARAGE_ROLES,
   GARAGE_PERMISSIONS,
   MODULE_KEYS,
-  type ConfigurableRole,
   type ModuleKey,
 } from "@mygaragepro/shared";
 
@@ -46,25 +44,32 @@ async function seedGarageModules(garageAccountId: string, enabled: ModuleKey[]) 
   }
 }
 
-async function seedRolePermissions(garageAccountId: string) {
-  for (const role of CONFIGURABLE_ROLES) {
-    const defaults = DEFAULT_ROLE_PERMISSIONS[role as ConfigurableRole];
+async function seedGarageRoles(garageAccountId: string) {
+  for (let i = 0; i < DEFAULT_GARAGE_ROLES.length; i++) {
+    const template = DEFAULT_GARAGE_ROLES[i];
+    const role = await prisma.garageRole.upsert({
+      where: {
+        garageAccountId_slug: { garageAccountId, slug: template.slug },
+      },
+      create: {
+        garageAccountId,
+        name: template.name,
+        slug: template.slug,
+        isDefault: true,
+        sortOrder: i,
+      },
+      update: { name: template.name },
+    });
+
     for (const permission of GARAGE_PERMISSIONS) {
       await prisma.garageRolePermission.upsert({
-        where: {
-          garageAccountId_role_permission: {
-            garageAccountId,
-            role,
-            permission,
-          },
-        },
+        where: { garageRoleId_permission: { garageRoleId: role.id, permission } },
         create: {
-          garageAccountId,
-          role,
+          garageRoleId: role.id,
           permission,
-          granted: defaults.includes(permission),
+          granted: template.permissions.includes(permission),
         },
-        update: {},
+        update: { granted: template.permissions.includes(permission) },
       });
     }
   }
@@ -128,13 +133,14 @@ async function main() {
   });
 
   await seedGarageModules(demoGarage.id, DEFAULT_ENABLED_MODULES);
+  await seedGarageRoles(demoGarage.id);
 
-  const existingRolePerms = await prisma.garageRolePermission.count({
-    where: { garageAccountId: demoGarage.id },
+  const managerRole = await prisma.garageRole.findUniqueOrThrow({
+    where: { garageAccountId_slug: { garageAccountId: demoGarage.id, slug: "manager" } },
   });
-  if (existingRolePerms === 0) {
-    await seedRolePermissions(demoGarage.id);
-  }
+  const mechanicRole = await prisma.garageRole.findUniqueOrThrow({
+    where: { garageAccountId_slug: { garageAccountId: demoGarage.id, slug: "mechanic" } },
+  });
 
   const existingSettings = await prisma.settingOption.count({
     where: { garageAccountId: demoGarage.id, deletedAt: null },
@@ -143,10 +149,28 @@ async function main() {
     await seedSettings(demoGarage.id);
   }
 
-  const demoUsers: { email: string; displayName: string; role: UserRole; password: string }[] = [
+  const demoUsers: {
+    email: string;
+    displayName: string;
+    role: UserRole;
+    garageRoleId?: string;
+    password: string;
+  }[] = [
     { email: "owner@demo.garage", displayName: "James Owner", role: UserRole.OWNER, password: "demo" },
-    { email: "manager@demo.garage", displayName: "Sam Manager", role: UserRole.MANAGER, password: "demo" },
-    { email: "mechanic@demo.garage", displayName: "Mike Mechanic", role: UserRole.MECHANIC, password: "demo" },
+    {
+      email: "manager@demo.garage",
+      displayName: "Sam Manager",
+      role: UserRole.STAFF,
+      garageRoleId: managerRole.id,
+      password: "demo",
+    },
+    {
+      email: "mechanic@demo.garage",
+      displayName: "Mike Mechanic",
+      role: UserRole.STAFF,
+      garageRoleId: mechanicRole.id,
+      password: "demo",
+    },
   ];
 
   for (const u of demoUsers) {
@@ -156,12 +180,14 @@ async function main() {
         email: u.email,
         displayName: u.displayName,
         role: u.role,
+        garageRoleId: u.garageRoleId,
         garageAccountId: demoGarage.id,
         passwordHash: await hashPassword(u.password),
       },
       update: {
         displayName: u.displayName,
         role: u.role,
+        garageRoleId: u.garageRoleId,
         garageAccountId: demoGarage.id,
         passwordHash: await hashPassword(u.password),
         status: "ACTIVE",

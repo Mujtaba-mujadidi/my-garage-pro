@@ -8,8 +8,8 @@ import { PermissionsGuard } from "../auth/guards/permissions.guard";
 import type { RequestUser } from "../auth/auth.types";
 import { AuditService } from "../audit/audit.service";
 import { PrismaService } from "../prisma/prisma.service";
-import { CreateGarageUserDto } from "../platform/dto/create-garage-user.dto";
-import { ConflictException, ForbiddenException } from "@nestjs/common";
+import { ConflictException, ForbiddenException, NotFoundException } from "@nestjs/common";
+import { CreateTeamUserDto } from "./dto/create-team-user.dto";
 
 @Controller("users")
 @UseGuards(JwtAuthGuard, PermissionsGuard)
@@ -19,25 +19,46 @@ export class UsersController {
     private readonly audit: AuditService,
   ) {}
 
+  @Get("roles")
+  @RequirePermissions("users.read")
+  async listRoles(@CurrentUser() user: RequestUser) {
+    if (!user.garageAccountId) throw new ForbiddenException();
+    return this.prisma.garageRole.findMany({
+      where: { garageAccountId: user.garageAccountId },
+      select: { id: true, name: true, slug: true },
+      orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+    });
+  }
+
   @Get()
   @RequirePermissions("users.read")
   async list(@CurrentUser() user: RequestUser) {
     if (!user.garageAccountId) throw new ForbiddenException();
-    return this.prisma.user.findMany({
+    const rows = await this.prisma.user.findMany({
       where: { garageAccountId: user.garageAccountId, deletedAt: null },
-      select: { id: true, email: true, displayName: true, role: true, status: true },
+      include: { garageRole: { select: { id: true, name: true } } },
       orderBy: { displayName: "asc" },
     });
+    return rows.map((u) => ({
+      id: u.id,
+      email: u.email,
+      displayName: u.displayName,
+      role: u.role === UserRole.OWNER ? "OWNER" : u.role === UserRole.SUPER_ADMIN ? "SUPER_ADMIN" : "STAFF",
+      status: u.status,
+      garageRoleId: u.garageRoleId,
+      garageRoleName: u.garageRole?.name ?? null,
+    }));
   }
 
   @Post()
   @RequirePermissions("users.write")
-  async create(@CurrentUser() user: RequestUser, @Body() dto: CreateGarageUserDto) {
+  async create(@CurrentUser() user: RequestUser, @Body() dto: CreateTeamUserDto) {
     if (!user.garageAccountId) throw new ForbiddenException();
-    if (dto.role === UserRole.SUPER_ADMIN) throw new ForbiddenException();
-    if (user.role === "MANAGER" && (dto.role === UserRole.OWNER || dto.role === UserRole.MANAGER)) {
-      throw new ForbiddenException("Managers cannot create owners or managers");
-    }
+
+    const garageRole = await this.prisma.garageRole.findFirst({
+      where: { id: dto.garageRoleId, garageAccountId: user.garageAccountId },
+    });
+    if (!garageRole) throw new NotFoundException("Role not found");
 
     const email = dto.email.toLowerCase().trim();
     const existing = await this.prisma.user.findUnique({ where: { email } });
@@ -47,11 +68,12 @@ export class UsersController {
       data: {
         email,
         displayName: dto.displayName,
-        role: dto.role,
+        role: UserRole.STAFF,
+        garageRoleId: dto.garageRoleId,
         garageAccountId: user.garageAccountId,
         passwordHash: await argon2.hash(dto.password),
       },
-      select: { id: true, email: true, displayName: true, role: true },
+      include: { garageRole: { select: { id: true, name: true } } },
     });
 
     await this.audit.log({
@@ -60,9 +82,16 @@ export class UsersController {
       garageAccountId: user.garageAccountId,
       entityType: "user",
       entityId: created.id,
-      metadata: { email, role: dto.role },
+      metadata: { email, garageRoleId: dto.garageRoleId, garageRoleName: garageRole.name },
     });
 
-    return created;
+    return {
+      id: created.id,
+      email: created.email,
+      displayName: created.displayName,
+      role: "STAFF",
+      garageRoleId: created.garageRoleId,
+      garageRoleName: created.garageRole?.name ?? null,
+    };
   }
 }

@@ -13,6 +13,8 @@ export type RequestUser = {
   displayName: string;
   role: UserRole;
   garageAccountId: string | null;
+  garageRoleId: string | null;
+  garageRoleName: string | null;
   permissions: Permission[];
   enabledModules: ModuleKey[];
 };

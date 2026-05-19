@@ -5,7 +5,7 @@ import { MODULE_KEYS, type AuthSessionDto, type ModuleKey, type UserRole } from 
 import { UserRole as PrismaUserRole } from "@prisma/client";
 import { AuditService } from "../audit/audit.service";
 import { PrismaService } from "../prisma/prisma.service";
-import { RolePermissionsService } from "../role-permissions/role-permissions.service";
+import { GarageRolesService } from "../garage-roles/garage-roles.service";
 import type { JwtPayload } from "./auth.types";
 
 @Injectable()
@@ -14,13 +14,13 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
     private readonly audit: AuditService,
-    private readonly rolePermissions: RolePermissionsService,
+    private readonly garageRoles: GarageRolesService,
   ) {}
 
   async login(email: string, password: string): Promise<AuthSessionDto> {
     const user = await this.prisma.user.findFirst({
       where: { email: email.toLowerCase().trim(), status: "ACTIVE", deletedAt: null },
-      include: { garageAccount: true },
+      include: { garageAccount: true, garageRole: true },
     });
     if (!user) throw new UnauthorizedException("Invalid email or password");
 
@@ -44,7 +44,7 @@ export class AuthService {
   async getSession(userId: string): Promise<AuthSessionDto> {
     const user = await this.prisma.user.findFirst({
       where: { id: userId, status: "ACTIVE", deletedAt: null },
-      include: { garageAccount: true },
+      include: { garageAccount: true, garageRole: true },
     });
     if (!user) throw new UnauthorizedException();
     return this.buildSession(user);
@@ -56,10 +56,16 @@ export class AuthService {
     displayName: string;
     role: PrismaUserRole;
     garageAccountId: string | null;
+    garageRoleId: string | null;
     garageAccount: { id: string; name: string; slug: string; status: string } | null;
+    garageRole: { id: string; name: string } | null;
   }): Promise<AuthSessionDto> {
     const isSuperAdmin = user.role === PrismaUserRole.SUPER_ADMIN;
     await this.prisma.setTenantContext(user.garageAccountId, isSuperAdmin);
+
+    if (user.garageAccountId && user.role === PrismaUserRole.STAFF) {
+      await this.garageRoles.seedDefaultRoles(user.garageAccountId);
+    }
 
     let enabledModules: ModuleKey[] = MODULE_KEYS as unknown as ModuleKey[];
     if (user.garageAccountId) {
@@ -69,15 +75,17 @@ export class AuthService {
       enabledModules = mods.map((m) => m.moduleKey as ModuleKey);
     }
 
-    const permissions = await this.rolePermissions.resolvePermissions(
+    const sessionRole = this.toSessionRole(user.role);
+    const permissions = await this.garageRoles.resolvePermissions(
       user.garageAccountId,
       user.role,
+      user.garageRoleId,
     );
 
     const payload: JwtPayload = {
       sub: user.id,
       email: user.email,
-      role: user.role as UserRole,
+      role: sessionRole,
       garageAccountId: user.garageAccountId,
     };
 
@@ -87,8 +95,10 @@ export class AuthService {
         id: user.id,
         email: user.email,
         displayName: user.displayName,
-        role: user.role as UserRole,
+        role: sessionRole,
         garageAccountId: user.garageAccountId,
+        garageRoleId: user.garageRoleId,
+        garageRoleName: user.garageRole?.name ?? null,
       },
       garage: user.garageAccount
         ? { id: user.garageAccount.id, name: user.garageAccount.name, slug: user.garageAccount.slug }
@@ -96,5 +106,11 @@ export class AuthService {
       enabledModules,
       permissions,
     };
+  }
+
+  private toSessionRole(role: PrismaUserRole): UserRole {
+    if (role === PrismaUserRole.SUPER_ADMIN) return "SUPER_ADMIN";
+    if (role === PrismaUserRole.OWNER) return "OWNER";
+    return "STAFF";
   }
 }

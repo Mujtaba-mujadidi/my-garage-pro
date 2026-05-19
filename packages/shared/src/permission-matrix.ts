@@ -1,17 +1,6 @@
-import type { UserRole } from "./roles";
 import type { Permission } from "./permissions";
 
-/** Roles the garage owner can configure (not Super Admin or Owner). */
-export const CONFIGURABLE_ROLES = [
-  "MANAGER",
-  "MECHANIC",
-  "ACCOUNTANT",
-  "READ_ONLY",
-] as const satisfies readonly UserRole[];
-
-export type ConfigurableRole = (typeof CONFIGURABLE_ROLES)[number];
-
-/** All permissions assignable per garage (excludes platform-only). */
+/** All permissions assignable per garage role (excludes platform-only). */
 export const GARAGE_PERMISSIONS = [
   "settings.read",
   "settings.write",
@@ -36,7 +25,7 @@ export type PermissionGroup = {
   write: GaragePermission | null;
 };
 
-/** UI groups for the owner permission matrix. */
+/** UI groups for the permission editor modal. */
 export const PERMISSION_GROUPS: PermissionGroup[] = [
   {
     id: "settings",
@@ -75,28 +64,59 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
   },
 ];
 
-/** Default grants when a garage is created or permissions are reset. */
-export const DEFAULT_ROLE_PERMISSIONS: Record<ConfigurableRole, GaragePermission[]> = {
-  MANAGER: [
-    "settings.read",
-    "settings.write",
-    "users.read",
-    "customers.read",
-    "customers.write",
-    "ledger.read",
-    "partners.read",
-  ],
-  MECHANIC: [],
-  ACCOUNTANT: ["settings.read", "customers.read", "ledger.read", "partners.read"],
-  READ_ONLY: ["settings.read", "customers.read", "ledger.read", "partners.read"],
+export type DefaultGarageRoleSlug = "manager" | "mechanic" | "staff";
+
+export type DefaultGarageRoleTemplate = {
+  slug: DefaultGarageRoleSlug;
+  name: string;
+  permissions: GaragePermission[];
 };
+
+/** Seeded when a garage is created. Owner can add more roles later. */
+export const DEFAULT_GARAGE_ROLES: DefaultGarageRoleTemplate[] = [
+  {
+    slug: "manager",
+    name: "Manager",
+    permissions: [
+      "settings.read",
+      "settings.write",
+      "users.read",
+      "customers.read",
+      "customers.write",
+      "ledger.read",
+      "partners.read",
+    ],
+  },
+  {
+    slug: "mechanic",
+    name: "Mechanic",
+    permissions: [],
+  },
+  {
+    slug: "staff",
+    name: "Staff",
+    permissions: ["settings.read", "customers.read", "ledger.read", "partners.read"],
+  },
+];
 
 export function allGaragePermissionsForOwner(): GaragePermission[] {
   return [...GARAGE_PERMISSIONS];
 }
 
-export type RolePermissionMatrixDto = {
-  roles: ConfigurableRole[];
+export type GarageRoleDto = {
+  id: string;
+  name: string;
+  slug: string;
+  isDefault: boolean;
+  userCount: number;
+  permissions: GaragePermission[];
+};
+
+export type GarageRoleDetailDto = GarageRoleDto & {
   groups: PermissionGroup[];
-  grants: Record<ConfigurableRole, GaragePermission[]>;
+};
+
+export type GarageRoleListDto = {
+  roles: GarageRoleDto[];
+  groups: PermissionGroup[];
 };

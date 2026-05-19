@@ -12,7 +12,7 @@ import {
 import { UserRole } from "@prisma/client";
 import { AuditService } from "../audit/audit.service";
 import { PrismaService } from "../prisma/prisma.service";
-import { RolePermissionsService } from "../role-permissions/role-permissions.service";
+import { GarageRolesService } from "../garage-roles/garage-roles.service";
 import type { RequestUser } from "../auth/auth.types";
 import { CreateGarageDto } from "./dto/create-garage.dto";
 import { CreateGarageUserDto } from "./dto/create-garage-user.dto";
@@ -23,7 +23,7 @@ export class PlatformService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
-    private readonly rolePermissions: RolePermissionsService,
+    private readonly garageRoles: GarageRolesService,
   ) {}
 
   async listGarages() {
@@ -61,7 +61,7 @@ export class PlatformService {
       });
     }
 
-    await this.rolePermissions.seedDefaults(garage.id);
+    await this.garageRoles.seedDefaultRoles(garage.id);
 
     await this.audit.log({
       action: "platform.garage.create",
