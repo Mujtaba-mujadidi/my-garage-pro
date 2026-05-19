@@ -51,7 +51,8 @@ model GarageAccount {
   modules   GarageAccountModule[]
   settings  SettingOption[]
   auditLogs AuditLog[]
-  customers Customer[]
+  customers       Customer[]
+  rolePermissions GarageRolePermission[]
 
   @@map("garage_account")
 }
@@ -188,4 +189,20 @@ model CustomerVehicle {
   @@index([customerId])
   @@index([registration])
   @@map("customer_vehicle")
+}
+
+model GarageRolePermission {
+  id              String   @id @default(uuid()) @db.Uuid
+  garageAccountId String   @map("garage_account_id") @db.Uuid
+  role            UserRole
+  permission      String
+  granted         Boolean  @default(true)
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  garageAccount GarageAccount @relation(fields: [garageAccountId], references: [id], onDelete: Cascade)
+
+  @@unique([garageAccountId, role, permission])
+  @@index([garageAccountId, role])
+  @@map("garage_role_permission")
 }

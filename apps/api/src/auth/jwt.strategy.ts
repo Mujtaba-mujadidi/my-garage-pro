@@ -2,16 +2,17 @@ import { Injectable, UnauthorizedException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { PassportStrategy } from "@nestjs/passport";
 import { ExtractJwt, Strategy } from "passport-jwt";
+import type { ModuleKey, UserRole } from "@mygaragepro/shared";
 import { PrismaService } from "../prisma/prisma.service";
+import { RolePermissionsService } from "../role-permissions/role-permissions.service";
 import type { JwtPayload, RequestUser } from "./auth.types";
-import { roleHasPermission, type Permission, type ModuleKey } from "@mygaragepro/shared";
-import type { UserRole } from "@mygaragepro/shared";
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(
     config: ConfigService,
     private readonly prisma: PrismaService,
+    private readonly rolePermissions: RolePermissionsService,
   ) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
@@ -37,22 +38,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       enabledModules = mods.map((m) => m.moduleKey as ModuleKey);
     }
 
-    const allPermissions: Permission[] = [
-      "platform.garage.manage",
-      "platform.audit.read",
-      "settings.read",
-      "settings.write",
-      "users.read",
-      "users.write",
-      "customers.read",
-      "customers.write",
-      "ledger.read",
-      "ledger.write",
-      "partners.read",
-      "partners.write",
-    ];
-    const permissions = allPermissions.filter((p) =>
-      roleHasPermission(user.role as UserRole, p),
+    const permissions = await this.rolePermissions.resolvePermissions(
+      user.garageAccountId,
+      user.role,
     );
 
     return {

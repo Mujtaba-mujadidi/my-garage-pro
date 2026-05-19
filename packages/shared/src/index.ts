@@ -12,5 +12,6 @@ export function getAppEnv(): AppEnv {
 export * from "./roles";
 export * from "./modules";
 export * from "./permissions";
+export * from "./permission-matrix";
 export * from "./auth-types";
 export * from "./customer-types";

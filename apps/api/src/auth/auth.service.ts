@@ -1,16 +1,11 @@
 import { Injectable, UnauthorizedException } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
 import * as argon2 from "argon2";
-import {
-  MODULE_KEYS,
-  roleHasPermission,
-  type AuthSessionDto,
-  type ModuleKey,
-  type Permission,
-} from "@mygaragepro/shared";
-import { UserRole } from "@prisma/client";
+import { MODULE_KEYS, type AuthSessionDto, type ModuleKey, type UserRole } from "@mygaragepro/shared";
+import { UserRole as PrismaUserRole } from "@prisma/client";
 import { AuditService } from "../audit/audit.service";
 import { PrismaService } from "../prisma/prisma.service";
+import { RolePermissionsService } from "../role-permissions/role-permissions.service";
 import type { JwtPayload } from "./auth.types";
 
 @Injectable()
@@ -19,6 +14,7 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
     private readonly audit: AuditService,
+    private readonly rolePermissions: RolePermissionsService,
   ) {}
 
   async login(email: string, password: string): Promise<AuthSessionDto> {
@@ -35,44 +31,6 @@ export class AuthService {
       throw new UnauthorizedException("Garage account is suspended");
     }
 
-    const isSuperAdmin = user.role === UserRole.SUPER_ADMIN;
-    await this.prisma.setTenantContext(user.garageAccountId, isSuperAdmin);
-
-    let enabledModules: ModuleKey[] = MODULE_KEYS as unknown as ModuleKey[];
-    if (user.garageAccountId) {
-      const mods = await this.prisma.garageAccountModule.findMany({
-        where: { garageAccountId: user.garageAccountId, enabled: true },
-      });
-      enabledModules = mods.map((m) => m.moduleKey as ModuleKey);
-    }
-
-    const allPermissions: Permission[] = [
-      "platform.garage.manage",
-      "platform.audit.read",
-      "settings.read",
-      "settings.write",
-      "users.read",
-      "users.write",
-      "customers.read",
-      "customers.write",
-      "ledger.read",
-      "ledger.write",
-      "partners.read",
-      "partners.write",
-    ];
-    const permissions = allPermissions.filter((p) =>
-      roleHasPermission(user.role as UserRole, p),
-    );
-
-    const payload: JwtPayload = {
-      sub: user.id,
-      email: user.email,
-      role: user.role as UserRole,
-      garageAccountId: user.garageAccountId,
-    };
-
-    const accessToken = await this.jwt.signAsync(payload);
-
     await this.audit.log({
       action: "auth.login",
       userId: user.id,
@@ -80,21 +38,7 @@ export class AuthService {
       metadata: { email: user.email },
     });
 
-    return {
-      accessToken,
-      user: {
-        id: user.id,
-        email: user.email,
-        displayName: user.displayName,
-        role: user.role as UserRole,
-        garageAccountId: user.garageAccountId,
-      },
-      garage: user.garageAccount
-        ? { id: user.garageAccount.id, name: user.garageAccount.name, slug: user.garageAccount.slug }
-        : null,
-      enabledModules,
-      permissions,
-    };
+    return this.buildSession(user);
   }
 
   async getSession(userId: string): Promise<AuthSessionDto> {
@@ -103,8 +47,18 @@ export class AuthService {
       include: { garageAccount: true },
     });
     if (!user) throw new UnauthorizedException();
+    return this.buildSession(user);
+  }
 
-    const isSuperAdmin = user.role === UserRole.SUPER_ADMIN;
+  private async buildSession(user: {
+    id: string;
+    email: string;
+    displayName: string;
+    role: PrismaUserRole;
+    garageAccountId: string | null;
+    garageAccount: { id: string; name: string; slug: string; status: string } | null;
+  }): Promise<AuthSessionDto> {
+    const isSuperAdmin = user.role === PrismaUserRole.SUPER_ADMIN;
     await this.prisma.setTenantContext(user.garageAccountId, isSuperAdmin);
 
     let enabledModules: ModuleKey[] = MODULE_KEYS as unknown as ModuleKey[];
@@ -115,22 +69,9 @@ export class AuthService {
       enabledModules = mods.map((m) => m.moduleKey as ModuleKey);
     }
 
-    const allPermissions: Permission[] = [
-      "platform.garage.manage",
-      "platform.audit.read",
-      "settings.read",
-      "settings.write",
-      "users.read",
-      "users.write",
-      "customers.read",
-      "customers.write",
-      "ledger.read",
-      "ledger.write",
-      "partners.read",
-      "partners.write",
-    ];
-    const permissions = allPermissions.filter((p) =>
-      roleHasPermission(user.role as UserRole, p),
+    const permissions = await this.rolePermissions.resolvePermissions(
+      user.garageAccountId,
+      user.role,
     );
 
     const payload: JwtPayload = {

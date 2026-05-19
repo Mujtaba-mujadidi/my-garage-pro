@@ -1,8 +1,12 @@
 import { PrismaClient, UserRole } from "@prisma/client";
 import * as argon2 from "argon2";
 import {
+  CONFIGURABLE_ROLES,
   DEFAULT_ENABLED_MODULES,
+  DEFAULT_ROLE_PERMISSIONS,
+  GARAGE_PERMISSIONS,
   MODULE_KEYS,
+  type ConfigurableRole,
   type ModuleKey,
 } from "@mygaragepro/shared";
 
@@ -39,6 +43,30 @@ async function seedGarageModules(garageAccountId: string, enabled: ModuleKey[]) 
       },
       update: { enabled: enabled.includes(moduleKey) },
     });
+  }
+}
+
+async function seedRolePermissions(garageAccountId: string) {
+  for (const role of CONFIGURABLE_ROLES) {
+    const defaults = DEFAULT_ROLE_PERMISSIONS[role as ConfigurableRole];
+    for (const permission of GARAGE_PERMISSIONS) {
+      await prisma.garageRolePermission.upsert({
+        where: {
+          garageAccountId_role_permission: {
+            garageAccountId,
+            role,
+            permission,
+          },
+        },
+        create: {
+          garageAccountId,
+          role,
+          permission,
+          granted: defaults.includes(permission),
+        },
+        update: {},
+      });
+    }
   }
 }
 
@@ -100,6 +128,13 @@ async function main() {
   });
 
   await seedGarageModules(demoGarage.id, DEFAULT_ENABLED_MODULES);
+
+  const existingRolePerms = await prisma.garageRolePermission.count({
+    where: { garageAccountId: demoGarage.id },
+  });
+  if (existingRolePerms === 0) {
+    await seedRolePermissions(demoGarage.id);
+  }
 
   const existingSettings = await prisma.settingOption.count({
     where: { garageAccountId: demoGarage.id, deletedAt: null },

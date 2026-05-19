@@ -7,6 +7,7 @@ export type Permission =
   | "settings.write"
   | "users.read"
   | "users.write"
+  | "permissions.manage"
   | "customers.read"
   | "customers.write"
   | "ledger.read"
@@ -14,34 +15,24 @@ export type Permission =
   | "partners.read"
   | "partners.write";
 
-const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
-  SUPER_ADMIN: ["platform.garage.manage", "platform.audit.read", "settings.read", "settings.write", "users.read", "users.write"],
-  OWNER: [
-    "settings.read",
-    "settings.write",
-    "users.read",
-    "users.write",
-    "customers.read",
-    "customers.write",
-    "ledger.read",
-    "ledger.write",
-    "partners.read",
-    "partners.write",
-  ],
-  MANAGER: [
-    "settings.read",
-    "settings.write",
-    "users.read",
-    "customers.read",
-    "customers.write",
-    "ledger.read",
-    "partners.read",
-  ],
-  MECHANIC: ["settings.read", "customers.read"],
-  ACCOUNTANT: ["settings.read", "customers.read", "ledger.read"],
-  READ_ONLY: ["settings.read", "customers.read", "ledger.read", "partners.read"],
-};
+/** Super Admin only — not stored per garage. */
+const SUPER_ADMIN_PERMISSIONS: Permission[] = [
+  "platform.garage.manage",
+  "platform.audit.read",
+  "settings.read",
+  "settings.write",
+  "users.read",
+  "users.write",
+];
 
+/** Fallback when DB has no rows yet (e.g. before migration). */
 export function roleHasPermission(role: UserRole, permission: Permission): boolean {
-  return ROLE_PERMISSIONS[role]?.includes(permission) ?? false;
+  if (role === "SUPER_ADMIN") {
+    return SUPER_ADMIN_PERMISSIONS.includes(permission);
+  }
+  return false;
+}
+
+export function superAdminPermissions(): Permission[] {
+  return [...SUPER_ADMIN_PERMISSIONS];
 }
