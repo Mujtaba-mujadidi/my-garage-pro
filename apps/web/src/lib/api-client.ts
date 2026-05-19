@@ -1,5 +1,5 @@
 import type { AuthSessionDto } from "@mygaragepro/shared";
-import { getAccessToken } from "./auth-session";
+import { getAccessToken, getSession } from "./auth-session";
 
 const API_BASE = "/api/backend";
 
@@ -12,8 +12,12 @@ export class ApiError extends Error {
   }
 }
 
+function resolveAccessToken(): string | null {
+  return getAccessToken() ?? getSession()?.accessToken ?? null;
+}
+
 export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const token = getAccessToken();
+  const token = resolveAccessToken();
   const headers = new Headers(init?.headers);
   headers.set("Content-Type", "application/json");
   if (token) headers.set("Authorization", `Bearer ${token}`);

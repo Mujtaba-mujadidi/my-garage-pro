@@ -26,11 +26,12 @@ const defaultCreate = {
 };
 
 export default function UsersPage() {
-  const { hasPermission } = useSession();
+  const { session, loading: sessionLoading, hasPermission } = useSession();
   const canWrite = hasPermission("users.write");
 
   const [users, setUsers] = useState<TeamUserDto[]>([]);
   const [roles, setRoles] = useState<RoleOption[]>([]);
+  const [loading, setLoading] = useState(true);
   const [create, setCreate] = useState(defaultCreate);
   const [showCreate, setShowCreate] = useState(false);
   const [message, setMessage] = useState("");
@@ -39,20 +40,34 @@ export default function UsersPage() {
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
-    const [userRows, roleList] = await Promise.all([
-      apiFetch<TeamUserDto[]>("/users"),
-      apiFetch<RoleOption[]>("/users/roles"),
-    ]);
-    setUsers(userRows);
-    setRoles(roleList);
-    const mechanic = roleList.find((r) => r.slug === "mechanic");
-    const defaultRoleId = mechanic?.id ?? roleList[0]?.id ?? "";
-    setCreate((c) => ({ ...c, garageRoleId: c.garageRoleId || defaultRoleId }));
-  }, []);
+    if (!session?.accessToken) return;
+    setLoading(true);
+    setError("");
+    try {
+      const [userRows, roleList] = await Promise.all([
+        apiFetch<TeamUserDto[]>("/users"),
+        apiFetch<RoleOption[]>("/users/roles"),
+      ]);
+      setUsers(userRows);
+      setRoles(roleList);
+      const mechanic = roleList.find((r) => r.slug === "mechanic");
+      const defaultRoleId = mechanic?.id ?? roleList[0]?.id ?? "";
+      setCreate((c) => ({ ...c, garageRoleId: c.garageRoleId || defaultRoleId }));
+    } catch (err) {
+      const msg =
+        err instanceof ApiError
+          ? `${err.message} (${err.status})`
+          : "Could not load users";
+      setError(msg);
+    } finally {
+      setLoading(false);
+    }
+  }, [session?.accessToken]);
 
   useEffect(() => {
-    void load().catch(() => setError("Could not load users"));
-  }, [load]);
+    if (sessionLoading || !session) return;
+    void load();
+  }, [load, session, sessionLoading]);
 
   function openCreate() {
     const mechanic = roles.find((r) => r.slug === "mechanic");
@@ -169,7 +184,11 @@ export default function UsersPage() {
         <p className="mb-4 text-sm text-red-600">{error}</p>
       )}
 
-      <TeamUsersTable users={users} canWrite={canWrite} onEdit={openEdit} />
+      {loading ? (
+        <p className="text-sm text-[var(--muted)]">Loading team…</p>
+      ) : (
+        <TeamUsersTable users={users} canWrite={canWrite} onEdit={openEdit} />
+      )}
 
       <Modal title="Add team member" open={showCreate} onClose={closeCreate}>
         <form onSubmit={onCreate} className="space-y-4">
