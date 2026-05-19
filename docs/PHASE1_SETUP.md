@@ -28,7 +28,7 @@ Click the **api** service → **Variables**. Add or reference:
 **Build command** (Settings → Build):
 
 ```bash
-pnpm install && pnpm --filter @mygaragepro/api exec prisma generate && pnpm --filter @mygaragepro/api build
+pnpm install && pnpm --filter @mygaragepro/shared build && pnpm --filter @mygaragepro/api exec prisma generate && pnpm --filter @mygaragepro/api build
 ```
 
 **Start command** (Settings → Deploy) — run migrations then start:
@@ -36,6 +36,8 @@ pnpm install && pnpm --filter @mygaragepro/api exec prisma generate && pnpm --fi
 ```bash
 pnpm --filter @mygaragepro/api exec prisma migrate deploy && pnpm --filter @mygaragepro/api start:prod
 ```
+
+(Build outputs to `dist/apps/api/src/main.js` in the monorepo; `start:prod` points at that path.)
 
 Optional one-time seed (Railway → api → **Deploy** → run as custom command or locally against staging DB):
 

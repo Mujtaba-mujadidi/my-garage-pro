@@ -5,7 +5,7 @@
   "description": "Modular garage / business management SaaS",
   "scripts": {
     "dev": "concurrently -n web,api -c blue,green \"pnpm --filter @mygaragepro/web dev\" \"pnpm --filter @mygaragepro/api dev\"",
-    "build": "pnpm -r build",
+    "build": "pnpm --filter @mygaragepro/shared build && pnpm --filter @mygaragepro/api build && pnpm --filter @mygaragepro/web build",
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck",
     "db:generate": "pnpm --filter @mygaragepro/api db:generate",
