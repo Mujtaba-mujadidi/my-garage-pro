@@ -19,7 +19,7 @@ export function Sidebar({ collapsed }: { collapsed: boolean }) {
 
   return (
     <aside
-      className="flex h-full shrink-0 flex-col bg-rail text-white transition-[width] duration-200"
+      className="flex min-h-0 shrink-0 flex-col self-stretch bg-rail text-white transition-[width] duration-200"
       style={{ width }}
     >
       <div
@@ -39,7 +39,7 @@ export function Sidebar({ collapsed }: { collapsed: boolean }) {
         )}
       </div>
 
-      <nav className="flex-1 space-y-0.5 overflow-y-auto p-2">
+      <nav className="min-h-0 flex-1 space-y-0.5 overflow-y-auto p-2">
         {NAV_ITEMS.map((item) => {
           const active = pathname === item.href && item.label === "Dashboard";
           return (
@@ -72,11 +72,13 @@ export function Sidebar({ collapsed }: { collapsed: boolean }) {
         )}
       </nav>
 
-      {!collapsed && (
-        <p className="border-t border-white/10 px-4 py-3 text-[10px] text-rail-foreground">
-          Phase 0 — UI shell
-        </p>
-      )}
+      <div className="mt-auto shrink-0">
+        {!collapsed && (
+          <p className="border-t border-white/10 px-4 py-3 text-[10px] text-rail-foreground">
+            Phase 0 — UI shell
+          </p>
+        )}
+      </div>
     </aside>
   );
 }
