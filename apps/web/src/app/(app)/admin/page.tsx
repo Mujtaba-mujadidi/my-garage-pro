@@ -2,12 +2,12 @@
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { GaragesTable } from "@/components/admin/garages-table";
+import { ModuleToggleList } from "@/components/admin/module-toggle-list";
 import { PermissionGate } from "@/components/layout/permission-gate";
 import { useSession } from "@/components/providers/session-provider";
 import { Modal } from "@/components/ui/modal";
 import { apiFetch, ApiError } from "@/lib/api-client";
 import type { AuditLogDto, GarageAccountDto, ModuleKey } from "@mygaragepro/shared";
-import { MODULE_KEYS, MODULE_LABELS } from "@mygaragepro/shared";
 
 export default function AdminPage() {
   const { session, loading: sessionLoading } = useSession();
@@ -88,10 +88,17 @@ export default function AdminPage() {
     }
   }
 
-  async function toggleModule(garageId: string, current: ModuleKey[], moduleKey: ModuleKey) {
-    const next = current.includes(moduleKey)
-      ? current.filter((m) => m !== moduleKey)
-      : [...current, moduleKey];
+  async function setModuleEnabled(
+    garageId: string,
+    current: ModuleKey[],
+    moduleKey: ModuleKey,
+    enabled: boolean,
+  ) {
+    const next = enabled
+      ? current.includes(moduleKey)
+        ? current
+        : [...current, moduleKey]
+      : current.filter((m) => m !== moduleKey);
     try {
       await apiFetch(`/platform/garages/${garageId}/modules`, {
         method: "PATCH",
@@ -249,28 +256,19 @@ export default function AdminPage() {
             </div>
 
             <div>
-              <p className="mb-2 text-[11px] font-semibold uppercase text-[var(--muted)]">
-                Modules
+              <p className="mb-2 text-sm font-semibold text-[var(--foreground)]">
+                Enabled modules
               </p>
-              <div className="flex flex-wrap gap-1">
-                {MODULE_KEYS.map((key) => {
-                  const on = editRow.enabledModules.includes(key);
-                  return (
-                    <button
-                      key={key}
-                      type="button"
-                      onClick={() =>
-                        void toggleModule(editRow.id, editRow.enabledModules, key)
-                      }
-                      className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
-                        on ? "bg-accent text-white" : "bg-[var(--background)] text-[var(--muted)]"
-                      }`}
-                    >
-                      {MODULE_LABELS[key]}
-                    </button>
-                  );
-                })}
-              </div>
+              <p className="mb-3 text-xs text-[var(--muted)]">
+                Turn modules on or off for this garage. Staff only see modules that are enabled
+                here and that their role can access.
+              </p>
+              <ModuleToggleList
+                enabledModules={editRow.enabledModules}
+                onToggle={(key, enabled) =>
+                  void setModuleEnabled(editRow.id, editRow.enabledModules, key, enabled)
+                }
+              />
             </div>
 
             {error && <p className="text-sm text-red-600">{error}</p>}

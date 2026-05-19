@@ -2,7 +2,8 @@
 
 import { SignOutButton } from "@/components/layout/sign-out-button";
 import { useSession } from "@/components/providers/session-provider";
-import { FOOTER_NAV, MAIN_NAV, type NavItem } from "@/lib/nav-items";
+import { canAccessNavItem } from "@/lib/nav-access";
+import { FOOTER_NAV, MAIN_NAV } from "@/lib/nav-items";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect } from "react";
@@ -15,34 +16,6 @@ type SidebarProps = {
   onCloseMobile: () => void;
   onToggleDesktop: () => void;
 };
-
-function isNavVisible(item: NavItem, role: string, permissions: string[]): boolean {
-  if (item.superAdminOnly) return role === "SUPER_ADMIN";
-  if (role === "SUPER_ADMIN") return item.href === "/dashboard";
-  if (item.permission) return permissions.includes(item.permission);
-  if (item.moduleKey === "customers") return permissions.includes("customers.read");
-  return true;
-}
-
-function isNavEnabled(
-  item: NavItem,
-  permissions: string[],
-  enabledModules: string[],
-): boolean {
-  if (item.href === "/dashboard") return true;
-  if (item.href === "/admin") return permissions.includes("platform.garage.manage");
-  if (item.href === "/settings") return permissions.includes("settings.read");
-  if (item.href === "/users") return permissions.includes("users.read");
-  if (item.href === "/customers") {
-    return enabledModules.includes("customers") && permissions.includes("customers.read");
-  }
-  if (item.permission) return permissions.includes(item.permission);
-  if (item.moduleKey === "customers") {
-    return enabledModules.includes("customers") && permissions.includes("customers.read");
-  }
-  if (item.moduleKey) return enabledModules.includes(item.moduleKey);
-  return true;
-}
 
 export function Sidebar({
   isDesktop,
@@ -64,8 +37,12 @@ export function Sidebar({
     if (!isDesktop) onCloseMobile();
   }, [pathname, isDesktop, onCloseMobile]);
 
-  const visibleMain = MAIN_NAV.filter((item) => isNavVisible(item, role, permissions));
-  const visibleFooter = FOOTER_NAV.filter((item) => isNavVisible(item, role, permissions));
+  const visibleMain = MAIN_NAV.filter((item) =>
+    canAccessNavItem(item, role, permissions, enabledModules),
+  );
+  const visibleFooter = FOOTER_NAV.filter((item) =>
+    canAccessNavItem(item, role, permissions, enabledModules),
+  );
 
   return (
     <aside
@@ -121,14 +98,12 @@ export function Sidebar({
       <nav className="min-h-0 flex-1 space-y-0.5 overflow-y-auto p-2">
         {visibleMain.map((item) => {
           const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
-          const enabled = isNavEnabled(item, permissions, enabledModules);
           return (
             <Link
               key={item.href + item.label}
-              href={enabled ? item.href : "#"}
-              onClick={(e) => {
-                if (!enabled) e.preventDefault();
-                else if (!isDesktop) onCloseMobile();
+              href={item.href}
+              onClick={() => {
+                if (!isDesktop) onCloseMobile();
               }}
               title={collapsed ? item.label : undefined}
               className={cn(
@@ -137,14 +112,10 @@ export function Sidebar({
                 active
                   ? "bg-accent text-white"
                   : "text-rail-foreground hover:bg-white/5 hover:text-white",
-                !enabled && "cursor-not-allowed opacity-40",
               )}
             >
               <span className="w-5 shrink-0 text-center text-xs">{item.icon}</span>
               {showLabels && <span className="min-w-0 flex-1 truncate">{item.label}</span>}
-              {showLabels && !enabled && item.phaseLabel && (
-                <span className="shrink-0 text-[10px] uppercase">{item.phaseLabel}</span>
-              )}
             </Link>
           );
         })}
@@ -153,14 +124,12 @@ export function Sidebar({
       <div className="mt-auto shrink-0 space-y-1 border-t border-white/10 p-2">
         {visibleFooter.map((item) => {
           const active = pathname === item.href;
-          const enabled = isNavEnabled(item, permissions, enabledModules);
           return (
             <Link
               key={item.href}
-              href={enabled ? item.href : "#"}
-              onClick={(e) => {
-                if (!enabled) e.preventDefault();
-                else if (!isDesktop) onCloseMobile();
+              href={item.href}
+              onClick={() => {
+                if (!isDesktop) onCloseMobile();
               }}
               className={cn(
                 "flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-[13px] font-medium transition-colors",
