@@ -101,16 +101,73 @@ Companion to [PROJECT_PLAN.md](PROJECT_PLAN.md). **Delivery model:** gated phase
 - [x] Dynamic settings CRUD + seed defaults
 - [x] Audit log; soft delete on settings
 - [x] Super Admin: create/suspend garage; enable modules (flags only)
-- [ ] **You:** Railway Postgres + env vars + migrate/seed (see `docs/PHASE1_SETUP.md`)
+- [x] Custom garage roles + permission modal (`/settings/permissions`)
+- [x] Team: create, edit (name, email, role, status, password)
+- [ ] **You:** Phase 1 UAT below on staging (see `docs/PHASE1_SETUP.md` for deploy)
 
-**Test script**
-1. Super Admin creates a second test garage (or uses demo).
-2. Owner edits settings (e.g. add expense category, VAT rate).
-3. Create manager + mechanic users; log in as each.
-4. Mechanic cannot open ledger or partner screens.
-5. Super Admin audit log shows settings change.
+**Staging URL:** https://mygarageweb-production.up.railway.app
 
-**Gate:** ✅ **Signed off:** 2026-05-19 (moving to Phase 2)
+**Demo accounts** (after seed):
+
+| Role | Email | Password |
+|------|--------|----------|
+| Super Admin | `admin@mygaragepro.app` | `ChangeMeAdmin1!` |
+| Owner | `owner@demo.garage` | `demo` |
+| Manager | `manager@demo.garage` | `demo` |
+| Mechanic | `mechanic@demo.garage` | `demo` |
+
+### Phase 1 UAT — run in order
+
+Tick each when **Pass** or note **Fail** + what you saw.
+
+**A — Deploy & health**
+
+- [ ] **A1** API health: open `https://YOUR-API-DOMAIN/health` → JSON with `"ok": true`
+- [ ] **A2** Web login page loads with no console errors (F12)
+
+**B — Super Admin**
+
+- [ ] **B1** Log in as Super Admin → **Super Admin** in nav
+- [ ] **B2** Garage list shows Demo Garage (or create a second garage: name + slug)
+- [ ] **B3** Toggle module pills on a garage → save → refresh → still correct
+- [ ] **B4** Audit log shows recent platform actions
+
+**C — Owner: settings**
+
+- [ ] **C1** Log out → log in as `owner@demo.garage` / `demo`
+- [ ] **C2** **Settings** → add an expense category → appears in list
+- [ ] **C3** VAT rates list visible (seeded)
+
+**D — Owner: roles & access**
+
+- [ ] **D1** **Settings** → **Manage roles** → see Manager, Mechanic, Staff (defaults)
+- [ ] **D2** **Edit access** on Mechanic → enable **Customers → View** only → Save
+- [ ] **D3** **Add role** e.g. `Workshop lead` with limited access → appears in list
+
+**E — Owner: team**
+
+- [ ] **E1** **Team** → list shows owner, manager, mechanic
+- [ ] **E2** **Add user** (test email) with role **Staff** → user appears
+- [ ] **E3** **Edit** mechanic → change display name → Save → list updates
+- [ ] **E4** **Edit** mechanic → change **Role** to Manager → Save
+- [ ] **E5** Sign out → log in as mechanic → sidebar matches new role (sign out/in after role change)
+- [ ] **E6** **Edit** test user → **Disabled** → they cannot log in
+- [ ] **E7** **Edit** owner → only name/email/password; cannot disable owner or change “role”
+
+**F — Staff access (permissions)**
+
+- [ ] **F1** Log in as **mechanic** (after D2: customers view only) → **Customers** visible if granted; **Finance** / **Partners** hidden or access denied
+- [ ] **F2** Log in as **manager@demo.garage** → broader access per Manager role defaults
+- [ ] **F3** Mechanic cannot open **Settings → Manage roles** (owner only)
+
+**G — Sign-off**
+
+- [ ] **G1** Super Admin audit log shows settings / users / role changes
+- [ ] **G2** No blocking bugs → Phase 1 gate **Pass**
+
+**Gate:** ⏳ **Signed off:** _date / name_
+
+---
 
 ---
 

@@ -1,5 +1,15 @@
-import { Body, Controller, Get, Post, UseGuards } from "@nestjs/common";
-import { UserRole } from "@prisma/client";
+import {
+  Body,
+  Controller,
+  ForbiddenException,
+  Get,
+  NotFoundException,
+  Param,
+  Patch,
+  Post,
+  UseGuards,
+} from "@nestjs/common";
+import { UserRole, UserStatus } from "@prisma/client";
 import * as argon2 from "argon2";
 import { RequirePermissions } from "../auth/decorators/permissions.decorator";
 import { CurrentUser } from "../auth/decorators/current-user.decorator";
@@ -8,8 +18,9 @@ import { PermissionsGuard } from "../auth/guards/permissions.guard";
 import type { RequestUser } from "../auth/auth.types";
 import { AuditService } from "../audit/audit.service";
 import { PrismaService } from "../prisma/prisma.service";
-import { ConflictException, ForbiddenException, NotFoundException } from "@nestjs/common";
+import { ConflictException } from "@nestjs/common";
 import { CreateTeamUserDto } from "./dto/create-team-user.dto";
+import { UpdateTeamUserDto } from "./dto/update-team-user.dto";
 
 @Controller("users")
 @UseGuards(JwtAuthGuard, PermissionsGuard)
@@ -39,15 +50,7 @@ export class UsersController {
       include: { garageRole: { select: { id: true, name: true } } },
       orderBy: { displayName: "asc" },
     });
-    return rows.map((u) => ({
-      id: u.id,
-      email: u.email,
-      displayName: u.displayName,
-      role: u.role === UserRole.OWNER ? "OWNER" : u.role === UserRole.SUPER_ADMIN ? "SUPER_ADMIN" : "STAFF",
-      status: u.status,
-      garageRoleId: u.garageRoleId,
-      garageRoleName: u.garageRole?.name ?? null,
-    }));
+    return rows.map((u) => this.toDto(u));
   }
 
   @Post()
@@ -85,13 +88,101 @@ export class UsersController {
       metadata: { email, garageRoleId: dto.garageRoleId, garageRoleName: garageRole.name },
     });
 
+    return this.toDto(created);
+  }
+
+  @Patch(":id")
+  @RequirePermissions("users.write")
+  async update(
+    @CurrentUser() actor: RequestUser,
+    @Param("id") id: string,
+    @Body() dto: UpdateTeamUserDto,
+  ) {
+    if (!actor.garageAccountId) throw new ForbiddenException();
+
+    const target = await this.prisma.user.findFirst({
+      where: { id, garageAccountId: actor.garageAccountId, deletedAt: null },
+      include: { garageRole: { select: { id: true, name: true } } },
+    });
+    if (!target) throw new NotFoundException("User not found");
+
+    if (target.role === UserRole.OWNER) {
+      if (dto.garageRoleId !== undefined || dto.status === UserStatus.DISABLED) {
+        throw new ForbiddenException("The garage owner account cannot be disabled or reassigned");
+      }
+    }
+
+    if (target.role === UserRole.SUPER_ADMIN) {
+      throw new ForbiddenException("Cannot edit platform admin accounts");
+    }
+
+    if (dto.garageRoleId !== undefined) {
+      if (target.role !== UserRole.STAFF) {
+        throw new ForbiddenException("Only staff accounts have a garage role");
+      }
+      const garageRole = await this.prisma.garageRole.findFirst({
+        where: { id: dto.garageRoleId, garageAccountId: actor.garageAccountId },
+      });
+      if (!garageRole) throw new NotFoundException("Role not found");
+    }
+
+    if (dto.email !== undefined) {
+      const email = dto.email.toLowerCase().trim();
+      const existing = await this.prisma.user.findFirst({
+        where: { email, NOT: { id: target.id } },
+      });
+      if (existing) throw new ConflictException("Email already registered");
+    }
+
+    const updated = await this.prisma.user.update({
+      where: { id: target.id },
+      data: {
+        ...(dto.displayName !== undefined ? { displayName: dto.displayName.trim() } : {}),
+        ...(dto.email !== undefined ? { email: dto.email.toLowerCase().trim() } : {}),
+        ...(dto.garageRoleId !== undefined ? { garageRoleId: dto.garageRoleId } : {}),
+        ...(dto.status !== undefined ? { status: dto.status } : {}),
+        ...(dto.password !== undefined ? { passwordHash: await argon2.hash(dto.password) } : {}),
+      },
+      include: { garageRole: { select: { id: true, name: true } } },
+    });
+
+    await this.audit.log({
+      action: "users.update",
+      userId: actor.id,
+      garageAccountId: actor.garageAccountId,
+      entityType: "user",
+      entityId: updated.id,
+      metadata: {
+        email: updated.email,
+        changes: { ...dto },
+      },
+    });
+
+    return this.toDto(updated);
+  }
+
+  private toDto(u: {
+    id: string;
+    email: string;
+    displayName: string;
+    role: UserRole;
+    status: UserStatus;
+    garageRoleId: string | null;
+    garageRole?: { id: string; name: string } | null;
+  }) {
     return {
-      id: created.id,
-      email: created.email,
-      displayName: created.displayName,
-      role: "STAFF",
-      garageRoleId: created.garageRoleId,
-      garageRoleName: created.garageRole?.name ?? null,
+      id: u.id,
+      email: u.email,
+      displayName: u.displayName,
+      role:
+        u.role === UserRole.OWNER
+          ? "OWNER"
+          : u.role === UserRole.SUPER_ADMIN
+            ? "SUPER_ADMIN"
+            : "STAFF",
+      status: u.status,
+      garageRoleId: u.garageRoleId,
+      garageRoleName: u.garageRole?.name ?? null,
     };
   }
 }
