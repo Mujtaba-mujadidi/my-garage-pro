@@ -76,8 +76,11 @@ DO $$ BEGIN
         CREATE UNIQUE INDEX IF NOT EXISTS "garage_role_permission_new_garage_role_id_permission_key"
             ON "garage_role_permission_new"("garage_role_id", "permission");
 
+        TRUNCATE TABLE "garage_role_permission_new";
+
+        -- ACCOUNTANT + READ_ONLY both map to slug "staff" — aggregate to avoid duplicate keys
         INSERT INTO "garage_role_permission_new" ("id", "garage_role_id", "permission", "granted", "created_at", "updated_at")
-        SELECT gen_random_uuid(), gr."id", grp."permission", grp."granted", NOW(), NOW()
+        SELECT gen_random_uuid(), gr."id", grp."permission", BOOL_OR(grp."granted"), NOW(), NOW()
         FROM "garage_role_permission" grp
         JOIN "garage_role" gr ON gr."garage_account_id" = grp."garage_account_id"
             AND gr."slug" = CASE grp."role"::text
@@ -86,7 +89,8 @@ DO $$ BEGIN
                 WHEN 'ACCOUNTANT' THEN 'staff'
                 WHEN 'READ_ONLY' THEN 'staff'
                 ELSE 'staff'
-            END;
+            END
+        GROUP BY gr."id", grp."permission";
 
         DROP TABLE "garage_role_permission";
         ALTER TABLE "garage_role_permission_new" RENAME TO "garage_role_permission";
