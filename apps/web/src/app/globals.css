@@ -43,8 +43,27 @@
   --delta-warn-bg: #422006;
 }
 
+html {
+  height: 100%;
+}
+
+html,
+body {
+  min-height: 100%;
+  min-height: 100dvh;
+}
+
 body {
   @apply bg-background text-foreground antialiased;
   background-color: var(--background);
   color: var(--foreground);
+}
+
+@layer utilities {
+  .scroll-pane {
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    -webkit-overflow-scrolling: touch;
+  }
 }

@@ -1,5 +1,6 @@
 "use client";
 
+import { setDemoSession } from "@/lib/demo-auth";
 import { APP_NAME } from "@mygaragepro/shared";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -17,6 +18,7 @@ export default function LoginPage() {
 
     // Phase 0: demo login only — real auth in Phase 1
     if (email === "owner@demo.garage" && password === "demo") {
+      setDemoSession();
       router.push("/dashboard");
       return;
     }
@@ -78,7 +80,11 @@ export default function LoginPage() {
           Phase 0 demo: <strong>owner@demo.garage</strong> / <strong>demo</strong>
         </p>
         <p className="mt-2 text-center text-xs">
-          <Link href="/dashboard" className="text-orange-500 hover:underline">
+          <Link
+            href="/dashboard"
+            className="text-orange-500 hover:underline"
+            onClick={() => setDemoSession()}
+          >
             Skip to dashboard
           </Link>
         </p>

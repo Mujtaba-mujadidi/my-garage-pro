@@ -1,7 +1,9 @@
 "use client";
 
+import { SignOutButton } from "@/components/layout/sign-out-button";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect } from "react";
 import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [
@@ -13,29 +15,79 @@ const NAV_ITEMS = [
   { href: "/dashboard", label: "Reports", icon: "📈", enabled: false },
 ] as const;
 
-export function Sidebar({ collapsed }: { collapsed: boolean }) {
+type SidebarProps = {
+  isDesktop: boolean;
+  mobileOpen: boolean;
+  desktopCollapsed: boolean;
+  onCloseMobile: () => void;
+  onToggleDesktop: () => void;
+};
+
+export function Sidebar({
+  isDesktop,
+  mobileOpen,
+  desktopCollapsed,
+  onCloseMobile,
+  onToggleDesktop,
+}: SidebarProps) {
   const pathname = usePathname();
-  const width = collapsed ? "68px" : "220px";
+  const collapsed = isDesktop && desktopCollapsed;
+  const showLabels = !collapsed;
+
+  useEffect(() => {
+    if (!isDesktop) onCloseMobile();
+  }, [pathname, isDesktop, onCloseMobile]);
 
   return (
     <aside
-      className="flex min-h-0 shrink-0 flex-col self-stretch bg-rail text-white transition-[width] duration-200"
-      style={{ width }}
+      className={cn(
+        "flex flex-col bg-rail text-white transition-[transform,width] duration-200 ease-out",
+        isDesktop
+          ? "relative z-auto min-h-0 shrink-0 self-stretch"
+          : "fixed inset-y-0 left-0 z-50 w-[min(280px,85vw)] shadow-2xl",
+        !isDesktop && (mobileOpen ? "translate-x-0" : "-translate-x-full pointer-events-none"),
+      )}
+      style={isDesktop ? { width: collapsed ? "68px" : "220px" } : undefined}
+      aria-hidden={!isDesktop && !mobileOpen}
     >
       <div
         className={cn(
-          "flex border-b border-white/10 pb-5 pt-4",
-          collapsed ? "justify-center px-2" : "gap-3 px-4",
+          "flex shrink-0 border-b border-white/10 pb-4 pt-4",
+          collapsed ? "flex-col items-center gap-2 px-2" : "flex-row items-center gap-2 px-3",
         )}
       >
         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-accent to-orange-400 text-[11px] font-bold">
           MGP
         </div>
-        {!collapsed && (
-          <div className="min-w-0">
+
+        {showLabels && (
+          <div className="min-w-0 flex-1">
             <p className="truncate text-[15px] font-bold">MyGaragePro</p>
             <p className="truncate text-[11px] text-rail-foreground">Demo Garage Ltd</p>
           </div>
+        )}
+
+        {!isDesktop && (
+          <button
+            type="button"
+            onClick={onCloseMobile}
+            className="ml-auto flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-rail-foreground hover:bg-white/10 hover:text-white"
+            aria-label="Close menu"
+          >
+            ✕
+          </button>
+        )}
+
+        {isDesktop && (
+          <button
+            type="button"
+            onClick={onToggleDesktop}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-rail-foreground hover:bg-white/10 hover:text-white"
+            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          >
+            {collapsed ? "»" : "«"}
+          </button>
         )}
       </div>
 
@@ -46,7 +98,10 @@ export function Sidebar({ collapsed }: { collapsed: boolean }) {
             <Link
               key={item.label}
               href={item.enabled ? item.href : "#"}
-              onClick={(e) => !item.enabled && e.preventDefault()}
+              onClick={(e) => {
+                if (!item.enabled) e.preventDefault();
+                else if (!isDesktop) onCloseMobile();
+              }}
               title={collapsed ? item.label : undefined}
               className={cn(
                 "flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-[13px] font-medium transition-colors",
@@ -58,25 +113,28 @@ export function Sidebar({ collapsed }: { collapsed: boolean }) {
               )}
             >
               <span className="w-5 shrink-0 text-center text-xs">{item.icon}</span>
-              {!collapsed && <span>{item.label}</span>}
-              {!collapsed && !item.enabled && (
+              {showLabels && <span>{item.label}</span>}
+              {showLabels && !item.enabled && (
                 <span className="ml-auto text-[10px] uppercase">Soon</span>
               )}
             </Link>
           );
         })}
-        {!collapsed && (
+        {showLabels && (
           <p className="px-3 pb-1 pt-4 text-[10px] font-medium uppercase tracking-wider text-slate-500">
             Settings
           </p>
         )}
       </nav>
 
-      <div className="mt-auto shrink-0">
-        {!collapsed && (
-          <p className="border-t border-white/10 px-4 py-3 text-[10px] text-rail-foreground">
-            Phase 0 — UI shell
-          </p>
+      <div className="mt-auto shrink-0 space-y-1 border-t border-white/10 p-2">
+        <SignOutButton
+          variant="sidebar"
+          sidebarCollapsed={collapsed}
+          className={cn(collapsed && "justify-center px-2")}
+        />
+        {showLabels && (
+          <p className="px-2 pb-1 text-[10px] text-rail-foreground">Phase 0 — UI shell</p>
         )}
       </div>
     </aside>

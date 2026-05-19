@@ -33,12 +33,13 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-5">
-        <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)] lg:col-span-3">
+        <div className="min-w-0 overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)] lg:col-span-3">
           <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3">
             <h2 className="text-sm font-semibold text-[var(--foreground)]">Open repair jobs</h2>
             <span className="text-xs font-semibold text-accent">See all</span>
           </div>
-          <table className="w-full text-sm text-[var(--foreground)]">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[32rem] text-sm text-[var(--foreground)]">
             <thead>
               <tr className="border-b border-[var(--border)] text-left text-[11px] uppercase text-[var(--muted)]">
                 <th className="px-4 py-2">Reg</th>
@@ -66,6 +67,7 @@ export default function DashboardPage() {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
 
         <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4 lg:col-span-2">
