@@ -1,19 +1,12 @@
 "use client";
 
 import { SignOutButton } from "@/components/layout/sign-out-button";
+import { useSession } from "@/components/providers/session-provider";
+import { FOOTER_NAV, MAIN_NAV, type NavItem } from "@/lib/nav-items";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect } from "react";
 import { cn } from "@/lib/utils";
-
-const NAV_ITEMS = [
-  { href: "/dashboard", label: "Dashboard", icon: "◉", enabled: true },
-  { href: "/dashboard", label: "Repair jobs", icon: "⚙", enabled: false },
-  { href: "/dashboard", label: "Used cars", icon: "🚗", enabled: false },
-  { href: "/dashboard", label: "Customers", icon: "👤", enabled: false },
-  { href: "/dashboard", label: "Invoices", icon: "📄", enabled: false },
-  { href: "/dashboard", label: "Reports", icon: "📈", enabled: false },
-] as const;
 
 type SidebarProps = {
   isDesktop: boolean;
@@ -23,6 +16,27 @@ type SidebarProps = {
   onToggleDesktop: () => void;
 };
 
+function isNavVisible(item: NavItem, role: string, permissions: string[]): boolean {
+  if (item.superAdminOnly) return role === "SUPER_ADMIN";
+  if (role === "SUPER_ADMIN") return item.href === "/dashboard";
+  if (item.permission) return permissions.includes(item.permission);
+  return true;
+}
+
+function isNavEnabled(
+  item: NavItem,
+  permissions: string[],
+  enabledModules: string[],
+): boolean {
+  if (item.href === "/dashboard") return true;
+  if (item.href === "/admin") return permissions.includes("platform.garage.manage");
+  if (item.href === "/settings") return permissions.includes("settings.read");
+  if (item.href === "/users") return permissions.includes("users.read");
+  if (item.permission) return permissions.includes(item.permission);
+  if (item.moduleKey) return enabledModules.includes(item.moduleKey);
+  return true;
+}
+
 export function Sidebar({
   isDesktop,
   mobileOpen,
@@ -31,12 +45,20 @@ export function Sidebar({
   onToggleDesktop,
 }: SidebarProps) {
   const pathname = usePathname();
+  const { session } = useSession();
   const collapsed = isDesktop && desktopCollapsed;
   const showLabels = !collapsed;
+
+  const role = session?.user.role ?? "";
+  const enabledModules = session?.enabledModules ?? [];
+  const permissions = session?.permissions ?? [];
 
   useEffect(() => {
     if (!isDesktop) onCloseMobile();
   }, [pathname, isDesktop, onCloseMobile]);
+
+  const visibleMain = MAIN_NAV.filter((item) => isNavVisible(item, role, permissions));
+  const visibleFooter = FOOTER_NAV.filter((item) => isNavVisible(item, role, permissions));
 
   return (
     <aside
@@ -59,14 +81,14 @@ export function Sidebar({
         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-accent to-orange-400 text-[11px] font-bold">
           MGP
         </div>
-
         {showLabels && (
           <div className="min-w-0 flex-1">
             <p className="truncate text-[15px] font-bold">MyGaragePro</p>
-            <p className="truncate text-[11px] text-rail-foreground">Demo Garage Ltd</p>
+            <p className="truncate text-[11px] text-rail-foreground">
+              {session?.garage?.name ?? "Platform"}
+            </p>
           </div>
         )}
-
         {!isDesktop && (
           <button
             type="button"
@@ -77,14 +99,12 @@ export function Sidebar({
             ✕
           </button>
         )}
-
         {isDesktop && (
           <button
             type="button"
             onClick={onToggleDesktop}
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-rail-foreground hover:bg-white/10 hover:text-white"
             aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           >
             {collapsed ? "»" : "«"}
           </button>
@@ -92,14 +112,15 @@ export function Sidebar({
       </div>
 
       <nav className="min-h-0 flex-1 space-y-0.5 overflow-y-auto p-2">
-        {NAV_ITEMS.map((item) => {
-          const active = pathname === item.href && item.label === "Dashboard";
+        {visibleMain.map((item) => {
+          const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+          const enabled = isNavEnabled(item, permissions, enabledModules);
           return (
             <Link
-              key={item.label}
-              href={item.enabled ? item.href : "#"}
+              key={item.href + item.label}
+              href={enabled ? item.href : "#"}
               onClick={(e) => {
-                if (!item.enabled) e.preventDefault();
+                if (!enabled) e.preventDefault();
                 else if (!isDesktop) onCloseMobile();
               }}
               title={collapsed ? item.label : undefined}
@@ -109,32 +130,45 @@ export function Sidebar({
                 active
                   ? "bg-accent text-white"
                   : "text-rail-foreground hover:bg-white/5 hover:text-white",
-                !item.enabled && "cursor-not-allowed opacity-40",
+                !enabled && "cursor-not-allowed opacity-40",
               )}
             >
               <span className="w-5 shrink-0 text-center text-xs">{item.icon}</span>
-              {showLabels && <span>{item.label}</span>}
-              {showLabels && !item.enabled && (
-                <span className="ml-auto text-[10px] uppercase">Soon</span>
+              {showLabels && <span className="min-w-0 flex-1 truncate">{item.label}</span>}
+              {showLabels && !enabled && item.phaseLabel && (
+                <span className="shrink-0 text-[10px] uppercase">{item.phaseLabel}</span>
               )}
             </Link>
           );
         })}
-        {showLabels && (
-          <p className="px-3 pb-1 pt-4 text-[10px] font-medium uppercase tracking-wider text-slate-500">
-            Settings
-          </p>
-        )}
       </nav>
 
       <div className="mt-auto shrink-0 space-y-1 border-t border-white/10 p-2">
-        <SignOutButton
-          variant="sidebar"
-          sidebarCollapsed={collapsed}
-          className={cn(collapsed && "justify-center px-2")}
-        />
+        {visibleFooter.map((item) => {
+          const active = pathname === item.href;
+          const enabled = isNavEnabled(item, permissions, enabledModules);
+          return (
+            <Link
+              key={item.href}
+              href={enabled ? item.href : "#"}
+              onClick={(e) => {
+                if (!enabled) e.preventDefault();
+                else if (!isDesktop) onCloseMobile();
+              }}
+              className={cn(
+                "flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-[13px] font-medium transition-colors",
+                collapsed && "justify-center px-2",
+                active ? "bg-white/10 text-white" : "text-rail-foreground hover:bg-white/5",
+              )}
+            >
+              <span className="w-5 shrink-0 text-center text-xs">{item.icon}</span>
+              {showLabels && <span>{item.label}</span>}
+            </Link>
+          );
+        })}
+        <SignOutButton variant="sidebar" sidebarCollapsed={collapsed} />
         {showLabels && (
-          <p className="px-2 pb-1 text-[10px] text-rail-foreground">Phase 0 — UI shell</p>
+          <p className="px-2 pb-1 text-[10px] text-rail-foreground">Phase 1 — Auth & settings</p>
         )}
       </div>
     </aside>

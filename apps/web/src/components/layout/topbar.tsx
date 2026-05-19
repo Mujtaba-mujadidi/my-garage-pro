@@ -1,6 +1,7 @@
 "use client";
 
 import { SignOutButton } from "@/components/layout/sign-out-button";
+import { useSession } from "@/components/providers/session-provider";
 import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
 
@@ -10,8 +11,15 @@ type TopbarProps = {
 };
 
 export function Topbar({ showMenuButton, onOpenMobileMenu }: TopbarProps) {
+  const { session } = useSession();
   const { theme, setTheme, resolvedTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
+  const initials = session?.user.displayName
+    ?.split(" ")
+    .map((p) => p[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase() ?? "?";
 
   useEffect(() => setMounted(true), []);
 
@@ -59,9 +67,11 @@ export function Topbar({ showMenuButton, onOpenMobileMenu }: TopbarProps) {
           </button>
           <div className="flex min-w-0 items-center gap-2 text-sm font-medium text-[var(--foreground)]">
             <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--chart-a)] text-xs font-semibold text-white">
-              JO
+              {initials}
             </span>
-            <span className="hidden max-w-[7rem] truncate sm:inline md:max-w-none">James Owner</span>
+            <span className="hidden max-w-[7rem] truncate sm:inline md:max-w-none">
+              {session?.user.displayName ?? "User"}
+            </span>
           </div>
           <SignOutButton />
         </div>

@@ -1,28 +1,30 @@
 "use client";
 
-import { hasDemoSession } from "@/lib/demo-auth";
-import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useSession } from "@/components/providers/session-provider";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect } from "react";
 
 export function AuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const [ready, setReady] = useState(false);
+  const pathname = usePathname();
+  const { session, loading } = useSession();
 
   useEffect(() => {
-    if (!hasDemoSession()) {
-      router.replace("/login");
-      return;
+    if (loading) return;
+    if (!session) {
+      router.replace(`/login?next=${encodeURIComponent(pathname)}`);
     }
-    setReady(true);
-  }, [router]);
+  }, [loading, session, router, pathname]);
 
-  if (!ready) {
+  if (loading) {
     return (
       <div className="flex h-dvh items-center justify-center bg-[var(--background)] text-sm text-[var(--muted)]">
         Loading…
       </div>
     );
   }
+
+  if (!session) return null;
 
   return <>{children}</>;
 }

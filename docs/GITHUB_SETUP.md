@@ -14,6 +14,57 @@ Use this guide after you create your **private GitHub repository**.
 
 ---
 
+## Troubleshooting: repo not listed on Railway
+
+Your repo must exist on GitHub **and** the **Railway GitHub App** must be allowed to see it (especially for **private** repos).
+
+**This project’s repo:** `Mujtaba-mujadidi/my-garage-pro` (private)
+
+### Fix (do in order)
+
+1. **Confirm the repo on GitHub**  
+   Open: https://github.com/Mujtaba-mujadidi/my-garage-pro  
+   You should see the code (not 404).
+
+2. **Grant Railway access to the repo**
+   - GitHub → click your **profile photo** → **Settings**
+   - Left sidebar: **Applications** → **Installed GitHub Apps**
+   - Click **Railway** (or **Configure** next to it)
+   - Under **Repository access**, choose either:
+     - **All repositories** (easiest), or
+     - **Only select repositories** → add **`my-garage-pro`**
+   - Save
+
+   **If Railway is not in the list:** install it from Railway first:
+   - Railway → New Project → GitHub Repositories → **Configure GitHub App** / **Authorize**
+   - Complete GitHub login and approve access
+
+3. **Same GitHub account everywhere**  
+   Railway must be logged into the same GitHub user that owns `Mujtaba-mujadidi/my-garage-pro`.  
+   Railway → Account Settings → disconnect/reconnect GitHub if you use multiple accounts.
+
+4. **Refresh Railway**
+   - Back to Railway → New Project → GitHub Repositories
+   - Search: `my-garage-pro` or `garage`
+   - If still missing: log out of Railway, log in again, retry
+
+5. **Organization repo?**  
+   If the repo were under a **GitHub Organization**, an org owner must approve Railway for that org. Your repo is under your **personal account**, so step 2 is enough.
+
+### Still not listed?
+
+Use **Empty Project** → **+ New** → **GitHub Repo** → **Configure GitHub App** again, or deploy once via CLI:
+
+```bash
+npm i -g @railway/cli
+railway login
+cd apps/web
+railway init
+railway up
+```
+
+---
+
 ## 1. Create the GitHub repository
 
 1. GitHub → **New repository**
@@ -34,7 +85,7 @@ git add .
 git commit -m "chore: Phase 0 monorepo scaffold (web shell, api health, CI)"
 
 git branch -M main
-git remote add origin git@github.com:YOUR_USERNAME/MyGaragePro.git
+git remote add origin https://github.com/Mujtaba-mujadidi/my-garage-pro.git
 git push -u origin main
 ```
 
@@ -72,35 +123,123 @@ feature/phase-1-auth   ← PR → CI must pass → merge
 - Auto-deploy on push to `main`
 - Free trial / low cost for early development
 
-### Steps
+### You connected the repo — deploy next (step by step)
 
-1. [railway.app](https://railway.app) → New Project → **Deploy from GitHub repo**
-2. Select your private repo
-3. Create **two services** from the same repo:
+Railway created **one service** from your repo. This project is a **pnpm monorepo**, so both services must build from the **repository root** (`/`), not from `apps/web` alone.
 
-**Service A — API**
+Repo: `Mujtaba-mujadidi/my-garage-pro` · branch: `main`
 
-- Root directory: `apps/api`
-- Build: `pnpm install && pnpm build` (or Nixpacks auto-detect)
-- Start: `pnpm start:prod`
-- Variables:
-  - `PORT` = (Railway provides)
-  - `NODE_ENV` = `staging`
-  - `WEB_ORIGIN` = `https://YOUR-WEB-URL.up.railway.app`
-  - `DATABASE_URL` = (from Railway Postgres plugin)
+---
 
-**Service B — Web (Next.js)**
+#### Railway UI map (2025 — no “Source” tab)
 
-- Root directory: `apps/web`
-- Build: `pnpm install && pnpm build`
-- Start: `pnpm start`
-- Variables:
-  - `NEXT_PUBLIC_APP_ENV` = `staging`
-  - `API_URL` = `https://YOUR-API-URL.up.railway.app`
+1. Open your **project** (canvas with boxes).
+2. **Click the service box** (e.g. `my-garage-pro`) — not the project name at the top.
+3. Use the tabs at the top of that panel: **Deployments · Variables · Metrics · Settings**.
+4. Everything is under **Settings** — scroll down. Look for these **sections** (names may vary slightly):
+   - **Service Source** — Connect Repo / branch (only if the service is empty)
+   - **Root Directory**
+   - **Build** — custom build command
+   - **Deploy** — custom start command
+   - **Networking** — public domain (sometimes also a **Networking** tab)
+5. After changing settings, Railway may show **Staged changes** on the canvas → click **Deploy** / **Apply** on that banner.
 
-4. Add **PostgreSQL** plugin to the project; link `DATABASE_URL` to API.
-5. Generate public domains for web + api services.
-6. Put the **web URL** in `PROGRESS.md` as **Staging URL**.
+When you add a 2nd service via **+ New → GitHub Repo**, the repo is linked **at creation** — you will **not** see a separate Source step; go straight to **Settings** → Build / Deploy.
+
+---
+
+#### Step 1 — Configure the **Web** service (use your existing service)
+
+1. Click the **first service** on the canvas (rename to **web** via right‑click → Update Info, optional).
+2. Open **Settings** → scroll to **Service Source** (optional check): repo `my-garage-pro`, branch **`main`**.  
+   If you already deployed from GitHub, this is already set — skip if you don’t see it.
+3. In **Settings**, find **Build** and **Deploy** (or **Custom Build Command** / **Start Command**):
+   - **Root Directory:** leave **empty** or `/` (repo root — **not** `apps/web`)
+   - **Custom Build Command:**
+     ```bash
+     pnpm install && pnpm --filter @mygaragepro/web build
+     ```
+   - **Custom Start Command:**
+     ```bash
+     pnpm --filter @mygaragepro/web start
+     ```
+4. **Variables** tab → add:
+   | Name | Value |
+   |------|--------|
+   | `NEXT_PUBLIC_APP_ENV` | `staging` |
+   | `NODE_ENV` | `production` |
+   | `API_URL` | _(add after Step 3 — API public URL)_ |
+5. **Settings** → **Networking** (or **Networking** tab) → enable **Public Networking** → **Generate Domain** → copy the URL.
+6. If a **Staged changes** banner appeared on the canvas → click **Deploy** / **Apply**.
+7. **Deployments** tab → wait for **Success**; if failed, open logs and **Redeploy**.
+
+**Test:** open the web domain → you should see the **login** page.
+
+---
+
+#### Step 2 — Add the **API** service (second service, same repo)
+
+1. On the **project canvas** (not inside a service): click **+ New** (top right) or press `Cmd+K` / `Ctrl+K` → choose **GitHub Repo**.
+2. Select **`my-garage-pro`** → Railway creates a **second** service (repo is connected automatically — no Source menu).
+3. Click the **new service** box → rename to **api** (right‑click → Update Info).
+4. **Settings** → scroll to **Build** / **Deploy** (same as web — repo root):
+   - **Root Directory:** empty / `/`
+   - **Build Command:**
+     ```bash
+     pnpm install && pnpm --filter @mygaragepro/api build
+     ```
+   - **Start Command:**
+     ```bash
+     pnpm --filter @mygaragepro/api start:prod
+     ```
+5. **Variables:**
+   | Name | Value |
+   |------|--------|
+   | `NODE_ENV` | `staging` |
+   | `WEB_ORIGIN` | your **web** domain from Step 1 |
+6. **Networking** → **Generate Domain**.
+7. **Test:** open `https://YOUR-API-DOMAIN/health` → JSON `{ "ok": true, ... }`.
+
+---
+
+#### Step 3 — Link web → API
+
+1. On the **web** service → **Variables** → set:
+   - `API_URL` = `https://YOUR-API-DOMAIN` (no trailing slash)
+2. **Redeploy** the web service (Deployments → Redeploy).
+
+On the live site, dashboard footer link `/api/backend/health` should proxy to the API.
+
+---
+
+#### Step 4 — Postgres (required for Phase 1)
+
+- **+ New** → **Database** → **PostgreSQL**
+- On **api** service → **Variables** → add `DATABASE_URL`, `JWT_SECRET`, etc.
+
+**Full Phase 1 checklist:** see **[docs/PHASE1_SETUP.md](PHASE1_SETUP.md)** (migrate, seed, test accounts).
+
+---
+
+#### Step 5 — Team testing
+
+1. Put the **web domain** in [PROGRESS.md](PROGRESS.md) → **Staging URL**.
+2. Share that URL with your team (no GitHub access needed).
+3. Login: `owner@demo.garage` / `demo`
+4. Run the Phase 0 test script in PROGRESS.md → sign off the gate.
+
+---
+
+#### Auto-deploy
+
+Every **push to `main`** on GitHub redeploys staging (if Settings → Source → **Wait for CI** is off, deploy starts immediately).
+
+### Quick reference (both services)
+
+| Service | Root dir | Build | Start |
+|---------|----------|-------|-------|
+| **web** | `/` (repo root) | `pnpm install && pnpm --filter @mygaragepro/web build` | `pnpm --filter @mygaragepro/web start` |
+| **api** | `/` (repo root) | `pnpm install && pnpm --filter @mygaragepro/api build` | `pnpm --filter @mygaragepro/api start:prod` |
 
 ### Alternative: Render
 

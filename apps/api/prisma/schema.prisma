@@ -1,0 +1,114 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum GarageAccountStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  OWNER
+  MANAGER
+  MECHANIC
+  ACCOUNTANT
+  READ_ONLY
+}
+
+enum UserStatus {
+  ACTIVE
+  DISABLED
+}
+
+model GarageAccount {
+  id        String              @id @default(uuid()) @db.Uuid
+  name      String
+  slug      String              @unique
+  status    GarageAccountStatus @default(ACTIVE)
+  createdAt DateTime            @default(now()) @map("created_at")
+  updatedAt DateTime            @updatedAt @map("updated_at")
+  deletedAt DateTime?           @map("deleted_at")
+  deletedBy String?             @map("deleted_by") @db.Uuid
+
+  users    User[]
+  modules  GarageAccountModule[]
+  settings SettingOption[]
+  auditLogs AuditLog[]
+
+  @@map("garage_account")
+}
+
+model GarageAccountModule {
+  id              String   @id @default(uuid()) @db.Uuid
+  garageAccountId String   @map("garage_account_id") @db.Uuid
+  moduleKey       String   @map("module_key")
+  enabled         Boolean  @default(false)
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  garageAccount GarageAccount @relation(fields: [garageAccountId], references: [id], onDelete: Cascade)
+
+  @@unique([garageAccountId, moduleKey])
+  @@map("garage_account_module")
+}
+
+model User {
+  id              String     @id @default(uuid()) @db.Uuid
+  garageAccountId String?    @map("garage_account_id") @db.Uuid
+  email           String     @unique
+  passwordHash    String     @map("password_hash")
+  displayName     String     @map("display_name")
+  role            UserRole
+  status          UserStatus @default(ACTIVE)
+  themePreference String?    @map("theme_preference")
+  createdAt       DateTime   @default(now()) @map("created_at")
+  updatedAt       DateTime   @updatedAt @map("updated_at")
+  deletedAt       DateTime?  @map("deleted_at")
+  deletedBy       String?    @map("deleted_by") @db.Uuid
+
+  garageAccount GarageAccount? @relation(fields: [garageAccountId], references: [id], onDelete: Cascade)
+  auditLogs     AuditLog[]
+
+  @@map("users")
+}
+
+model SettingOption {
+  id              String    @id @default(uuid()) @db.Uuid
+  garageAccountId String    @map("garage_account_id") @db.Uuid
+  optionType      String    @map("option_type")
+  label           String
+  value           String
+  sortOrder       Int       @default(0) @map("sort_order")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  deletedAt       DateTime? @map("deleted_at")
+  deletedBy       String?   @map("deleted_by") @db.Uuid
+
+  garageAccount GarageAccount @relation(fields: [garageAccountId], references: [id], onDelete: Cascade)
+
+  @@index([garageAccountId, optionType])
+  @@map("setting_option")
+}
+
+model AuditLog {
+  id              String   @id @default(uuid()) @db.Uuid
+  garageAccountId String?  @map("garage_account_id") @db.Uuid
+  userId          String?  @map("user_id") @db.Uuid
+  action          String
+  entityType      String?  @map("entity_type")
+  entityId        String?  @map("entity_id")
+  metadata        Json?
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  garageAccount GarageAccount? @relation(fields: [garageAccountId], references: [id], onDelete: SetNull)
+  user          User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([garageAccountId, createdAt])
+  @@map("audit_log")
+}

@@ -2,10 +2,10 @@
 
 Companion to [PROJECT_PLAN.md](PROJECT_PLAN.md). **Delivery model:** gated phases — build → deploy staging → **you test → sign off** → next module (see PROJECT_PLAN §25).
 
-**Last updated:** 2026-05-08 (gated module-by-module delivery)
-**Current phase:** Phase 0 — ready for GitHub push + staging deploy
-**Current gate:** ⏳ Awaiting staging URL + your Phase 0 sign-off
-**Staging URL:** _TBD — set after Railway/Render connect (see docs/GITHUB_SETUP.md)_
+**Last updated:** 2026-05-19
+**Current phase:** Phase 1 — Auth, settings, Super Admin (code ready — configure Railway Postgres)
+**Current gate:** ⏳ Phase 1 staging deploy + your UAT
+**Staging URL:** https://mygarageweb-production.up.railway.app
 
 ---
 
@@ -34,8 +34,8 @@ Companion to [PROJECT_PLAN.md](PROJECT_PLAN.md). **Delivery model:** gated phase
 
 | Phase | Module | Build | Deployed | Gate | Signed off |
 |-------|--------|-------|----------|------|------------|
-| 0 | Staging + UI shell | `[ ]` | `[ ]` | ⏳ | |
-| 1 | Auth, settings, Super Admin | `[ ]` | `[ ]` | ⏳ | |
+| 0 | Staging + UI shell | `[x]` | `[x]` | ✅ | 2026-05-19 |
+| 1 | Auth, settings, Super Admin | `[x]` | `[ ]` | ⏳ | |
 | 2 | Customers | `[ ]` | `[ ]` | ⏳ | |
 | 3 | Suppliers | `[ ]` | `[ ]` | ⏳ | |
 | 4 | Ledger + banks/cash | `[ ]` | `[ ]` | ⏳ | |
@@ -58,9 +58,9 @@ Companion to [PROJECT_PLAN.md](PROJECT_PLAN.md). **Delivery model:** gated phase
 - [ ] Stakeholder sign-off on `PROJECT_PLAN.md` v1.0 + gated delivery (§25)
 - [ ] Answer §27 open questions (currency, VAT, labour rates, staging host, etc.)
 - [ ] Confirm tech stack (NestJS + Postgres + Next.js + Redis + S3/R2)
-- [ ] **Staging host** chosen (Railway / Render / Fly)
-- [ ] **GitHub** private repo + collaborators
-- [ ] Staging domain / URL agreed
+- [x] **Staging host** chosen (Railway)
+- [x] **GitHub** private repo + push (`my-garage-pro`)
+- [x] Staging domain / URL agreed
 - [x] UI design direction + collapsible sidebar + dark mode spec
 - [ ] Copy `rms designs.pdf` → `docs/design/refs/` (optional)
 - [ ] Founding-garage data export for Phase 15 import
@@ -72,12 +72,13 @@ Companion to [PROJECT_PLAN.md](PROJECT_PLAN.md). **Delivery model:** gated phase
 **Build checklist**
 - [x] Monorepo: `apps/api/`, `apps/web/`, `packages/shared/`, `docker-compose.yml`
 - [x] GitHub Actions CI (`.github/workflows/ci.yml`)
-- [ ] **You:** Create private GitHub repo + push (see `docs/GITHUB_SETUP.md`)
-- [ ] **You:** Connect Railway/Render → staging URL
-- [ ] Staging Postgres (with Railway plugin — Phase 1 uses DB; Phase 0 API health only)
+- [x] **You:** Create private GitHub repo + push (see `docs/GITHUB_SETUP.md`)
+- [x] **You:** Connect Railway → staging URL
+- [ ] Staging Postgres (Phase 1 — required for auth/tenancy)
 - [x] Login page (demo: `owner@demo.garage` / `demo`)
-- [x] AppShell (navy rail, orange pill, ☰ collapse, light/dark)
+- [x] AppShell (navy rail, orange pill, collapse, light/dark, mobile drawer)
 - [x] Dashboard layout (KPI placeholders + demo table/chart)
+- [x] Mobile scroll, responsive top bar, Phase 0 sign out
 
 **Test script (you run on staging)**
 1. Open staging URL — page loads over HTTPS.
@@ -89,17 +90,18 @@ Companion to [PROJECT_PLAN.md](PROJECT_PLAN.md). **Delivery model:** gated phase
 
 **Gate criteria:** UI matches approved preview (§28); deploy is automatic; no console errors on login.
 
-**Gate:** ⏳ **Signed off:** _date / name_
+**Gate:** ✅ **Signed off:** 2026-05-19 (stakeholder UAT — Pass)
 
 ---
 
 ## Phase 1 — Auth, settings, Super Admin
 
 **Build checklist**
-- [ ] Tenancy + RLS; users, roles, permissions
-- [ ] Dynamic settings CRUD + seed defaults
-- [ ] Audit log; soft delete
-- [ ] Super Admin: create/suspend garage; enable modules (flags only)
+- [x] Tenancy + Postgres schema; users, roles, permissions (app-layer + tenant context)
+- [x] Dynamic settings CRUD + seed defaults
+- [x] Audit log; soft delete on settings
+- [x] Super Admin: create/suspend garage; enable modules (flags only)
+- [ ] **You:** Railway Postgres + env vars + migrate/seed (see `docs/PHASE1_SETUP.md`)
 
 **Test script**
 1. Super Admin creates a second test garage (or uses demo).
@@ -298,6 +300,7 @@ Companion to [PROJECT_PLAN.md](PROJECT_PLAN.md). **Delivery model:** gated phase
 | 2026-05-08 | UI: Option 8 pattern, MyGaragePro content | RMS reference | Stakeholder |
 | 2026-05-08 | Collapsible sidebar + dark mode WCAG | Preview feedback | Stakeholder |
 | 2026-05-08 | **Gated delivery: test & sign off each module before next** | Owner wants phase-by-phase UAT | Stakeholder |
+| 2026-05-19 | **Phase 0 gate ✅** | Staging UAT Pass — UI shell, mobile, sign out | Stakeholder |
 
 ---
 
@@ -314,3 +317,4 @@ Companion to [PROJECT_PLAN.md](PROJECT_PLAN.md). **Delivery model:** gated phase
 | Date | Change |
 |------|--------|
 | 2026-05-08 | Replaced parallel 12-week plan with **15 gated phases** (§25); PROGRESS rewritten with per-phase test scripts |
+| 2026-05-19 | Phase 0 signed off; staging URL set; Phase 1 next |

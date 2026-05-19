@@ -1,6 +1,6 @@
 "use client";
 
-import { clearDemoSession } from "@/lib/demo-auth";
+import { useSession } from "@/components/providers/session-provider";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 
@@ -16,9 +16,10 @@ export function SignOutButton({
   className,
 }: SignOutButtonProps) {
   const router = useRouter();
+  const { signOut } = useSession();
 
   function handleSignOut() {
-    clearDemoSession();
+    signOut();
     router.replace("/login");
   }
 
