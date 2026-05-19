@@ -2,6 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { GaragesTable } from "@/components/admin/garages-table";
+import { ModuleSaveConfirmBody } from "@/components/admin/module-save-confirm-body";
 import { ModuleToggleList } from "@/components/admin/module-toggle-list";
 import { PermissionGate } from "@/components/layout/permission-gate";
 import { useSession } from "@/components/providers/session-provider";
@@ -9,7 +10,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Modal } from "@/components/ui/modal";
 import { apiFetch, ApiError } from "@/lib/api-client";
 import { modulesEqual, toggleModuleList } from "@/lib/module-utils";
-import { MODULE_LABELS, type AuditLogDto, type GarageAccountDto, type ModuleKey } from "@mygaragepro/shared";
+import type { AuditLogDto, GarageAccountDto, ModuleKey } from "@mygaragepro/shared";
 
 export default function AdminPage() {
   const { session, loading: sessionLoading } = useSession();
@@ -23,6 +24,7 @@ export default function AdminPage() {
   const [editGarage, setEditGarage] = useState<GarageAccountDto | null>(null);
   const [draftModules, setDraftModules] = useState<ModuleKey[]>([]);
   const [showSaveConfirm, setShowSaveConfirm] = useState(false);
+  const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -73,7 +75,16 @@ export default function AdminPage() {
     setEditGarage(null);
     setDraftModules([]);
     setShowSaveConfirm(false);
+    setShowDiscardConfirm(false);
     setError("");
+  }
+
+  function requestCloseEdit() {
+    if (modulesDirty) {
+      setShowDiscardConfirm(true);
+      return;
+    }
+    closeEdit();
   }
 
   async function createGarage(e: FormEvent) {
@@ -139,8 +150,6 @@ export default function AdminPage() {
 
   const modulesDirty =
     editRow !== null && !modulesEqual(draftModules, editRow.enabledModules);
-
-  const enabledCount = draftModules.length;
 
   return (
     <PermissionGate permission="platform.garage.manage">
@@ -239,7 +248,7 @@ export default function AdminPage() {
       <Modal
         title={editRow ? `Edit: ${editRow.name}` : "Edit garage"}
         open={editRow !== null}
-        onClose={closeEdit}
+        onClose={requestCloseEdit}
         size="lg"
       >
         {editRow && (
@@ -273,8 +282,9 @@ export default function AdminPage() {
                 Enabled modules
               </p>
               <p className="mb-3 text-xs text-[var(--muted)]">
-                Turn modules on or off for this garage. Staff only see modules that are enabled
-                here and that their role can access.
+                Turn modules on or off, then click <strong className="text-[var(--foreground)]">Save</strong>{" "}
+                to apply. Staff only see modules that are enabled here and that their role can
+                access.
               </p>
               <ModuleToggleList
                 enabledModules={draftModules}
@@ -293,7 +303,7 @@ export default function AdminPage() {
             <div className="flex flex-wrap justify-end gap-2 pt-2">
               <button
                 type="button"
-                onClick={closeEdit}
+                onClick={requestCloseEdit}
                 disabled={saving}
                 className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm disabled:opacity-50"
               >
@@ -315,25 +325,14 @@ export default function AdminPage() {
       <ConfirmDialog
         open={showSaveConfirm && editRow !== null}
         title="Save module changes?"
+        icon="💾"
         description={
           editRow && (
-            <>
-              <p>
-                Update enabled modules for <strong>{editRow.name}</strong>?
-              </p>
-              <p className="mt-2">
-                <span className="font-medium text-[var(--foreground)]">{enabledCount}</span>{" "}
-                module{enabledCount === 1 ? "" : "s"} will be enabled for this garage.
-              </p>
-              {enabledCount > 0 && (
-                <p className="mt-2 text-xs">
-                  {draftModules.map((k) => MODULE_LABELS[k]).join(" · ")}
-                </p>
-              )}
-              <p className="mt-3 text-xs">
-                Staff may need to sign out and back in for sidebar changes to apply.
-              </p>
-            </>
+            <ModuleSaveConfirmBody
+              garageName={editRow.name}
+              before={editRow.enabledModules}
+              after={draftModules}
+            />
           )
         }
         confirmLabel="Save changes"
@@ -341,6 +340,18 @@ export default function AdminPage() {
         loading={saving}
         onConfirm={() => void saveModules()}
         onCancel={() => setShowSaveConfirm(false)}
+      />
+
+      <ConfirmDialog
+        open={showDiscardConfirm}
+        title="Discard unsaved changes?"
+        variant="danger"
+        icon="⚠"
+        description="Your module toggles have not been saved. If you leave now, those changes will be lost."
+        confirmLabel="Discard changes"
+        cancelLabel="Keep editing"
+        onConfirm={closeEdit}
+        onCancel={() => setShowDiscardConfirm(false)}
       />
     </PermissionGate>
   );

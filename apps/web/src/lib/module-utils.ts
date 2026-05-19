@@ -16,3 +16,14 @@ export function toggleModuleList(
   }
   return current.filter((m) => m !== moduleKey);
 }
+
+export function diffModules(
+  before: ModuleKey[],
+  after: ModuleKey[],
+): { added: ModuleKey[]; removed: ModuleKey[] } {
+  const beforeSet = new Set(before);
+  const afterSet = new Set(after);
+  const added = after.filter((m) => !beforeSet.has(m));
+  const removed = before.filter((m) => !afterSet.has(m));
+  return { added, removed };
+}

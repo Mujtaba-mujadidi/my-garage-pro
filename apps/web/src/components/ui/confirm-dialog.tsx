@@ -12,6 +12,7 @@ type ConfirmDialogProps = {
   onCancel: () => void;
   loading?: boolean;
   variant?: "default" | "danger";
+  icon?: ReactNode;
 };
 
 export function ConfirmDialog({
@@ -24,6 +25,7 @@ export function ConfirmDialog({
   onCancel,
   loading = false,
   variant = "default",
+  icon,
 }: ConfirmDialogProps) {
   if (!open) return null;
 
@@ -34,7 +36,7 @@ export function ConfirmDialog({
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/55 p-4"
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/55 p-4 backdrop-blur-[2px]"
       role="alertdialog"
       aria-modal="true"
       aria-labelledby="confirm-dialog-title"
@@ -43,9 +45,12 @@ export function ConfirmDialog({
         if (e.target === e.currentTarget && !loading) onCancel();
       }}
     >
-      <div className="w-full max-w-md rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-2xl">
-        <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-full bg-accent/15 text-lg text-accent">
-          ✓
+      <div
+        className="w-full max-w-md rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-full bg-accent/15 text-xl text-accent">
+          {icon ?? (variant === "danger" ? "!" : "✓")}
         </div>
         <h2
           id="confirm-dialog-title"
@@ -64,7 +69,7 @@ export function ConfirmDialog({
             type="button"
             onClick={onCancel}
             disabled={loading}
-            className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm font-medium disabled:opacity-50"
+            className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm font-medium hover:bg-[var(--background)] disabled:opacity-50"
           >
             {cancelLabel}
           </button>
