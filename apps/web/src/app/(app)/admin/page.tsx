@@ -5,9 +5,11 @@ import { GaragesTable } from "@/components/admin/garages-table";
 import { ModuleToggleList } from "@/components/admin/module-toggle-list";
 import { PermissionGate } from "@/components/layout/permission-gate";
 import { useSession } from "@/components/providers/session-provider";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Modal } from "@/components/ui/modal";
 import { apiFetch, ApiError } from "@/lib/api-client";
-import type { AuditLogDto, GarageAccountDto, ModuleKey } from "@mygaragepro/shared";
+import { modulesEqual, toggleModuleList } from "@/lib/module-utils";
+import { MODULE_LABELS, type AuditLogDto, type GarageAccountDto, type ModuleKey } from "@mygaragepro/shared";
 
 export default function AdminPage() {
   const { session, loading: sessionLoading } = useSession();
@@ -19,6 +21,8 @@ export default function AdminPage() {
   const [slug, setSlug] = useState("");
   const [showCreate, setShowCreate] = useState(false);
   const [editGarage, setEditGarage] = useState<GarageAccountDto | null>(null);
+  const [draftModules, setDraftModules] = useState<ModuleKey[]>([]);
+  const [showSaveConfirm, setShowSaveConfirm] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -60,11 +64,15 @@ export default function AdminPage() {
 
   function openEdit(garage: GarageAccountDto) {
     setEditGarage(garage);
+    setDraftModules([...garage.enabledModules]);
+    setShowSaveConfirm(false);
     setError("");
   }
 
   function closeEdit() {
     setEditGarage(null);
+    setDraftModules([]);
+    setShowSaveConfirm(false);
     setError("");
   }
 
@@ -88,28 +96,28 @@ export default function AdminPage() {
     }
   }
 
-  async function setModuleEnabled(
-    garageId: string,
-    current: ModuleKey[],
-    moduleKey: ModuleKey,
-    enabled: boolean,
-  ) {
-    const next = enabled
-      ? current.includes(moduleKey)
-        ? current
-        : [...current, moduleKey]
-      : current.filter((m) => m !== moduleKey);
+  function handleDraftToggle(moduleKey: ModuleKey, enabled: boolean) {
+    setDraftModules((current) => toggleModuleList(current, moduleKey, enabled));
+    setError("");
+  }
+
+  async function saveModules() {
+    if (!editGarage) return;
+    setSaving(true);
+    setError("");
     try {
-      await apiFetch(`/platform/garages/${garageId}/modules`, {
+      await apiFetch(`/platform/garages/${editGarage.id}/modules`, {
         method: "PATCH",
-        body: JSON.stringify({ enabledModules: next }),
+        body: JSON.stringify({ enabledModules: draftModules }),
       });
+      setMessage(`Modules saved for ${editGarage.name}.`);
+      setShowSaveConfirm(false);
+      closeEdit();
       await load();
-      setEditGarage((prev) =>
-        prev && prev.id === garageId ? { ...prev, enabledModules: next } : prev,
-      );
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Module update failed");
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -128,6 +136,11 @@ export default function AdminPage() {
   const editRow = editGarage
     ? garages.find((g) => g.id === editGarage.id) ?? editGarage
     : null;
+
+  const modulesDirty =
+    editRow !== null && !modulesEqual(draftModules, editRow.enabledModules);
+
+  const enabledCount = draftModules.length;
 
   return (
     <PermissionGate permission="platform.garage.manage">
@@ -264,27 +277,71 @@ export default function AdminPage() {
                 here and that their role can access.
               </p>
               <ModuleToggleList
-                enabledModules={editRow.enabledModules}
-                onToggle={(key, enabled) =>
-                  void setModuleEnabled(editRow.id, editRow.enabledModules, key, enabled)
-                }
+                enabledModules={draftModules}
+                onToggle={handleDraftToggle}
+                disabled={saving}
               />
+              {modulesDirty && (
+                <p className="mt-2 text-xs text-amber-700 dark:text-amber-400">
+                  You have unsaved module changes.
+                </p>
+              )}
             </div>
 
             {error && <p className="text-sm text-red-600">{error}</p>}
 
-            <div className="flex justify-end pt-2">
+            <div className="flex flex-wrap justify-end gap-2 pt-2">
               <button
                 type="button"
                 onClick={closeEdit}
-                className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm"
+                disabled={saving}
+                className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm disabled:opacity-50"
               >
-                Done
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowSaveConfirm(true)}
+                disabled={saving || !modulesDirty}
+                className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+              >
+                Save
               </button>
             </div>
           </div>
         )}
       </Modal>
+
+      <ConfirmDialog
+        open={showSaveConfirm && editRow !== null}
+        title="Save module changes?"
+        description={
+          editRow && (
+            <>
+              <p>
+                Update enabled modules for <strong>{editRow.name}</strong>?
+              </p>
+              <p className="mt-2">
+                <span className="font-medium text-[var(--foreground)]">{enabledCount}</span>{" "}
+                module{enabledCount === 1 ? "" : "s"} will be enabled for this garage.
+              </p>
+              {enabledCount > 0 && (
+                <p className="mt-2 text-xs">
+                  {draftModules.map((k) => MODULE_LABELS[k]).join(" · ")}
+                </p>
+              )}
+              <p className="mt-3 text-xs">
+                Staff may need to sign out and back in for sidebar changes to apply.
+              </p>
+            </>
+          )
+        }
+        confirmLabel="Save changes"
+        cancelLabel="Keep editing"
+        loading={saving}
+        onConfirm={() => void saveModules()}
+        onCancel={() => setShowSaveConfirm(false)}
+      />
     </PermissionGate>
   );
 }
