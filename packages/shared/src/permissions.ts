@@ -7,6 +7,8 @@ export type Permission =
   | "settings.write"
   | "users.read"
   | "users.write"
+  | "customers.read"
+  | "customers.write"
   | "ledger.read"
   | "ledger.write"
   | "partners.read"
@@ -19,15 +21,25 @@ const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     "settings.write",
     "users.read",
     "users.write",
+    "customers.read",
+    "customers.write",
     "ledger.read",
     "ledger.write",
     "partners.read",
     "partners.write",
   ],
-  MANAGER: ["settings.read", "settings.write", "users.read", "ledger.read", "partners.read"],
-  MECHANIC: ["settings.read"],
-  ACCOUNTANT: ["settings.read", "ledger.read"],
-  READ_ONLY: ["settings.read", "ledger.read", "partners.read"],
+  MANAGER: [
+    "settings.read",
+    "settings.write",
+    "users.read",
+    "customers.read",
+    "customers.write",
+    "ledger.read",
+    "partners.read",
+  ],
+  MECHANIC: ["settings.read", "customers.read"],
+  ACCOUNTANT: ["settings.read", "customers.read", "ledger.read"],
+  READ_ONLY: ["settings.read", "customers.read", "ledger.read", "partners.read"],
 };
 
 export function roleHasPermission(role: UserRole, permission: Permission): boolean {

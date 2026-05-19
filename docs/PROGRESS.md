@@ -3,8 +3,8 @@
 Companion to [PROJECT_PLAN.md](PROJECT_PLAN.md). **Delivery model:** gated phases — build → deploy staging → **you test → sign off** → next module (see PROJECT_PLAN §25).
 
 **Last updated:** 2026-05-19
-**Current phase:** Phase 1 — Auth, settings, Super Admin (code ready — configure Railway Postgres)
-**Current gate:** ⏳ Phase 1 staging deploy + your UAT
+**Current phase:** Phase 2 — Customers (build ready — deploy + UAT)
+**Current gate:** ⏳ Phase 2 staging deploy + your UAT
 **Staging URL:** https://mygarageweb-production.up.railway.app
 
 ---
@@ -35,8 +35,8 @@ Companion to [PROJECT_PLAN.md](PROJECT_PLAN.md). **Delivery model:** gated phase
 | Phase | Module | Build | Deployed | Gate | Signed off |
 |-------|--------|-------|----------|------|------------|
 | 0 | Staging + UI shell | `[x]` | `[x]` | ✅ | 2026-05-19 |
-| 1 | Auth, settings, Super Admin | `[x]` | `[ ]` | ⏳ | |
-| 2 | Customers | `[ ]` | `[ ]` | ⏳ | |
+| 1 | Auth, settings, Super Admin | `[x]` | `[x]` | ✅ | 2026-05-19 |
+| 2 | Customers | `[x]` | `[ ]` | ⏳ | |
 | 3 | Suppliers | `[ ]` | `[ ]` | ⏳ | |
 | 4 | Ledger + banks/cash | `[ ]` | `[ ]` | ⏳ | |
 | 5 | Invoices + payments | `[ ]` | `[ ]` | ⏳ | |
@@ -110,11 +110,18 @@ Companion to [PROJECT_PLAN.md](PROJECT_PLAN.md). **Delivery model:** gated phase
 4. Mechanic cannot open ledger or partner screens.
 5. Super Admin audit log shows settings change.
 
-**Gate:** ⏳ **Signed off:** _
+**Gate:** ✅ **Signed off:** 2026-05-19 (moving to Phase 2)
 
 ---
 
 ## Phase 2 — Customers
+
+**Build checklist**
+- [x] Prisma: `customer`, `customer_vehicle`, `customer_account_terms`
+- [x] API: CRUD, search by name/reg, soft-delete, restore (owner/manager)
+- [x] Web: list, new, detail, vehicles on customer
+- [x] RBAC: `customers.read` / `customers.write`; mechanic read-only
+- [ ] **You:** Push, migrate on Railway, redeploy api + web
 
 **Test script**
 1. Add individual customer + vehicle reg.

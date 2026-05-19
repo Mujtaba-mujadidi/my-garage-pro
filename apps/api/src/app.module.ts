@@ -9,6 +9,7 @@ import { PlatformModule } from "./platform/platform.module";
 import { PrismaModule } from "./prisma/prisma.module";
 import { SettingsModule } from "./settings/settings.module";
 import { UsersModule } from "./users/users.module";
+import { CustomersModule } from "./customers/customers.module";
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { UsersModule } from "./users/users.module";
     SettingsModule,
     PlatformModule,
     UsersModule,
+    CustomersModule,
   ],
   controllers: [HealthController],
   providers: [

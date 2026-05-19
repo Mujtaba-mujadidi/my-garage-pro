@@ -26,6 +26,17 @@ enum UserStatus {
   DISABLED
 }
 
+enum CustomerType {
+  INDIVIDUAL
+  BUSINESS
+}
+
+enum BillingCycle {
+  PER_JOB
+  WEEKLY
+  MONTHLY
+}
+
 model GarageAccount {
   id        String              @id @default(uuid()) @db.Uuid
   name      String
@@ -36,10 +47,11 @@ model GarageAccount {
   deletedAt DateTime?           @map("deleted_at")
   deletedBy String?             @map("deleted_by") @db.Uuid
 
-  users    User[]
-  modules  GarageAccountModule[]
-  settings SettingOption[]
+  users     User[]
+  modules   GarageAccountModule[]
+  settings  SettingOption[]
   auditLogs AuditLog[]
+  customers Customer[]
 
   @@map("garage_account")
 }
@@ -111,4 +123,69 @@ model AuditLog {
 
   @@index([garageAccountId, createdAt])
   @@map("audit_log")
+}
+
+model Customer {
+  id                String       @id @default(uuid()) @db.Uuid
+  garageAccountId   String       @map("garage_account_id") @db.Uuid
+  type              CustomerType
+  firstName         String?      @map("first_name")
+  lastName          String?      @map("last_name")
+  companyName       String?      @map("company_name")
+  email             String?
+  phone             String?
+  addressLine1      String?      @map("address_line1")
+  addressLine2      String?      @map("address_line2")
+  city              String?
+  postcode          String?
+  notes             String?
+  isAccountCustomer Boolean      @default(false) @map("is_account_customer")
+  createdAt         DateTime     @default(now()) @map("created_at")
+  updatedAt         DateTime     @updatedAt @map("updated_at")
+  deletedAt         DateTime?    @map("deleted_at")
+  deletedBy         String?      @map("deleted_by") @db.Uuid
+
+  garageAccount GarageAccount          @relation(fields: [garageAccountId], references: [id], onDelete: Cascade)
+  accountTerms  CustomerAccountTerms?
+  vehicles      CustomerVehicle[]
+
+  @@index([garageAccountId, type])
+  @@index([garageAccountId, deletedAt])
+  @@map("customer")
+}
+
+model CustomerAccountTerms {
+  id               String        @id @default(uuid()) @db.Uuid
+  customerId       String        @unique @map("customer_id") @db.Uuid
+  paymentTermsDays Int           @default(30) @map("payment_terms_days")
+  creditLimit      Decimal?      @map("credit_limit") @db.Decimal(12, 2)
+  billingCycle     BillingCycle  @default(PER_JOB) @map("billing_cycle")
+  statementDay     Int?          @map("statement_day")
+  createdAt        DateTime      @default(now()) @map("created_at")
+  updatedAt        DateTime      @updatedAt @map("updated_at")
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@map("customer_account_terms")
+}
+
+model CustomerVehicle {
+  id           String    @id @default(uuid()) @db.Uuid
+  customerId   String    @map("customer_id") @db.Uuid
+  registration String
+  make         String?
+  model        String?
+  colour       String?
+  year         Int?
+  notes        String?
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  deletedAt    DateTime? @map("deleted_at")
+  deletedBy    String?   @map("deleted_by") @db.Uuid
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+  @@index([registration])
+  @@map("customer_vehicle")
 }

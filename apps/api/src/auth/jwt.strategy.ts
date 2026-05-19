@@ -44,6 +44,8 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       "settings.write",
       "users.read",
       "users.write",
+      "customers.read",
+      "customers.write",
       "ledger.read",
       "ledger.write",
       "partners.read",

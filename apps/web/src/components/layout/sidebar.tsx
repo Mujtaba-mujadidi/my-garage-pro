@@ -20,6 +20,7 @@ function isNavVisible(item: NavItem, role: string, permissions: string[]): boole
   if (item.superAdminOnly) return role === "SUPER_ADMIN";
   if (role === "SUPER_ADMIN") return item.href === "/dashboard";
   if (item.permission) return permissions.includes(item.permission);
+  if (item.moduleKey === "customers") return permissions.includes("customers.read");
   return true;
 }
 
@@ -32,7 +33,13 @@ function isNavEnabled(
   if (item.href === "/admin") return permissions.includes("platform.garage.manage");
   if (item.href === "/settings") return permissions.includes("settings.read");
   if (item.href === "/users") return permissions.includes("users.read");
+  if (item.href === "/customers") {
+    return enabledModules.includes("customers") && permissions.includes("customers.read");
+  }
   if (item.permission) return permissions.includes(item.permission);
+  if (item.moduleKey === "customers") {
+    return enabledModules.includes("customers") && permissions.includes("customers.read");
+  }
   if (item.moduleKey) return enabledModules.includes(item.moduleKey);
   return true;
 }

@@ -13,3 +13,4 @@ export * from "./roles";
 export * from "./modules";
 export * from "./permissions";
 export * from "./auth-types";
+export * from "./customer-types";
