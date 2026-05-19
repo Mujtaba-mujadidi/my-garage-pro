@@ -1,6 +1,5 @@
 -- Step 2: garage roles tables + data migration (runs after STAFF enum is committed).
-
-CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+-- No CREATE EXTENSION — gen_random_uuid() is built into PostgreSQL 13+ (Railway).
 
 CREATE TABLE IF NOT EXISTS "garage_role" (
     "id" UUID NOT NULL,
@@ -47,13 +46,24 @@ WHERE NOT EXISTS (
     SELECT 1 FROM "garage_role" r WHERE r."garage_account_id" = g.id AND r."slug" = 'staff'
 );
 
--- Replace legacy enum-keyed permission table (skip if already migrated)
+-- Migrate legacy garage_role_permission (garage_account_id + role enum) → garage_role_id
 DO $$ BEGIN
+    -- Finish a previous failed attempt that left *_new behind
+    IF EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = 'garage_role_permission_new'
+    ) THEN
+        DROP TABLE IF EXISTS "garage_role_permission";
+        ALTER TABLE "garage_role_permission_new" RENAME TO "garage_role_permission";
+    END IF;
+
     IF EXISTS (
         SELECT 1 FROM information_schema.columns
-        WHERE table_name = 'garage_role_permission' AND column_name = 'garage_account_id'
+        WHERE table_schema = 'public'
+          AND table_name = 'garage_role_permission'
+          AND column_name = 'garage_account_id'
     ) THEN
-        CREATE TABLE "garage_role_permission_new" (
+        CREATE TABLE IF NOT EXISTS "garage_role_permission_new" (
             "id" UUID NOT NULL,
             "garage_role_id" UUID NOT NULL,
             "permission" TEXT NOT NULL,
@@ -63,7 +73,7 @@ DO $$ BEGIN
             CONSTRAINT "garage_role_permission_new_pkey" PRIMARY KEY ("id")
         );
 
-        CREATE UNIQUE INDEX "garage_role_permission_new_garage_role_id_permission_key"
+        CREATE UNIQUE INDEX IF NOT EXISTS "garage_role_permission_new_garage_role_id_permission_key"
             ON "garage_role_permission_new"("garage_role_id", "permission");
 
         INSERT INTO "garage_role_permission_new" ("id", "garage_role_id", "permission", "granted", "created_at", "updated_at")
@@ -80,7 +90,29 @@ DO $$ BEGIN
 
         DROP TABLE "garage_role_permission";
         ALTER TABLE "garage_role_permission_new" RENAME TO "garage_role_permission";
+    END IF;
 
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = 'garage_role_permission'
+    ) THEN
+        CREATE TABLE "garage_role_permission" (
+            "id" UUID NOT NULL,
+            "garage_role_id" UUID NOT NULL,
+            "permission" TEXT NOT NULL,
+            "granted" BOOLEAN NOT NULL DEFAULT true,
+            "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            "updated_at" TIMESTAMP(3) NOT NULL,
+            CONSTRAINT "garage_role_permission_pkey" PRIMARY KEY ("id")
+        );
+        CREATE UNIQUE INDEX "garage_role_permission_garage_role_id_permission_key"
+            ON "garage_role_permission"("garage_role_id", "permission");
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints
+        WHERE constraint_name = 'garage_role_permission_garage_role_id_fkey'
+    ) THEN
         ALTER TABLE "garage_role_permission" ADD CONSTRAINT "garage_role_permission_garage_role_id_fkey"
             FOREIGN KEY ("garage_role_id") REFERENCES "garage_role"("id") ON DELETE CASCADE ON UPDATE CASCADE;
     END IF;

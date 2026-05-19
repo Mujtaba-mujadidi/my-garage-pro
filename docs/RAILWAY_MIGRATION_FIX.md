@@ -7,6 +7,13 @@ The `20260519210000_custom_garage_roles` migration ... failed
 Error: P3009
 ```
 
+Or:
+
+```text
+Following migration have failed:
+20260519220000_custom_garage_roles_tables
+```
+
 ## Cause
 
 PostgreSQL cannot use a new enum value (`STAFF`) in the **same transaction** as `ALTER TYPE ... ADD VALUE`. The migration is now split into two steps in the repo.
@@ -15,11 +22,19 @@ PostgreSQL cannot use a new enum value (`STAFF`) in the **same transaction** as 
 
 ### 1. Mark the failed migration as rolled back
 
-**Railway → API service → Shell** (or locally with `DATABASE_URL` from Postgres):
+Use the **exact name** from `prisma migrate status` (failed migration line).
+
+**Locally** (with `DATABASE_URL` = Postgres `DATABASE_PUBLIC_URL` from Railway):
 
 ```bash
 cd apps/api
+export DATABASE_URL="your-railway-postgres-url"
+
+# If the first step failed:
 pnpm exec prisma migrate resolve --rolled-back 20260519210000_custom_garage_roles
+
+# If the second step failed (most common now):
+pnpm exec prisma migrate resolve --rolled-back 20260519220000_custom_garage_roles_tables
 ```
 
 ### 2. Push the fixed migrations and redeploy
