@@ -53,10 +53,24 @@ pnpm --filter @mygaragepro/api db:seed
 
 ## 3. Railway: configure the **web** service
 
+**Settings → Build** (repo root, not `apps/web`):
+
+```bash
+pnpm install && pnpm --filter @mygaragepro/shared build && NEXT_PUBLIC_BUILD_SHA=$RAILWAY_GIT_COMMIT_SHA pnpm --filter @mygaragepro/web build
+```
+
+**Settings → Deploy → Start command:**
+
+```bash
+pnpm --filter @mygaragepro/web start
+```
+
 | Variable | Value |
 |----------|--------|
 | `API_URL` | `https://YOUR-API-DOMAIN` (no trailing slash) |
 | `NEXT_PUBLIC_APP_ENV` | `staging` |
+
+After deploy, the amber **STAGING** bar should show `build abc1234` (git short SHA). If it does not, the web service is still on an old deployment — open **Deployments** → **Redeploy** on the latest **Success**, or fix a failed build in the logs.
 
 Redeploy **web** after saving variables.
 
