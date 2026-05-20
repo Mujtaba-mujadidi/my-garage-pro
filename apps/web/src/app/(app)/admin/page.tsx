@@ -1,6 +1,10 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
+import {
+  CreateGarageForm,
+  defaultCreateGarageForm,
+} from "@/components/admin/create-garage-form";
 import { GaragesTable } from "@/components/admin/garages-table";
 import { ModuleSaveConfirmBody } from "@/components/admin/module-save-confirm-body";
 import { ModuleToggleList } from "@/components/admin/module-toggle-list";
@@ -10,7 +14,12 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Modal } from "@/components/ui/modal";
 import { apiFetch, ApiError } from "@/lib/api-client";
 import { modulesEqual, toggleModuleList } from "@/lib/module-utils";
-import type { AuditLogDto, GarageAccountDto, ModuleKey } from "@mygaragepro/shared";
+import type {
+  AuditLogDto,
+  CreateGarageRequestDto,
+  GarageAccountDto,
+  ModuleKey,
+} from "@mygaragepro/shared";
 
 export default function AdminPage() {
   const { session, loading: sessionLoading } = useSession();
@@ -18,8 +27,7 @@ export default function AdminPage() {
   const [garages, setGarages] = useState<GarageAccountDto[]>([]);
   const [audit, setAudit] = useState<AuditLogDto[]>([]);
   const [loading, setLoading] = useState(true);
-  const [name, setName] = useState("");
-  const [slug, setSlug] = useState("");
+  const [createForm, setCreateForm] = useState<CreateGarageRequestDto>(defaultCreateGarageForm);
   const [showCreate, setShowCreate] = useState(false);
   const [editGarage, setEditGarage] = useState<GarageAccountDto | null>(null);
   /** Snapshot when modal opened — dirty check must not follow live `garages` during refetch. */
@@ -60,8 +68,7 @@ export default function AdminPage() {
   }, [load, session?.accessToken, sessionLoading]);
 
   function openCreate() {
-    setName("");
-    setSlug("");
+    setCreateForm(defaultCreateGarageForm());
     setError("");
     setShowCreate(true);
   }
@@ -104,11 +111,16 @@ export default function AdminPage() {
     setMessage("");
     setError("");
     try {
-      await apiFetch("/platform/garages", {
+      const created = await apiFetch<GarageAccountDto>("/platform/garages", {
         method: "POST",
-        body: JSON.stringify({ name, slug }),
+        body: JSON.stringify({
+          ...createForm,
+          vatNumber: createForm.vatNumber?.trim() || undefined,
+        }),
       });
-      setMessage("Garage created.");
+      setMessage(
+        `Garage "${created.name}" created. Owner can sign in at ${created.ownerEmail ?? createForm.ownerEmail} with the temporary password (must change on first login).`,
+      );
       closeCreate();
       await load({ silent: true });
     } catch (err) {
@@ -212,48 +224,15 @@ export default function AdminPage() {
         </ul>
       </section>
 
-      <Modal title="Add garage" open={showCreate} onClose={closeCreate}>
-        <form onSubmit={createGarage} className="space-y-4">
-          <div>
-            <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
-              Garage name
-            </label>
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Acme Motors"
-              className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
-              required
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Slug</label>
-            <input
-              value={slug}
-              onChange={(e) => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "-"))}
-              placeholder="acme-motors"
-              className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 font-mono text-sm"
-              required
-            />
-          </div>
-          {error && <p className="text-sm text-red-600">{error}</p>}
-          <div className="flex justify-end gap-2 pt-2">
-            <button
-              type="button"
-              onClick={closeCreate}
-              className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={saving}
-              className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-            >
-              {saving ? "Creating…" : "Create garage"}
-            </button>
-          </div>
-        </form>
+      <Modal title="Register garage" open={showCreate} onClose={closeCreate} size="lg">
+        <CreateGarageForm
+          value={createForm}
+          onChange={setCreateForm}
+          onSubmit={createGarage}
+          onCancel={closeCreate}
+          saving={saving}
+          error={error}
+        />
       </Modal>
 
       <Modal
@@ -264,6 +243,20 @@ export default function AdminPage() {
       >
         {editRow && (
           <div className="space-y-4">
+            <div className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 text-sm">
+              <p className="font-medium text-[var(--foreground)]">{editRow.directorOwnerName}</p>
+              <p className="mt-1 text-xs text-[var(--muted)]">{editRow.address}</p>
+              <p className="mt-1 text-xs text-[var(--muted)]">
+                Contact: {editRow.contactNumber} · Phone: {editRow.phoneNumber}
+                {editRow.vatNumber ? ` · VAT: ${editRow.vatNumber}` : ""}
+              </p>
+              {editRow.ownerEmail && (
+                <p className="mt-1 text-xs">
+                  Owner login: <span className="font-mono text-accent">{editRow.ownerEmail}</span>
+                </p>
+              )}
+            </div>
+
             <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
               <div>
                 <p className="font-mono text-xs text-[var(--muted)]">{editRow.slug}</p>

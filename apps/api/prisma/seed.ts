@@ -127,9 +127,22 @@ async function main() {
     create: {
       name: "Demo Garage Ltd",
       slug: "demo-garage",
+      directorOwnerName: "James Owner",
+      address: "1 Demo Street, London, SW1A 1AA",
+      contactNumber: "020 7946 0958",
+      phoneNumber: "07700 900123",
+      vatNumber: "GB123456789",
       status: "ACTIVE",
     },
-    update: { name: "Demo Garage Ltd", status: "ACTIVE" },
+    update: {
+      name: "Demo Garage Ltd",
+      directorOwnerName: "James Owner",
+      address: "1 Demo Street, London, SW1A 1AA",
+      contactNumber: "020 7946 0958",
+      phoneNumber: "07700 900123",
+      vatNumber: "GB123456789",
+      status: "ACTIVE",
+    },
   });
 
   await seedGarageModules(demoGarage.id, DEFAULT_ENABLED_MODULES);
@@ -183,6 +196,7 @@ async function main() {
         garageRoleId: u.garageRoleId,
         garageAccountId: demoGarage.id,
         passwordHash: await hashPassword(u.password),
+        mustChangePassword: false,
       },
       update: {
         displayName: u.displayName,
@@ -190,6 +204,7 @@ async function main() {
         garageRoleId: u.garageRoleId,
         garageAccountId: demoGarage.id,
         passwordHash: await hashPassword(u.password),
+        mustChangePassword: false,
         status: "ACTIVE",
       },
     });

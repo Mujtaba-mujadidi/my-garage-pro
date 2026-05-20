@@ -18,6 +18,38 @@ import { CreateGarageDto } from "./dto/create-garage.dto";
 import { CreateGarageUserDto } from "./dto/create-garage-user.dto";
 import { UpdateGarageModulesDto } from "./dto/update-garage-modules.dto";
 
+function mapGarage(
+  g: {
+    id: string;
+    name: string;
+    slug: string;
+    directorOwnerName: string;
+    address: string;
+    contactNumber: string;
+    phoneNumber: string;
+    vatNumber: string | null;
+    status: string;
+    createdAt: Date;
+    modules: { moduleKey: string; enabled: boolean }[];
+  },
+  ownerEmail: string | null,
+) {
+  return {
+    id: g.id,
+    name: g.name,
+    slug: g.slug,
+    directorOwnerName: g.directorOwnerName,
+    address: g.address,
+    contactNumber: g.contactNumber,
+    phoneNumber: g.phoneNumber,
+    vatNumber: g.vatNumber,
+    status: g.status,
+    createdAt: g.createdAt.toISOString(),
+    enabledModules: g.modules.filter((m) => m.enabled).map((m) => m.moduleKey as ModuleKey),
+    ownerEmail,
+  };
+}
+
 @Injectable()
 export class PlatformService {
   constructor(
@@ -30,36 +62,70 @@ export class PlatformService {
     const garages = await this.prisma.garageAccount.findMany({
       where: { deletedAt: null },
       orderBy: { createdAt: "desc" },
-      include: { modules: true },
+      include: {
+        modules: true,
+        users: {
+          where: { role: UserRole.OWNER, deletedAt: null },
+          take: 1,
+          select: { email: true },
+        },
+      },
     });
-    return garages.map((g) => ({
-      id: g.id,
-      name: g.name,
-      slug: g.slug,
-      status: g.status,
-      createdAt: g.createdAt.toISOString(),
-      enabledModules: g.modules.filter((m) => m.enabled).map((m) => m.moduleKey as ModuleKey),
-    }));
+    return garages.map((g) =>
+      mapGarage(g, g.users[0]?.email ?? null),
+    );
   }
 
   async createGarage(actor: RequestUser, dto: CreateGarageDto) {
-    const exists = await this.prisma.garageAccount.findUnique({ where: { slug: dto.slug } });
-    if (exists) throw new ConflictException("Slug already in use");
+    const slug = dto.slug.toLowerCase().trim();
+    const ownerEmail = dto.ownerEmail.toLowerCase().trim();
+
+    const slugExists = await this.prisma.garageAccount.findUnique({ where: { slug } });
+    if (slugExists) throw new ConflictException("Slug already in use");
+
+    const emailExists = await this.prisma.user.findUnique({ where: { email: ownerEmail } });
+    if (emailExists) throw new ConflictException("Owner email already registered");
 
     const enabled = dto.enabledModules ?? DEFAULT_ENABLED_MODULES;
-    const garage = await this.prisma.garageAccount.create({
-      data: { name: dto.name, slug: dto.slug },
-    });
+    const vat =
+      dto.vatNumber?.trim() ? dto.vatNumber.trim() : null;
 
-    for (const moduleKey of MODULE_KEYS) {
-      await this.prisma.garageAccountModule.create({
+    const garage = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.garageAccount.create({
         data: {
-          garageAccountId: garage.id,
-          moduleKey,
-          enabled: enabled.includes(moduleKey as ModuleKey),
+          name: dto.name.trim(),
+          slug,
+          directorOwnerName: dto.directorOwnerName.trim(),
+          address: dto.address.trim(),
+          contactNumber: dto.contactNumber.trim(),
+          phoneNumber: dto.phoneNumber.trim(),
+          vatNumber: vat,
         },
       });
-    }
+
+      for (const moduleKey of MODULE_KEYS) {
+        await tx.garageAccountModule.create({
+          data: {
+            garageAccountId: created.id,
+            moduleKey,
+            enabled: enabled.includes(moduleKey as ModuleKey),
+          },
+        });
+      }
+
+      await tx.user.create({
+        data: {
+          email: ownerEmail,
+          displayName: dto.directorOwnerName.trim(),
+          role: UserRole.OWNER,
+          garageAccountId: created.id,
+          passwordHash: await argon2.hash(dto.tempPassword),
+          mustChangePassword: true,
+        },
+      });
+
+      return created;
+    });
 
     await this.garageRoles.seedDefaultRoles(garage.id);
 
@@ -69,10 +135,16 @@ export class PlatformService {
       garageAccountId: garage.id,
       entityType: "garage_account",
       entityId: garage.id,
-      metadata: { name: dto.name, slug: dto.slug },
+      metadata: {
+        name: dto.name,
+        slug,
+        ownerEmail,
+        directorOwnerName: dto.directorOwnerName,
+      },
     });
 
-    return this.listGarages().then((list) => list.find((g) => g.id === garage.id));
+    const list = await this.listGarages();
+    return list.find((g) => g.id === garage.id);
   }
 
   async setGarageStatus(actor: RequestUser, id: string, status: "ACTIVE" | "SUSPENDED") {

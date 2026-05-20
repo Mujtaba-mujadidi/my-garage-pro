@@ -26,6 +26,17 @@ export function GaragesTable({ garages, onEdit }: Props) {
       cell: (g) => <span className="font-medium">{g.name}</span>,
     },
     {
+      id: "owner",
+      header: "Owner",
+      searchText: (g) => `${g.directorOwnerName} ${g.ownerEmail ?? ""}`,
+      cell: (g) => (
+        <div className="text-xs">
+          <p className="font-medium">{g.directorOwnerName}</p>
+          {g.ownerEmail && <p className="text-[var(--muted)]">{g.ownerEmail}</p>}
+        </div>
+      ),
+    },
+    {
       id: "slug",
       header: "Slug",
       searchText: (g) => g.slug,

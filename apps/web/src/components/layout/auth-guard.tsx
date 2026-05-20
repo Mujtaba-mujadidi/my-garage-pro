@@ -13,6 +13,10 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
     if (loading) return;
     if (!session) {
       router.replace(`/login?next=${encodeURIComponent(pathname)}`);
+      return;
+    }
+    if (session.user.mustChangePassword) {
+      router.replace("/login/change-password");
     }
   }, [loading, session, router, pathname]);
 
@@ -24,7 +28,7 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
     );
   }
 
-  if (!session) return null;
+  if (!session || session.user.mustChangePassword) return null;
 
   return <>{children}</>;
 }

@@ -20,6 +20,10 @@ function LoginForm() {
     try {
       const session = await loginRequest(email, password);
       setAuthSession(session);
+      if (session.user.mustChangePassword) {
+        router.push("/login/change-password");
+        return;
+      }
       const next = searchParams.get("next") || "/dashboard";
       router.push(next);
     } catch (err) {

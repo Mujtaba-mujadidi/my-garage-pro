@@ -53,3 +53,10 @@ export function loginRequest(email: string, password: string) {
 export function meRequest() {
   return apiFetch<AuthSessionDto>("/auth/me");
 }
+
+export function changePasswordRequest(currentPassword: string, newPassword: string) {
+  return apiFetch<AuthSessionDto>("/auth/change-password", {
+    method: "POST",
+    body: JSON.stringify({ currentPassword, newPassword }),
+  });
+}

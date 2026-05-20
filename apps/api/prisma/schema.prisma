@@ -39,14 +39,19 @@ enum BillingCycle {
 }
 
 model GarageAccount {
-  id        String              @id @default(uuid()) @db.Uuid
-  name      String
-  slug      String              @unique
-  status    GarageAccountStatus @default(ACTIVE)
-  createdAt DateTime            @default(now()) @map("created_at")
-  updatedAt DateTime            @updatedAt @map("updated_at")
-  deletedAt DateTime?           @map("deleted_at")
-  deletedBy String?             @map("deleted_by") @db.Uuid
+  id                String              @id @default(uuid()) @db.Uuid
+  name              String
+  slug              String              @unique
+  directorOwnerName String              @map("director_owner_name")
+  address           String
+  contactNumber     String              @map("contact_number")
+  phoneNumber       String              @map("phone_number")
+  vatNumber         String?             @map("vat_number")
+  status            GarageAccountStatus @default(ACTIVE)
+  createdAt         DateTime            @default(now()) @map("created_at")
+  updatedAt         DateTime            @updatedAt @map("updated_at")
+  deletedAt         DateTime?           @map("deleted_at")
+  deletedBy         String?             @map("deleted_by") @db.Uuid
 
   users     User[]
   modules   GarageAccountModule[]
@@ -76,9 +81,10 @@ model User {
   id              String     @id @default(uuid()) @db.Uuid
   garageAccountId String?    @map("garage_account_id") @db.Uuid
   email           String     @unique
-  passwordHash    String     @map("password_hash")
-  displayName     String     @map("display_name")
-  role            UserRole
+  passwordHash         String     @map("password_hash")
+  mustChangePassword   Boolean    @default(false) @map("must_change_password")
+  displayName          String     @map("display_name")
+  role                 UserRole
   garageRoleId    String?    @map("garage_role_id") @db.Uuid
   status          UserStatus @default(ACTIVE)
   themePreference String?    @map("theme_preference")

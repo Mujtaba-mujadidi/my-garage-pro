@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from "@nestjs/common";
+import { BadRequestException, Injectable, UnauthorizedException } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
 import * as argon2 from "argon2";
 import { MODULE_KEYS, type AuthSessionDto, type ModuleKey, type UserRole } from "@mygaragepro/shared";
@@ -50,6 +50,46 @@ export class AuthService {
     return this.buildSession(user);
   }
 
+  async changePassword(
+    userId: string,
+    currentPassword: string,
+    newPassword: string,
+  ): Promise<AuthSessionDto> {
+    if (currentPassword === newPassword) {
+      throw new BadRequestException("New password must be different from the current password");
+    }
+
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, status: "ACTIVE", deletedAt: null },
+      include: { garageAccount: true, garageRole: true },
+    });
+    if (!user) throw new UnauthorizedException();
+
+    const valid = await argon2.verify(user.passwordHash, currentPassword);
+    if (!valid) throw new UnauthorizedException("Current password is incorrect");
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        passwordHash: await argon2.hash(newPassword),
+        mustChangePassword: false,
+      },
+    });
+
+    await this.audit.log({
+      action: "auth.password_changed",
+      userId: user.id,
+      garageAccountId: user.garageAccountId,
+    });
+
+    const refreshed = await this.prisma.user.findFirst({
+      where: { id: userId },
+      include: { garageAccount: true, garageRole: true },
+    });
+    if (!refreshed) throw new UnauthorizedException();
+    return this.buildSession(refreshed);
+  }
+
   private async buildSession(user: {
     id: string;
     email: string;
@@ -57,6 +97,7 @@ export class AuthService {
     role: PrismaUserRole;
     garageAccountId: string | null;
     garageRoleId: string | null;
+    mustChangePassword: boolean;
     garageAccount: { id: string; name: string; slug: string; status: string } | null;
     garageRole: { id: string; name: string } | null;
   }): Promise<AuthSessionDto> {
@@ -99,6 +140,7 @@ export class AuthService {
         garageAccountId: user.garageAccountId,
         garageRoleId: user.garageRoleId,
         garageRoleName: user.garageRole?.name ?? null,
+        mustChangePassword: user.mustChangePassword,
       },
       garage: user.garageAccount
         ? { id: user.garageAccount.id, name: user.garageAccount.name, slug: user.garageAccount.slug }

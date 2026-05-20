@@ -10,6 +10,8 @@ export type AuthUserDto = {
   garageAccountId: string | null;
   garageRoleId: string | null;
   garageRoleName: string | null;
+  /** True when the user must set a new password before using the app. */
+  mustChangePassword: boolean;
 };
 
 export type AuthGarageDto = {
@@ -31,6 +33,24 @@ export type LoginRequestDto = {
   password: string;
 };
 
+export type ChangePasswordRequestDto = {
+  currentPassword: string;
+  newPassword: string;
+};
+
+export type CreateGarageRequestDto = {
+  name: string;
+  slug: string;
+  directorOwnerName: string;
+  address: string;
+  contactNumber: string;
+  phoneNumber: string;
+  vatNumber?: string;
+  ownerEmail: string;
+  tempPassword: string;
+  enabledModules?: ModuleKey[];
+};
+
 export type SettingOptionDto = {
   id: string;
   optionType: string;
@@ -43,9 +63,15 @@ export type GarageAccountDto = {
   id: string;
   name: string;
   slug: string;
+  directorOwnerName: string;
+  address: string;
+  contactNumber: string;
+  phoneNumber: string;
+  vatNumber: string | null;
   status: string;
   enabledModules: ModuleKey[];
   createdAt: string;
+  ownerEmail?: string | null;
 };
 
 export type AuditLogDto = {
