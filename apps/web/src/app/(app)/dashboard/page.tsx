@@ -1,5 +1,6 @@
 import { KpiCard } from "@/components/dashboard/kpi-card";
 import { StatusChip } from "@/components/dashboard/status-chip";
+import Link from "next/link";
 
 const DEMO_JOBS = [
   { reg: "AB12 CDE", customer: "A. Khan", job: "Brake pads", status: "progress" as const },
@@ -114,9 +115,9 @@ export default function DashboardPage() {
 
       <p className="mt-6 text-xs text-[var(--muted)]">
         Demo data — live KPIs connect in Phase 13. API health:{" "}
-        <a href="/api/backend/health" className="text-accent hover:underline">
+        <Link href="/api/backend/health" className="text-accent hover:underline">
           /api/backend/health
-        </a>
+        </Link>
       </p>
     </>
   );
