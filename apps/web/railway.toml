@@ -1,0 +1,15 @@
+# Web service — set in Railway: Settings → Config file → /apps/web/railway.toml
+# Watch paths are repo-root-relative (see https://docs.railway.com/guides/monorepo)
+
+[build]
+buildCommand = "pnpm install && pnpm --filter @mygaragepro/shared build && NEXT_PUBLIC_BUILD_SHA=$RAILWAY_GIT_COMMIT_SHA pnpm --filter @mygaragepro/web build"
+watchPatterns = [
+  "apps/web/**",
+  "packages/shared/**",
+  "package.json",
+  "pnpm-lock.yaml",
+  "pnpm-workspace.yaml",
+]
+
+[deploy]
+startCommand = "pnpm --filter @mygaragepro/web start"

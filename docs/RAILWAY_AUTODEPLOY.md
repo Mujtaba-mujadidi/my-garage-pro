@@ -6,6 +6,54 @@ Repo: **`Mujtaba-mujadidi/my-garage-pro`** · branch: **`main`**
 
 ---
 
+## 0. “No changes to watched files” (skipped deploy)
+
+Railway **skipped** the build because **watch paths** did not include the files in your commit.
+
+Example: a push that only changes `docs/**` will correctly **not** rebuild **web** or **api** if watch paths are `apps/web/**` only.
+
+### Fix (choose one)
+
+**Option A — Recommended: use repo config (in this project)**
+
+1. **Web** service → **Settings** → **Config file** → `/apps/web/railway.toml`
+2. **API** service → **Settings** → **Config file** → `/apps/api/railway.toml`
+3. Redeploy both services once (Deployments → **Deploy**)
+
+Those files set watch paths to include **shared** + lockfile + the app folder.
+
+**Option B — Clear watch paths in the UI**
+
+1. Service → **Settings** → **Watch paths** (or **Build** → watch patterns)
+2. **Delete all lines** (leave empty) → deploy on **every** push to `main`
+3. **Apply** staged changes on the project canvas
+
+**Option C — Manual patterns in the UI (per service)**
+
+**Web** — one pattern per line:
+
+```
+apps/web/**
+packages/shared/**
+package.json
+pnpm-lock.yaml
+pnpm-workspace.yaml
+```
+
+**API**:
+
+```
+apps/api/**
+packages/shared/**
+package.json
+pnpm-lock.yaml
+pnpm-workspace.yaml
+```
+
+After fixing watch paths, run **Deployments → Deploy** (manual) so the latest `main` (e.g. `9f62411`) actually builds — a docs-only push will still skip, and that is expected.
+
+---
+
 ## 1. Confirm GitHub has the commit
 
 ```bash

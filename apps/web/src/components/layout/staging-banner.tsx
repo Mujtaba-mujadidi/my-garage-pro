@@ -6,7 +6,7 @@ export function StagingBanner() {
 
   return (
     <div className="shrink-0 bg-amber-100 px-4 py-2 text-center text-sm font-medium text-amber-900 dark:bg-amber-950 dark:text-amber-100">
-      STAGING — test data only
+      STAGING — test data only · deploy v2
       {build ? (
         <span className="ml-2 font-mono text-xs opacity-80">build {build}</span>
       ) : null}

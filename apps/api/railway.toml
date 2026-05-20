@@ -1,0 +1,15 @@
+# API service — set in Railway: Settings → Config file → /apps/api/railway.toml
+# Watch paths are repo-root-relative (see https://docs.railway.com/guides/monorepo)
+
+[build]
+buildCommand = "pnpm install && pnpm --filter @mygaragepro/shared build && pnpm --filter @mygaragepro/api build"
+watchPatterns = [
+  "apps/api/**",
+  "packages/shared/**",
+  "package.json",
+  "pnpm-lock.yaml",
+  "pnpm-workspace.yaml",
+]
+
+[deploy]
+startCommand = "pnpm --filter @mygaragepro/api exec prisma migrate deploy && pnpm --filter @mygaragepro/api start:prod"

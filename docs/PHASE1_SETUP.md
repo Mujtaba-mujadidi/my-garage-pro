@@ -72,7 +72,7 @@ pnpm --filter @mygaragepro/web start
 
 After deploy, the amber **STAGING** bar should show `build abc1234` (git short SHA). If it does not, the web service is still on an old deployment — open **Deployments** → **Redeploy** on the latest **Success**, or fix a failed build in the logs.
 
-**Pushed to GitHub but Railway did not build?** See [RAILWAY_AUTODEPLOY.md](./RAILWAY_AUTODEPLOY.md) (especially **Wait for CI** and **reconnect repo** on each service).
+**Pushed to GitHub but Railway did not build?** See [RAILWAY_AUTODEPLOY.md](./RAILWAY_AUTODEPLOY.md). If the log says **“No changes to watched files”**, set config files `/apps/web/railway.toml` and `/apps/api/railway.toml` or clear watch paths, then **Deploy** manually.
 
 Redeploy **web** after saving variables.
 
