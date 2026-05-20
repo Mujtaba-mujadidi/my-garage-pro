@@ -22,6 +22,8 @@ export default function AdminPage() {
   const [slug, setSlug] = useState("");
   const [showCreate, setShowCreate] = useState(false);
   const [editGarage, setEditGarage] = useState<GarageAccountDto | null>(null);
+  /** Snapshot when modal opened — dirty check must not follow live `garages` during refetch. */
+  const [baselineModules, setBaselineModules] = useState<ModuleKey[]>([]);
   const [draftModules, setDraftModules] = useState<ModuleKey[]>([]);
   const [showSaveConfirm, setShowSaveConfirm] = useState(false);
   const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
@@ -29,28 +31,33 @@ export default function AdminPage() {
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const load = useCallback(async () => {
-    if (!session?.accessToken) return;
-    setLoading(true);
-    setError("");
-    try {
-      const [g, a] = await Promise.all([
-        apiFetch<GarageAccountDto[]>("/platform/garages"),
-        apiFetch<AuditLogDto[]>("/platform/audit?limit=30"),
-      ]);
-      setGarages(g);
-      setAudit(a);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Failed to load platform data");
-    } finally {
-      setLoading(false);
-    }
-  }, [session?.accessToken]);
+  const load = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      if (!session?.accessToken) return;
+      const silent = opts?.silent === true;
+      if (!silent) setLoading(true);
+      setError("");
+      try {
+        const [g, a] = await Promise.all([
+          apiFetch<GarageAccountDto[]>("/platform/garages"),
+          apiFetch<AuditLogDto[]>("/platform/audit?limit=30"),
+        ]);
+        setGarages(g);
+        setAudit(a);
+      } catch (err) {
+        setError(err instanceof ApiError ? err.message : "Failed to load platform data");
+      } finally {
+        if (!silent) setLoading(false);
+      }
+    },
+    [session?.accessToken],
+  );
 
+  /** Depend only on the token — not the whole session object — so toggles in the modal do not re-trigger a full reload when session identity updates. */
   useEffect(() => {
-    if (sessionLoading || !session) return;
+    if (sessionLoading || !session?.accessToken) return;
     void load();
-  }, [load, session, sessionLoading]);
+  }, [load, session?.accessToken, sessionLoading]);
 
   function openCreate() {
     setName("");
@@ -65,14 +72,18 @@ export default function AdminPage() {
   }
 
   function openEdit(garage: GarageAccountDto) {
+    const snap = [...garage.enabledModules];
     setEditGarage(garage);
-    setDraftModules([...garage.enabledModules]);
+    setBaselineModules(snap);
+    setDraftModules(snap);
     setShowSaveConfirm(false);
+    setShowDiscardConfirm(false);
     setError("");
   }
 
   function closeEdit() {
     setEditGarage(null);
+    setBaselineModules([]);
     setDraftModules([]);
     setShowSaveConfirm(false);
     setShowDiscardConfirm(false);
@@ -99,7 +110,7 @@ export default function AdminPage() {
       });
       setMessage("Garage created.");
       closeCreate();
-      await load();
+      await load({ silent: true });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Create failed");
     } finally {
@@ -124,7 +135,7 @@ export default function AdminPage() {
       setMessage(`Modules saved for ${editGarage.name}.`);
       setShowSaveConfirm(false);
       closeEdit();
-      await load();
+      await load({ silent: true });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Module update failed");
     } finally {
@@ -137,7 +148,7 @@ export default function AdminPage() {
     try {
       await apiFetch(`/platform/garages/${garage.id}/${action}`, { method: "PATCH" });
       setMessage(action === "suspend" ? "Garage suspended." : "Garage activated.");
-      await load();
+      await load({ silent: true });
       closeEdit();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Status update failed");
@@ -149,7 +160,7 @@ export default function AdminPage() {
     : null;
 
   const modulesDirty =
-    editRow !== null && !modulesEqual(draftModules, editRow.enabledModules);
+    editGarage !== null && !modulesEqual(draftModules, baselineModules);
 
   return (
     <PermissionGate permission="platform.garage.manage">
@@ -173,7 +184,7 @@ export default function AdminPage() {
       </div>
 
       {message && <p className="mb-4 text-sm text-green-700 dark:text-green-400">{message}</p>}
-      {error && !showCreate && !editGarage && (
+      {error && !showCreate && !editRow && (
         <p className="mb-4 text-sm text-red-600">{error}</p>
       )}
 
@@ -330,7 +341,7 @@ export default function AdminPage() {
           editRow && (
             <ModuleSaveConfirmBody
               garageName={editRow.name}
-              before={editRow.enabledModules}
+              before={baselineModules}
               after={draftModules}
             />
           )

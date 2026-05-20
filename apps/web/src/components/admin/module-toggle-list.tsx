@@ -20,10 +20,12 @@ export function ModuleToggleList({ enabledModules, onToggle, disabled }: Props) 
         const on = enabledModules.includes(key);
         return (
           <li key={key}>
-            <label
-              className={`flex cursor-pointer items-center justify-between gap-4 bg-[var(--background)] px-4 py-3 transition-colors hover:bg-[var(--surface)] ${
-                disabled ? "pointer-events-none opacity-60" : ""
-              }`}
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={() => onToggle(key, !on)}
+              aria-pressed={on}
+              className={`flex w-full cursor-pointer items-center justify-between gap-4 bg-[var(--background)] px-4 py-3 text-left transition-colors hover:bg-[var(--surface)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-60`}
             >
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium text-[var(--foreground)]">
@@ -32,17 +34,8 @@ export function ModuleToggleList({ enabledModules, onToggle, disabled }: Props) 
                 <p className="text-xs text-[var(--muted)]">{MODULE_DESCRIPTIONS[key]}</p>
               </div>
               <span className="relative inline-flex h-6 w-11 shrink-0 items-center">
-                <input
-                  type="checkbox"
-                  role="switch"
-                  aria-checked={on}
-                  checked={on}
-                  disabled={disabled}
-                  onChange={(e) => onToggle(key, e.target.checked)}
-                  className="peer sr-only"
-                />
                 <span
-                  className={`block h-6 w-11 rounded-full transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-accent peer-focus-visible:ring-offset-2 ${
+                  className={`block h-6 w-11 rounded-full transition-colors ${
                     on ? "bg-accent" : "bg-[var(--border)]"
                   }`}
                 />
@@ -52,7 +45,7 @@ export function ModuleToggleList({ enabledModules, onToggle, disabled }: Props) 
                   }`}
                 />
               </span>
-            </label>
+            </button>
           </li>
         );
       })}
