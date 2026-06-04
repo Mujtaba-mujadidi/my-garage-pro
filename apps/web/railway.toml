@@ -12,4 +12,5 @@ watchPatterns = [
 ]
 
 [deploy]
-startCommand = "pnpm --filter @mygaragepro/web exec next start -H 0.0.0.0 -p ${PORT}"
+# Next.js reads Railway's PORT env when -p is omitted
+startCommand = "pnpm --filter @mygaragepro/web start"

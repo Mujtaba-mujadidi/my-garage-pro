@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "next dev --port 3011",
     "build": "next build",
-    "start": "next start -H 0.0.0.0 -p ${PORT:-3011}",
+    "start": "next start -H 0.0.0.0",
+    "clean": "rm -rf .next",
     "lint": "next lint",
     "typecheck": "tsc --noEmit"
   },

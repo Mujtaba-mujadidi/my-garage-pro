@@ -246,6 +246,8 @@ You do **not** need to “sync” local data to staging — only **code and migr
 | Prisma migration error after pull | `pnpm db:migrate:deploy` — if failed migration, see `docs/RAILWAY_MIGRATION_FIX.md` patterns for local DB reset: `docker compose down -v` then migrate + seed again |
 | Empty team table | `pnpm db:seed` |
 | Web shows old UI | Hard refresh; restart `pnpm dev` |
+| Blank page / **500** / `Cannot find module './NNN.js'` | Stale Next cache — stop dev, then `pnpm dev:reset` (or `pnpm --filter @mygaragepro/web clean && pnpm dev`) |
+| `EADDRINUSE` on 3011 or 4000 | `lsof -ti:3011 \| xargs kill -9` and same for `:4000`, then `pnpm dev` |
 
 ### Reset local database (nuclear option)
 

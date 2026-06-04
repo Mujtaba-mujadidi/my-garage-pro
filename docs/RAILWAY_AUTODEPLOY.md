@@ -191,7 +191,7 @@ Or whatever you already use if `start:prod` includes migrate — check `apps/api
 
 Railway routes traffic to **`$PORT`**. If the process listens on a fixed port (e.g. **3011**), the proxy gets no response.
 
-**Web fix (in repo):** `next start -H 0.0.0.0 -p $PORT` — see `apps/web/railway.toml` and `apps/web/package.json` `start` script.
+**Web fix (in repo):** `next start -H 0.0.0.0` — Next reads Railway’s **`PORT`** env automatically. See `apps/web/railway.toml`.
 
 **API fix:** `main.ts` uses `process.env.PORT` and listens on `0.0.0.0`.
 
