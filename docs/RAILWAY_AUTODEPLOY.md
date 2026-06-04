@@ -187,7 +187,25 @@ Or whatever you already use if `start:prod` includes migrate — check `apps/api
 
 ---
 
-## 7. Still stuck?
+## 7. “Application failed to respond” (web or API)
+
+Railway routes traffic to **`$PORT`**. If the process listens on a fixed port (e.g. **3011**), the proxy gets no response.
+
+**Web fix (in repo):** `next start -H 0.0.0.0 -p $PORT` — see `apps/web/railway.toml` and `apps/web/package.json` `start` script.
+
+**API fix:** `main.ts` uses `process.env.PORT` and listens on `0.0.0.0`.
+
+**Check deploy logs:**
+
+1. **Web** — line like `Ready on http://0.0.0.0:XXXX` where `XXXX` matches Railway’s assigned port.
+2. **API** — `API listening on 0.0.0.0:XXXX` after `migrate deploy` succeeds.
+3. If API exits immediately — missing **`DATABASE_URL`**, failed migration, or wrong `JWT_SECRET`.
+
+**Web env on Railway:** set **`API_URL`** to the **public API service URL** (not `localhost:4000`) so `/api/backend/*` rewrites work.
+
+---
+
+## 8. Still stuck?
 
 1. Railway → **Project Settings** → confirm the project is not **paused** / out of credits  
 2. Disconnect and reconnect GitHub in Railway **Account Settings**  

@@ -12,4 +12,4 @@ watchPatterns = [
 ]
 
 [deploy]
-startCommand = "pnpm --filter @mygaragepro/web start"
+startCommand = "pnpm --filter @mygaragepro/web exec next start -H 0.0.0.0 -p ${PORT}"

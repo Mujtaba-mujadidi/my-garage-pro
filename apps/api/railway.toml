@@ -12,4 +12,4 @@ watchPatterns = [
 ]
 
 [deploy]
-startCommand = "pnpm --filter @mygaragepro/api exec prisma migrate deploy && pnpm --filter @mygaragepro/api start:prod"
+startCommand = "cd apps/api && pnpm exec prisma migrate deploy && node dist/apps/api/src/main.js"
