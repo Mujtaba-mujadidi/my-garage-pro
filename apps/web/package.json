@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --port 3011",
+    "dev": "sh scripts/dev.sh",
     "build": "next build",
     "start": "next start -H 0.0.0.0",
     "clean": "rm -rf .next",

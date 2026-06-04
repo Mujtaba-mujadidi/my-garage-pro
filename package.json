@@ -5,7 +5,7 @@
   "description": "Modular garage / business management SaaS",
   "scripts": {
     "dev": "pnpm --filter @mygaragepro/shared build && concurrently -n web,api -c blue,green \"pnpm --filter @mygaragepro/web dev\" \"pnpm --filter @mygaragepro/api dev\"",
-    "dev:reset": "pnpm --filter @mygaragepro/web clean && pnpm dev",
+    "dev:reset": "lsof -ti:3011 | xargs kill -9 2>/dev/null; lsof -ti:4000 | xargs kill -9 2>/dev/null; pnpm --filter @mygaragepro/web clean && pnpm dev",
     "build": "pnpm --filter @mygaragepro/shared build && pnpm --filter @mygaragepro/api build && pnpm --filter @mygaragepro/web build",
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck",
