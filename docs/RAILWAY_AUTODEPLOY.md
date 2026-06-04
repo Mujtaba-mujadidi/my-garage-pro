@@ -187,7 +187,29 @@ Or whatever you already use if `start:prod` includes migrate — check `apps/api
 
 ---
 
-## 7. “Application failed to respond” (web or API)
+## 7. Web 502 but API works (common)
+
+**Symptom:** `https://…api….up.railway.app/health` → `200`, but web URL → **502 Application failed to respond**.
+
+**Likely causes:**
+
+1. **Web build failed** — no `apps/web/.next/BUILD_ID`; start exits immediately. Open **web → Deployments → latest → Build logs**.
+2. **Wrong Root Directory** — must be **empty** (repo root). If set to `apps/web`, monorepo `pnpm --filter` builds break.
+3. **Config file not linked** — **web → Settings → Config file** → `/apps/web/railway.toml`, then **Redeploy**.
+4. **Missing `API_URL` on web service** — set to `https://YOUR-API-DOMAIN` (no trailing slash), then **redeploy web** so rewrites pick it up at build time.
+
+**Your staging URLs (verify in Railway → Networking):**
+
+| Service | Example domain |
+|---------|----------------|
+| API | `https://mygarageproapi-production.up.railway.app` |
+| Web | `https://mygarageproweb-production.up.railway.app` |
+
+**Railway platform issues (June 2026):** [status.railway.app](https://status.railway.app) may show **metrics unavailable** or **private networking degraded in Southeast Asia** — these usually do **not** explain a 502 on US/EU web if the **API is healthy**. Still check status before long debugging.
+
+---
+
+## 8. “Application failed to respond” (web or API)
 
 Railway routes traffic to **`$PORT`**. If the process listens on a fixed port (e.g. **3011**), the proxy gets no response.
 
@@ -205,7 +227,7 @@ Railway routes traffic to **`$PORT`**. If the process listens on a fixed port (e
 
 ---
 
-## 8. Still stuck?
+## 9. Still stuck?
 
 1. Railway → **Project Settings** → confirm the project is not **paused** / out of credits  
 2. Disconnect and reconnect GitHub in Railway **Account Settings**  

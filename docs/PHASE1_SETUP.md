@@ -22,7 +22,7 @@ Click the **api** service → **Variables**. Add or reference:
 | `JWT_SECRET` | Long random string (e.g. generate with `openssl rand -base64 32`) |
 | `JWT_EXPIRES_IN` | `12h` |
 | `NODE_ENV` | `staging` |
-| `WEB_ORIGIN` | Your **web** public URL (no trailing slash), e.g. `https://mygarageweb-production.up.railway.app` |
+| `WEB_ORIGIN` | Your **web** public URL (no trailing slash), e.g. `https://mygarageproweb-production.up.railway.app` |
 | `PORT` | Railway sets this automatically — leave as-is if present |
 
 **Build command** (Settings → Build):
@@ -53,16 +53,20 @@ pnpm --filter @mygaragepro/api db:seed
 
 ## 3. Railway: configure the **web** service
 
+**Root Directory:** leave **empty** (repository root). Do **not** set `apps/web`.
+
+**Settings → Config file:** `/apps/web/railway.toml` (recommended).
+
 **Settings → Build** (repo root, not `apps/web`):
 
 ```bash
 pnpm install && pnpm --filter @mygaragepro/shared build && NEXT_PUBLIC_BUILD_SHA=$RAILWAY_GIT_COMMIT_SHA pnpm --filter @mygaragepro/web build
 ```
 
-**Settings → Deploy → Start command:**
+**Settings → Deploy → Start command** (or use `railway.toml`):
 
 ```bash
-pnpm --filter @mygaragepro/web start
+sh apps/web/scripts/railway-start.sh
 ```
 
 | Variable | Value |

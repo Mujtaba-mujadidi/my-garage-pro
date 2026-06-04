@@ -2,7 +2,8 @@
 # Watch paths are repo-root-relative (see https://docs.railway.com/guides/monorepo)
 
 [build]
-buildCommand = "pnpm install && pnpm --filter @mygaragepro/shared build && NEXT_PUBLIC_BUILD_SHA=$RAILWAY_GIT_COMMIT_SHA pnpm --filter @mygaragepro/web build"
+# API_URL must be set on the web service (used at build time for /api/backend rewrites)
+buildCommand = "pnpm install && pnpm --filter @mygaragepro/shared build && NEXT_PUBLIC_BUILD_SHA=$RAILWAY_GIT_COMMIT_SHA pnpm --filter @mygaragepro/web build && test -f apps/web/.next/BUILD_ID"
 watchPatterns = [
   "apps/web/**",
   "packages/shared/**",
@@ -12,5 +13,4 @@ watchPatterns = [
 ]
 
 [deploy]
-# Next.js reads Railway's PORT env when -p is omitted
-startCommand = "pnpm --filter @mygaragepro/web start"
+startCommand = "sh apps/web/scripts/railway-start.sh"
