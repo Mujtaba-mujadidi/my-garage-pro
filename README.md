@@ -36,7 +36,7 @@ cp apps/web/.env.example apps/web/.env
 pnpm dev
 ```
 
-- Web: http://localhost:3000
+- Web: http://localhost:7000
 - API health: http://localhost:4000/health
 - Phase 0 login: `owner@demo.garage` / `demo`
 

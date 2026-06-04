@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, UnauthorizedException } from "@nestjs/
 import { JwtService } from "@nestjs/jwt";
 import * as argon2 from "argon2";
 import { MODULE_KEYS, type AuthSessionDto, type ModuleKey, type UserRole } from "@mygaragepro/shared";
-import { UserRole as PrismaUserRole } from "@prisma/client";
+import { UserRole as PrismaUserRole, UserStatus } from "@prisma/client";
 import { AuditService } from "../audit/audit.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { GarageRolesService } from "../garage-roles/garage-roles.service";
@@ -18,11 +18,20 @@ export class AuthService {
   ) {}
 
   async login(email: string, password: string): Promise<AuthSessionDto> {
+    const normalizedEmail = email.toLowerCase().trim();
     const user = await this.prisma.user.findFirst({
-      where: { email: email.toLowerCase().trim(), status: "ACTIVE", deletedAt: null },
+      where: { email: normalizedEmail, deletedAt: null },
       include: { garageAccount: true, garageRole: true },
     });
     if (!user) throw new UnauthorizedException("Invalid email or password");
+
+    if (user.status === UserStatus.DISABLED) {
+      const message =
+        user.role === PrismaUserRole.SUPER_ADMIN
+          ? "This account has been deactivated. Contact platform support to restore access."
+          : "This account has been deactivated. Contact your garage administrator to restore access.";
+      throw new UnauthorizedException(message);
+    }
 
     const valid = await argon2.verify(user.passwordHash, password);
     if (!valid) throw new UnauthorizedException("Invalid email or password");

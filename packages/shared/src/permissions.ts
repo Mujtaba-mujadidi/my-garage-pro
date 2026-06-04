@@ -1,4 +1,7 @@
+import type { ModuleKey } from "./modules";
 import type { UserRole } from "./roles";
+
+export type ModuleCrudPermission = `${ModuleKey}.read` | `${ModuleKey}.write`;
 
 export type Permission =
   | "platform.garage.manage"
@@ -8,12 +11,7 @@ export type Permission =
   | "users.read"
   | "users.write"
   | "permissions.manage"
-  | "customers.read"
-  | "customers.write"
-  | "ledger.read"
-  | "ledger.write"
-  | "partners.read"
-  | "partners.write";
+  | ModuleCrudPermission;
 
 /** Super Admin only — not stored per garage. */
 const SUPER_ADMIN_PERMISSIONS: Permission[] = [
@@ -23,6 +21,33 @@ const SUPER_ADMIN_PERMISSIONS: Permission[] = [
   "settings.write",
   "users.read",
   "users.write",
+  "permissions.manage",
+  "customers.read",
+  "customers.write",
+  "suppliers.read",
+  "suppliers.write",
+  "repair.read",
+  "repair.write",
+  "bodywork.read",
+  "bodywork.write",
+  "tyres.read",
+  "tyres.write",
+  "parts.read",
+  "parts.write",
+  "invoices.read",
+  "invoices.write",
+  "ledger.read",
+  "ledger.write",
+  "used_cars.read",
+  "used_cars.write",
+  "rental.read",
+  "rental.write",
+  "pco.read",
+  "pco.write",
+  "partners.read",
+  "partners.write",
+  "reports.read",
+  "reports.write",
 ];
 
 /** Fallback when DB has no rows yet (e.g. before migration). */

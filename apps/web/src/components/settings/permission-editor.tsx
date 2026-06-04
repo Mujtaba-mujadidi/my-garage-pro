@@ -1,6 +1,7 @@
 "use client";
 
-import type { GaragePermission, PermissionGroup } from "@mygaragepro/shared";
+import type { GaragePermission, PermissionGroup, RoleAccessLevel } from "@mygaragepro/shared";
+import { roleAccessLevelForGroup } from "@mygaragepro/shared";
 
 type Props = {
   groups: PermissionGroup[];
@@ -19,52 +20,123 @@ function toggle(
   return [...set];
 }
 
+function applyAccessLevel(
+  current: GaragePermission[],
+  group: PermissionGroup,
+  level: RoleAccessLevel,
+): GaragePermission[] {
+  let next = toggle(current, group.read, false);
+  if (group.write) next = toggle(next, group.write, false);
+  if (level === "view") {
+    next = toggle(next, group.read, true);
+  } else if (level === "full" && group.write) {
+    next = toggle(next, group.read, true);
+    next = toggle(next, group.write, true);
+  }
+  return next;
+}
+
+const radioClass = "h-4 w-4 accent-[var(--accent)]";
+
+function AccessRadios({
+  group,
+  permissions,
+  onChange,
+}: {
+  group: PermissionGroup;
+  permissions: GaragePermission[];
+  onChange: (level: RoleAccessLevel) => void;
+}) {
+  const level = roleAccessLevelForGroup(group, permissions);
+  const name = `access-${group.id}`;
+
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+      <label className="flex cursor-pointer items-center gap-2 whitespace-nowrap">
+        <input
+          type="radio"
+          name={name}
+          checked={level === "none"}
+          onChange={() => onChange("none")}
+          className={radioClass}
+        />
+        No access
+      </label>
+      <label className="flex cursor-pointer items-center gap-2 whitespace-nowrap">
+        <input
+          type="radio"
+          name={name}
+          checked={level === "view"}
+          onChange={() => onChange("view")}
+          className={radioClass}
+        />
+        View
+      </label>
+      {group.write && (
+        <label className="flex cursor-pointer items-center gap-2 whitespace-nowrap">
+          <input
+            type="radio"
+            name={name}
+            checked={level === "full"}
+            onChange={() => onChange("full")}
+            className={radioClass}
+          />
+          Full access
+        </label>
+      )}
+    </div>
+  );
+}
+
 export function PermissionEditor({ groups, permissions, onChange }: Props) {
-  function setGroupAccess(group: PermissionGroup, level: "read" | "write", enabled: boolean) {
-    let next = permissions;
-    if (level === "read") {
-      next = toggle(next, group.read, enabled);
-      if (!enabled && group.write) next = toggle(next, group.write, false);
-    } else if (group.write) {
-      next = toggle(next, group.write, enabled);
-      if (enabled) next = toggle(next, group.read, true);
-    }
-    onChange(next);
+  function setGroupLevel(group: PermissionGroup, level: RoleAccessLevel) {
+    onChange(applyAccessLevel(permissions, group, level));
+  }
+
+  if (groups.length === 0) {
+    return (
+      <p className="text-sm text-[var(--muted)]">
+        No module access options are available. Ask your platform admin to enable modules for
+        this garage.
+      </p>
+    );
   }
 
   return (
-    <div className="space-y-3">
-      {groups.map((group) => (
-        <div
-          key={group.id}
-          className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-3"
-        >
-          <div className="mb-2 text-sm font-medium">{group.label}</div>
-          <p className="mb-2 text-xs text-[var(--muted)]">{group.description}</p>
-          <div className="flex gap-6 text-sm">
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={permissions.includes(group.read)}
-                onChange={(e) => setGroupAccess(group, "read", e.target.checked)}
-                className="h-4 w-4 accent-[var(--accent)]"
-              />
-              View
-            </label>
-            {group.write && (
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={permissions.includes(group.write)}
-                  onChange={(e) => setGroupAccess(group, "write", e.target.checked)}
-                  className="h-4 w-4 accent-[var(--accent)]"
+    <div className="overflow-hidden rounded-lg border border-[var(--border)]">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-[var(--border)] bg-[var(--background)]">
+            <th className="px-3 py-2 text-left text-xs font-semibold text-[var(--muted)]">
+              Module
+            </th>
+            <th className="px-3 py-2 text-left text-xs font-semibold text-[var(--muted)]">
+              Access
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {groups.map((group, i) => (
+            <tr
+              key={group.id}
+              className={
+                i % 2 === 0 ? "bg-[var(--surface)]" : "bg-[var(--background)]/60"
+              }
+            >
+              <td className="px-3 py-2 align-middle" title={group.description}>
+                <span className="font-medium text-[var(--foreground)]">{group.label}</span>
+              </td>
+              <td className="px-3 py-2 align-middle">
+                <AccessRadios
+                  group={group}
+                  permissions={permissions}
+                  onChange={(level) => setGroupLevel(group, level)}
                 />
-                Full access
-              </label>
-            )}
-          </div>
-        </div>
-      ))}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

@@ -1,109 +1,354 @@
 "use client";
 
-import { PermissionGate } from "@/components/layout/permission-gate";
+import {
+  CustomerForm,
+  emptyDraft,
+  type DraftCustomer,
+} from "@/components/customers/customer-form";
+import { ModuleGate } from "@/components/layout/module-gate";
 import { useSession } from "@/components/providers/session-provider";
-import { apiFetch } from "@/lib/api-client";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { Modal } from "@/components/ui/modal";
+import { SearchableTable, type TableColumn } from "@/components/ui/searchable-table";
+import { TableRowActionsMenu } from "@/components/ui/table-row-actions-menu";
+import { apiFetch, ApiError } from "@/lib/api-client";
 import type { CustomerDto } from "@mygaragepro/shared";
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+
+function toDraft(c: CustomerDto): DraftCustomer {
+  return {
+    id: c.id,
+    type: c.type,
+    firstName: c.firstName ?? "",
+    lastName: c.lastName ?? "",
+    companyName: c.companyName ?? "",
+    email: c.email ?? "",
+    phone: c.phone ?? "",
+    registration: "",
+    make: "",
+    model: "",
+    isAccountCustomer: c.isAccountCustomer,
+    paymentTermsDays: c.accountTerms?.paymentTermsDays ?? 30,
+    creditLimit: c.accountTerms?.creditLimit ?? "",
+    billingCycle: c.accountTerms?.billingCycle ?? "MONTHLY",
+  };
+}
+
+function buildPayload(draft: DraftCustomer, isEdit: boolean) {
+  const body: Record<string, unknown> = {
+    type: draft.type,
+    email: draft.email || undefined,
+    phone: draft.phone || undefined,
+    isAccountCustomer: draft.isAccountCustomer,
+  };
+
+  if (draft.type === "INDIVIDUAL") {
+    body.firstName = draft.firstName;
+    body.lastName = draft.lastName || undefined;
+  } else {
+    body.companyName = draft.companyName;
+  }
+
+  if (draft.isAccountCustomer) {
+    body.accountTerms = {
+      paymentTermsDays: draft.paymentTermsDays,
+      creditLimit: draft.creditLimit || undefined,
+      billingCycle: draft.billingCycle,
+    };
+  }
+
+  if (!isEdit && draft.registration.trim()) {
+    body.vehicles = [
+      {
+        registration: draft.registration.trim(),
+        make: draft.make || undefined,
+        model: draft.model || undefined,
+      },
+    ];
+  }
+
+  return body;
+}
 
 export default function CustomersPage() {
   const { hasPermission } = useSession();
-  const [q, setQ] = useState("");
-  const [customers, setCustomers] = useState<CustomerDto[]>([]);
+  const canWrite = hasPermission("customers.write");
+
+  const [rows, setRows] = useState<CustomerDto[]>([]);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [includeArchived, setIncludeArchived] = useState(false);
+
+  const [modalOpen, setModalOpen] = useState(false);
+  const [draft, setDraft] = useState<DraftCustomer>(emptyDraft());
+  const [saving, setSaving] = useState(false);
+
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmTarget, setConfirmTarget] = useState<CustomerDto | null>(null);
+  const [confirmRestore, setConfirmRestore] = useState(false);
 
   const load = useCallback(async () => {
-    const params = q.trim() ? `?q=${encodeURIComponent(q.trim())}` : "";
-    const data = await apiFetch<CustomerDto[]>(`/customers${params}`);
-    setCustomers(data);
-  }, [q]);
+    setLoading(true);
+    setError("");
+    try {
+      const params = includeArchived ? "?includeDeleted=true" : "";
+      const data = await apiFetch<CustomerDto[]>(`/customers${params}`);
+      setRows(data);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not load customers");
+    } finally {
+      setLoading(false);
+    }
+  }, [includeArchived]);
 
   useEffect(() => {
-    const t = setTimeout(() => {
-      void load().catch(() => setError("Could not load customers"));
-    }, 300);
-    return () => clearTimeout(t);
+    void load();
   }, [load]);
 
+  const columns: TableColumn<CustomerDto>[] = useMemo(() => {
+    const cols: TableColumn<CustomerDto>[] = [
+      {
+        id: "name",
+        header: "Customer",
+        searchText: (c) =>
+          [c.displayName, c.firstName ?? "", c.lastName ?? "", c.companyName ?? ""].join(" "),
+        cell: (c) => (
+          <div className="flex flex-col gap-0.5">
+            <div className="flex items-center gap-2">
+              <Link href={`/customers/${c.id}`} className="font-medium text-accent hover:underline">
+                {c.displayName}
+              </Link>
+              {c.deletedAt && (
+                <span className="rounded-full bg-[var(--background)] px-2 py-0.5 text-[10px] text-[var(--muted)]">
+                  Archived
+                </span>
+              )}
+            </div>
+          </div>
+        ),
+      },
+      {
+        id: "type",
+        header: "Type",
+        searchText: (c) => c.type,
+        cell: (c) => <span className="capitalize">{c.type.toLowerCase()}</span>,
+      },
+      {
+        id: "contact",
+        header: "Contact",
+        searchText: (c) => [c.email ?? "", c.phone ?? ""].join(" "),
+        cell: (c) => (
+          <div className="text-xs text-[var(--muted)]">
+            <div>{c.email ?? "—"}</div>
+            <div>{c.phone ?? ""}</div>
+          </div>
+        ),
+      },
+      {
+        id: "vehicles",
+        header: "Vehicles",
+        searchText: (c) => c.vehicles.map((v) => v.registration).join(" "),
+        cell: (c) =>
+          c.vehicles.length ? (
+            <span className="font-mono text-xs">{c.vehicles.map((v) => v.registration).join(", ")}</span>
+          ) : (
+            "—"
+          ),
+      },
+      {
+        id: "account",
+        header: "Account",
+        searchText: (c) => (c.isAccountCustomer ? "account" : ""),
+        cell: (c) =>
+          c.isAccountCustomer ? (
+            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-900 dark:bg-amber-950 dark:text-amber-100">
+              Account
+            </span>
+          ) : (
+            "—"
+          ),
+      },
+    ];
+
+    if (canWrite) {
+      cols.push({
+        id: "actions",
+        header: "Actions",
+        align: "right",
+        cell: (c) => (
+          <TableRowActionsMenu
+            triggerLabel={`Actions for ${c.displayName}`}
+            actions={[
+              { label: "View", href: `/customers/${c.id}` },
+              ...(!c.deletedAt
+                ? [
+                    {
+                      label: "Edit",
+                      onClick: () => {
+                        setDraft(toDraft(c));
+                        setModalOpen(true);
+                      },
+                    },
+                  ]
+                : []),
+              {
+                label: c.deletedAt ? "Restore" : "Archive",
+                variant: c.deletedAt ? "default" : "danger",
+                onClick: () => {
+                  setConfirmTarget(c);
+                  setConfirmRestore(Boolean(c.deletedAt));
+                  setConfirmOpen(true);
+                },
+              },
+            ]}
+          />
+        ),
+      });
+    }
+
+    return cols;
+  }, [canWrite]);
+
+  async function saveCustomer(e: FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    setError("");
+    const isEdit = Boolean(draft.id);
+    try {
+      const payload = buildPayload(draft, isEdit);
+      if (draft.id) {
+        await apiFetch(`/customers/${draft.id}`, {
+          method: "PATCH",
+          body: JSON.stringify(payload),
+        });
+      } else {
+        await apiFetch("/customers", {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+      }
+      setModalOpen(false);
+      setDraft(emptyDraft());
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function confirmArchiveAction() {
+    if (!confirmTarget) return;
+    setSaving(true);
+    setError("");
+    try {
+      if (confirmRestore) {
+        await apiFetch(`/customers/${confirmTarget.id}/restore`, { method: "POST" });
+      } else {
+        await apiFetch(`/customers/${confirmTarget.id}`, { method: "DELETE" });
+      }
+      setConfirmOpen(false);
+      setConfirmTarget(null);
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Update failed");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
-    <PermissionGate permission="customers.read">
+    <ModuleGate moduleKey="customers">
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
         <div>
           <p className="mb-1 text-xs text-[var(--muted)]">
             Home / <span className="text-accent">Customers</span>
           </p>
           <h1 className="text-2xl font-bold text-[var(--foreground)]">Customers</h1>
+          <p className="mt-1 text-sm text-[var(--muted)]">Customer and vehicle records.</p>
         </div>
-        {hasPermission("customers.write") && (
-          <Link
-            href="/customers/new"
-            className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:opacity-90"
-          >
-            Add customer
-          </Link>
-        )}
+
+        <div className="flex items-center gap-3">
+          <label className="flex items-center gap-2 text-xs text-[var(--muted)]">
+            <input
+              type="checkbox"
+              checked={includeArchived}
+              onChange={(e) => setIncludeArchived(e.target.checked)}
+              className="h-4 w-4 rounded border border-[var(--border)]"
+            />
+            Show archived
+          </label>
+
+          {canWrite && (
+            <button
+              type="button"
+              onClick={() => {
+                setDraft(emptyDraft());
+                setModalOpen(true);
+              }}
+              className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:opacity-90"
+            >
+              Add customer
+            </button>
+          )}
+        </div>
       </div>
 
       {error && <p className="mb-4 text-sm text-red-600">{error}</p>}
+      {loading && <p className="mb-4 text-sm text-[var(--muted)]">Loading…</p>}
 
-      <div className="mb-4">
-        <input
-          type="search"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Search name, company, email, or reg…"
-          className="w-full max-w-md rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm"
+      <SearchableTable
+        rows={rows}
+        columns={columns}
+        getRowId={(c) => c.id}
+        searchPlaceholder="Name, company, email, phone, reg…"
+        emptyLabel="No customers yet"
+        noMatchLabel="No matching customers"
+        minWidth="800px"
+        countLabel={(filtered, total) =>
+          `${filtered} of ${total} customer${total === 1 ? "" : "s"}`
+        }
+      />
+
+      <Modal
+        title={draft.id ? "Edit customer" : "Add customer"}
+        open={modalOpen}
+        onClose={() => {
+          if (!saving) setModalOpen(false);
+        }}
+        size="lg"
+      >
+        <CustomerForm
+          draft={draft}
+          setDraft={setDraft}
+          saving={saving}
+          onSubmit={saveCustomer}
+          onCancel={() => setModalOpen(false)}
         />
-      </div>
+      </Modal>
 
-      <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)]">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-[var(--border)] text-left text-[11px] uppercase text-[var(--muted)]">
-              <th className="px-4 py-2">Name</th>
-              <th className="px-4 py-2">Type</th>
-              <th className="px-4 py-2">Phone</th>
-              <th className="px-4 py-2">Vehicles</th>
-              <th className="px-4 py-2">Account</th>
-            </tr>
-          </thead>
-          <tbody>
-            {customers.length === 0 && (
-              <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-[var(--muted)]">
-                  No customers found.
-                </td>
-              </tr>
-            )}
-            {customers.map((c) => (
-              <tr key={c.id} className="border-b border-[var(--border)] hover:bg-[var(--background)]">
-                <td className="px-4 py-2.5">
-                  <Link href={`/customers/${c.id}`} className="font-medium text-accent hover:underline">
-                    {c.displayName}
-                  </Link>
-                </td>
-                <td className="px-4 py-2.5 capitalize">{c.type.toLowerCase()}</td>
-                <td className="px-4 py-2.5">{c.phone ?? "—"}</td>
-                <td className="px-4 py-2.5">
-                  {c.vehicles.length
-                    ? c.vehicles.map((v) => v.registration).join(", ")
-                    : "—"}
-                </td>
-                <td className="px-4 py-2.5">
-                  {c.isAccountCustomer ? (
-                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-900 dark:bg-amber-950 dark:text-amber-100">
-                      Account
-                    </span>
-                  ) : (
-                    "—"
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </PermissionGate>
+      <ConfirmDialog
+        open={confirmOpen && confirmTarget !== null}
+        title={confirmRestore ? "Restore customer?" : "Archive customer?"}
+        description={
+          <span>
+            {confirmRestore ? "Restore" : "Archive"}{" "}
+            <strong className="text-[var(--foreground)]">{confirmTarget?.displayName}</strong>?
+            {!confirmRestore && " They will be hidden from the active list."}
+          </span>
+        }
+        confirmLabel={confirmRestore ? "Restore" : "Archive"}
+        variant={confirmRestore ? "default" : "danger"}
+        loading={saving}
+        onCancel={() => {
+          if (!saving) {
+            setConfirmOpen(false);
+            setConfirmTarget(null);
+          }
+        }}
+        onConfirm={() => void confirmArchiveAction()}
+      />
+    </ModuleGate>
   );
 }

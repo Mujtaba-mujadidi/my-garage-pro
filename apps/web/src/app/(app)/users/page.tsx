@@ -3,6 +3,7 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { PermissionGate } from "@/components/layout/permission-gate";
 import { useSession } from "@/components/providers/session-provider";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Modal } from "@/components/ui/modal";
 import { TeamUserFormFields, type RoleOption } from "@/components/users/team-user-form-fields";
 import { TeamUsersTable } from "@/components/users/team-users-table";
@@ -21,7 +22,7 @@ type EditState = {
 const defaultCreate = {
   email: "",
   displayName: "",
-  password: "demo",
+  password: "",
   garageRoleId: "",
 };
 
@@ -37,6 +38,8 @@ export default function UsersPage() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [edit, setEdit] = useState<EditState | null>(null);
+  const [statusConfirm, setStatusConfirm] = useState<"ACTIVE" | "DISABLED" | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<TeamUserDto | null>(null);
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
@@ -50,9 +53,6 @@ export default function UsersPage() {
       ]);
       setUsers(userRows);
       setRoles(roleList);
-      const mechanic = roleList.find((r) => r.slug === "mechanic");
-      const defaultRoleId = mechanic?.id ?? roleList[0]?.id ?? "";
-      setCreate((c) => ({ ...c, garageRoleId: c.garageRoleId || defaultRoleId }));
     } catch (err) {
       const msg =
         err instanceof ApiError
@@ -70,19 +70,14 @@ export default function UsersPage() {
   }, [load, session, sessionLoading]);
 
   function openCreate() {
-    const mechanic = roles.find((r) => r.slug === "mechanic");
-    setCreate({
-      email: "",
-      displayName: "",
-      password: "demo",
-      garageRoleId: mechanic?.id ?? roles[0]?.id ?? "",
-    });
+    setCreate({ ...defaultCreate });
     setError("");
     setShowCreate(true);
   }
 
   function closeCreate() {
     setShowCreate(false);
+    setCreate({ ...defaultCreate });
     setError("");
   }
 
@@ -100,11 +95,35 @@ export default function UsersPage() {
 
   function closeEdit() {
     setEdit(null);
+    setStatusConfirm(null);
     setError("");
+  }
+
+  function persistedStatus(user: TeamUserDto): "ACTIVE" | "DISABLED" {
+    return user.status === "DISABLED" ? "DISABLED" : "ACTIVE";
+  }
+
+  function requestStatusChange(next: "ACTIVE" | "DISABLED") {
+    if (!edit || next === edit.status) return;
+    if (next === persistedStatus(edit.user)) {
+      setEdit({ ...edit, status: next });
+      return;
+    }
+    setStatusConfirm(next);
+  }
+
+  function confirmStatusChange() {
+    if (!edit || statusConfirm === null) return;
+    setEdit({ ...edit, status: statusConfirm });
+    setStatusConfirm(null);
   }
 
   async function onCreate(e: FormEvent) {
     e.preventDefault();
+    if (!create.garageRoleId) {
+      setError("Please select a role.");
+      return;
+    }
     setSaving(true);
     setMessage("");
     setError("");
@@ -118,6 +137,25 @@ export default function UsersPage() {
       await load();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Create failed");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function confirmDeleteUser() {
+    if (!deleteTarget) return;
+    setSaving(true);
+    setMessage("");
+    setError("");
+    try {
+      await apiFetch(`/users/${deleteTarget.id}`, { method: "DELETE" });
+      setMessage(`${deleteTarget.displayName} was removed from the team.`);
+      if (edit?.user.id === deleteTarget.id) closeEdit();
+      setDeleteTarget(null);
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Delete failed");
+      setDeleteTarget(null);
     } finally {
       setSaving(false);
     }
@@ -187,11 +225,17 @@ export default function UsersPage() {
       {loading ? (
         <p className="text-sm text-[var(--muted)]">Loading team…</p>
       ) : (
-        <TeamUsersTable users={users} canWrite={canWrite} onEdit={openEdit} />
+        <TeamUsersTable
+          users={users}
+          canWrite={canWrite}
+          currentUserId={session?.user.id}
+          onEdit={openEdit}
+          onDelete={setDeleteTarget}
+        />
       )}
 
       <Modal title="Add team member" open={showCreate} onClose={closeCreate}>
-        <form onSubmit={onCreate} className="space-y-4">
+        <form key={showCreate ? "create-open" : "create-closed"} onSubmit={onCreate} className="space-y-4" autoComplete="off">
           <TeamUserFormFields
             mode="create"
             displayName={create.displayName}
@@ -242,7 +286,7 @@ export default function UsersPage() {
               onEmailChange={(v) => setEdit({ ...edit, email: v })}
               onPasswordChange={(v) => setEdit({ ...edit, password: v })}
               onGarageRoleIdChange={(v) => setEdit({ ...edit, garageRoleId: v })}
-              onStatusChange={(v) => setEdit({ ...edit, status: v })}
+              onStatusChange={requestStatusChange}
             />
             {error && <p className="text-sm text-red-600">{error}</p>}
             <div className="flex justify-end gap-2 pt-2">
@@ -264,6 +308,42 @@ export default function UsersPage() {
           </form>
         )}
       </Modal>
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title="Delete team member?"
+        description={
+          <span>
+            Permanently remove{" "}
+            <strong className="text-[var(--foreground)]">{deleteTarget?.displayName}</strong> from
+            this garage? They will no longer be able to sign in. This cannot be undone from the app.
+          </span>
+        }
+        confirmLabel="Delete"
+        variant="danger"
+        loading={saving}
+        onCancel={() => {
+          if (!saving) setDeleteTarget(null);
+        }}
+        onConfirm={() => void confirmDeleteUser()}
+      />
+
+      <ConfirmDialog
+        open={edit !== null && statusConfirm !== null}
+        title={statusConfirm === "DISABLED" ? "Disable team member?" : "Enable team member?"}
+        description={
+          <span>
+            {statusConfirm === "DISABLED" ? "Disable" : "Enable"}{" "}
+            <strong className="text-[var(--foreground)]">{edit?.user.displayName}</strong>?
+            {statusConfirm === "DISABLED" &&
+              " They will not be able to sign in until the account is enabled again."}
+          </span>
+        }
+        confirmLabel={statusConfirm === "DISABLED" ? "Disable" : "Enable"}
+        variant={statusConfirm === "DISABLED" ? "danger" : "default"}
+        onCancel={() => setStatusConfirm(null)}
+        onConfirm={confirmStatusChange}
+      />
     </PermissionGate>
   );
 }

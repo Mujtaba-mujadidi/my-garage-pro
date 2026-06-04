@@ -8,15 +8,28 @@ type ModalProps = {
   onClose: () => void;
   children: ReactNode;
   size?: "md" | "lg";
+  /** Fixed-height body; tab panels scroll inside instead of resizing the modal. */
+  fixedHeight?: boolean;
 };
 
-export function Modal({ title, open, onClose, children, size = "md" }: ModalProps) {
+export function Modal({
+  title,
+  open,
+  onClose,
+  children,
+  size = "md",
+  fixedHeight = false,
+}: ModalProps) {
   if (!open) return null;
 
   const panelClass =
     size === "lg"
-      ? "max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-xl"
-      : "max-h-[90vh] w-full max-w-md overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-xl";
+      ? `max-h-[90vh] w-full max-w-2xl rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-xl ${
+          fixedHeight ? "flex max-h-[min(90vh,640px)] flex-col overflow-hidden" : "overflow-y-auto"
+        }`
+      : `max-h-[90vh] w-full max-w-md rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-xl ${
+          fixedHeight ? "flex max-h-[min(90vh,640px)] flex-col overflow-hidden" : "overflow-y-auto"
+        }`;
 
   return (
     <div

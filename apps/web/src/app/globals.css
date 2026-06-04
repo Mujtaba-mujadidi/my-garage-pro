@@ -67,3 +67,12 @@ body {
     -webkit-overflow-scrolling: touch;
   }
 }
+
+/* Native selects (fallback) — prefer <Select> component */
+@layer components {
+  select.mgp-native-select {
+    appearance: none;
+    background-image: none;
+    padding-right: 2.25rem;
+  }
+}

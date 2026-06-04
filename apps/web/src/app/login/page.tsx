@@ -94,7 +94,7 @@ export default function LoginPage() {
         <p className="mt-6 text-center text-xs text-slate-500 dark:text-slate-400">
           Demo: <strong>owner@demo.garage</strong> / <strong>demo</strong>
           <br />
-          Super Admin: <strong>admin@mygaragepro.app</strong> / <strong>ChangeMeAdmin1!</strong>
+          Super Admin: <strong>admin@demo.garage</strong> / <strong>demo</strong>
         </p>
       </div>
     </div>

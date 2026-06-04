@@ -38,6 +38,11 @@ enum BillingCycle {
   MONTHLY
 }
 
+enum SupplierStatus {
+  ACTIVE
+  INACTIVE
+}
+
 model GarageAccount {
   id                String              @id @default(uuid()) @db.Uuid
   name              String
@@ -58,6 +63,7 @@ model GarageAccount {
   settings  SettingOption[]
   auditLogs AuditLog[]
   customers       Customer[]
+  suppliers       Supplier[]
   garageRoles     GarageRole[]
 
   @@map("garage_account")
@@ -198,6 +204,32 @@ model CustomerVehicle {
   @@index([customerId])
   @@index([registration])
   @@map("customer_vehicle")
+}
+
+model Supplier {
+  id              String         @id @default(uuid()) @db.Uuid
+  garageAccountId String         @map("garage_account_id") @db.Uuid
+  name            String
+  email           String?
+  phone           String?
+  addressLine1    String?        @map("address_line1")
+  addressLine2    String?        @map("address_line2")
+  city            String?
+  postcode        String?
+  vatNumber       String?        @map("vat_number")
+  notes           String?
+  status          SupplierStatus @default(ACTIVE)
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+  deletedAt       DateTime?      @map("deleted_at")
+  deletedBy       String?        @map("deleted_by") @db.Uuid
+
+  garageAccount GarageAccount @relation(fields: [garageAccountId], references: [id], onDelete: Cascade)
+
+  @@index([garageAccountId, name])
+  @@index([garageAccountId, status])
+  @@index([garageAccountId, deletedAt])
+  @@map("supplier")
 }
 
 model GarageRole {

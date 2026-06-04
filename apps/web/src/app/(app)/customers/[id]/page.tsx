@@ -1,5 +1,6 @@
 "use client";
 
+import { ModuleGate } from "@/components/layout/module-gate";
 import { PermissionGate } from "@/components/layout/permission-gate";
 import { useSession } from "@/components/providers/session-provider";
 import { apiFetch, ApiError } from "@/lib/api-client";
@@ -15,6 +16,9 @@ export default function CustomerDetailPage() {
   const [customer, setCustomer] = useState<CustomerDto | null>(null);
   const [error, setError] = useState("");
   const [newReg, setNewReg] = useState("");
+  const [newMake, setNewMake] = useState("");
+  const [newModel, setNewModel] = useState("");
+  const [addingVehicle, setAddingVehicle] = useState(false);
 
   const load = useCallback(async () => {
     const data = await apiFetch<CustomerDto>(`/customers/${id}`);
@@ -46,29 +50,42 @@ export default function CustomerDetailPage() {
 
   async function addVehicle() {
     if (!newReg.trim()) return;
+    setAddingVehicle(true);
+    setError("");
     try {
       await apiFetch(`/customers/${id}/vehicles`, {
         method: "POST",
-        body: JSON.stringify({ registration: newReg }),
+        body: JSON.stringify({
+          registration: newReg.trim(),
+          make: newMake.trim() || undefined,
+          model: newModel.trim() || undefined,
+        }),
       });
       setNewReg("");
+      setNewMake("");
+      setNewModel("");
       await load();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not add vehicle");
+    } finally {
+      setAddingVehicle(false);
     }
   }
 
   if (!customer) {
     return (
-      <PermissionGate permission="customers.read">
-        <p className="text-sm text-[var(--muted)]">{error || "Loading…"}</p>
-      </PermissionGate>
+      <ModuleGate moduleKey="customers">
+        <PermissionGate permission="customers.read">
+          <p className="text-sm text-[var(--muted)]">{error || "Loading…"}</p>
+        </PermissionGate>
+      </ModuleGate>
     );
   }
 
   const canRestore = customer.deletedAt && hasPermission("customers.write");
 
   return (
+    <ModuleGate moduleKey="customers">
     <PermissionGate permission="customers.read">
       <p className="mb-2 text-xs text-[var(--muted)]">
         <Link href="/customers" className="hover:text-accent">
@@ -142,24 +159,41 @@ export default function CustomerDetailPage() {
             )}
           </ul>
           {hasPermission("customers.write") && !customer.deletedAt && (
-            <div className="flex gap-2">
-              <input
-                value={newReg}
-                onChange={(e) => setNewReg(e.target.value)}
-                placeholder="New reg"
-                className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 font-mono uppercase"
-              />
+            <div className="space-y-2 border-t border-[var(--border)] pt-3">
+              <p className="text-xs font-medium text-[var(--muted)]">Add vehicle</p>
+              <div className="grid gap-2 sm:grid-cols-3">
+                <input
+                  value={newReg}
+                  onChange={(e) => setNewReg(e.target.value)}
+                  placeholder="Reg e.g. AB12 CDE"
+                  className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 font-mono text-sm uppercase"
+                />
+                <input
+                  value={newMake}
+                  onChange={(e) => setNewMake(e.target.value)}
+                  placeholder="Make"
+                  className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+                />
+                <input
+                  value={newModel}
+                  onChange={(e) => setNewModel(e.target.value)}
+                  placeholder="Model"
+                  className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+                />
+              </div>
               <button
                 type="button"
-                onClick={addVehicle}
-                className="rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white"
+                onClick={() => void addVehicle()}
+                disabled={addingVehicle || !newReg.trim()}
+                className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
               >
-                Add
+                {addingVehicle ? "Adding…" : "Add vehicle"}
               </button>
             </div>
           )}
         </section>
       </div>
     </PermissionGate>
+    </ModuleGate>
   );
 }

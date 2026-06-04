@@ -16,6 +16,9 @@ import { GarageRolesService } from "../garage-roles/garage-roles.service";
 import type { RequestUser } from "../auth/auth.types";
 import { CreateGarageDto } from "./dto/create-garage.dto";
 import { CreateGarageUserDto } from "./dto/create-garage-user.dto";
+import { ResetGarageOwnerPasswordDto } from "./dto/reset-garage-owner-password.dto";
+import { ensureDefaultGarageSettings } from "../settings/default-garage-settings";
+import { UpdateGarageDto } from "./dto/update-garage.dto";
 import { UpdateGarageModulesDto } from "./dto/update-garage-modules.dto";
 
 function mapGarage(
@@ -128,6 +131,7 @@ export class PlatformService {
     });
 
     await this.garageRoles.seedDefaultRoles(garage.id);
+    await ensureDefaultGarageSettings(this.prisma, garage.id);
 
     await this.audit.log({
       action: "platform.garage.create",
@@ -145,6 +149,115 @@ export class PlatformService {
 
     const list = await this.listGarages();
     return list.find((g) => g.id === garage.id);
+  }
+
+  async updateGarage(actor: RequestUser, id: string, dto: UpdateGarageDto) {
+    const garage = await this.prisma.garageAccount.findFirst({
+      where: { id, deletedAt: null },
+    });
+    if (!garage) throw new NotFoundException("Garage not found");
+
+    const slug = dto.slug.toLowerCase().trim();
+    if (slug !== garage.slug) {
+      const slugExists = await this.prisma.garageAccount.findUnique({ where: { slug } });
+      if (slugExists) throw new ConflictException("Slug already in use");
+    }
+
+    const vat = dto.vatNumber?.trim() ? dto.vatNumber.trim() : null;
+    const directorName = dto.directorOwnerName.trim();
+
+    const owner = await this.prisma.user.findFirst({
+      where: {
+        garageAccountId: id,
+        role: UserRole.OWNER,
+        deletedAt: null,
+      },
+    });
+
+    const ownerEmail = dto.ownerEmail?.toLowerCase().trim();
+    if (owner && ownerEmail) {
+      if (ownerEmail !== owner.email) {
+        const emailExists = await this.prisma.user.findUnique({ where: { email: ownerEmail } });
+        if (emailExists) throw new ConflictException("Owner email already registered");
+        await this.prisma.user.update({
+          where: { id: owner.id },
+          data: { email: ownerEmail, displayName: directorName },
+        });
+      } else {
+        await this.prisma.user.update({
+          where: { id: owner.id },
+          data: { displayName: directorName },
+        });
+      }
+    } else if (owner) {
+      await this.prisma.user.update({
+        where: { id: owner.id },
+        data: { displayName: directorName },
+      });
+    }
+
+    await this.prisma.garageAccount.update({
+      where: { id },
+      data: {
+        name: dto.name.trim(),
+        slug,
+        directorOwnerName: directorName,
+        address: dto.address.trim(),
+        contactNumber: dto.contactNumber.trim(),
+        phoneNumber: dto.phoneNumber.trim(),
+        vatNumber: vat,
+      },
+    });
+
+    await this.audit.log({
+      action: "platform.garage.update",
+      userId: actor.id,
+      garageAccountId: id,
+      entityType: "garage_account",
+      entityId: id,
+      metadata: { name: dto.name, slug },
+    });
+
+    const list = await this.listGarages();
+    return list.find((g) => g.id === id);
+  }
+
+  async resetOwnerPassword(actor: RequestUser, garageId: string, dto: ResetGarageOwnerPasswordDto) {
+    const garage = await this.prisma.garageAccount.findFirst({
+      where: { id: garageId, deletedAt: null },
+    });
+    if (!garage) throw new NotFoundException("Garage not found");
+
+    const owner = await this.prisma.user.findFirst({
+      where: {
+        garageAccountId: garageId,
+        role: UserRole.OWNER,
+        deletedAt: null,
+      },
+    });
+    if (!owner) {
+      throw new NotFoundException("No owner account found for this garage");
+    }
+
+    await this.prisma.user.update({
+      where: { id: owner.id },
+      data: {
+        passwordHash: await argon2.hash(dto.tempPassword),
+        mustChangePassword: true,
+        status: "ACTIVE",
+      },
+    });
+
+    await this.audit.log({
+      action: "platform.garage.owner_password_reset",
+      userId: actor.id,
+      garageAccountId: garageId,
+      entityType: "user",
+      entityId: owner.id,
+      metadata: { ownerEmail: owner.email },
+    });
+
+    return { ok: true as const, ownerEmail: owner.email };
   }
 
   async setGarageStatus(actor: RequestUser, id: string, status: "ACTIVE" | "SUSPENDED") {

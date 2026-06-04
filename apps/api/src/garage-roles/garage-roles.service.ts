@@ -9,13 +9,18 @@ import {
   allGaragePermissionsForOwner,
   DEFAULT_GARAGE_ROLES,
   GARAGE_PERMISSIONS,
+  PERMISSION_MODULE,
   type GaragePermission,
   type GarageRoleDetailDto,
   type GarageRoleDto,
   type GarageRoleListDto,
-  PERMISSION_GROUPS,
+  type ModuleKey,
   type Permission,
   superAdminPermissions,
+} from "@mygaragepro/shared";
+import {
+  filterGaragePermissions,
+  permissionGroupsForGarage,
 } from "@mygaragepro/shared";
 import { AuditService } from "../audit/audit.service";
 import { PrismaService } from "../prisma/prisma.service";
@@ -56,23 +61,92 @@ export class GarageRolesService {
     return [];
   }
 
+  /**
+   * Ensures manager / mechanic / staff slots exist. Default roles keep a stable slug so
+   * renaming the display label does not spawn a second row on the next list().
+   */
   async seedDefaultRoles(garageAccountId: string) {
+    const enabledModules = await this.getEnabledModules(garageAccountId);
+    await this.dedupeDefaultRoleSlots(garageAccountId);
+
     for (let i = 0; i < DEFAULT_GARAGE_ROLES.length; i++) {
       const template = DEFAULT_GARAGE_ROLES[i];
-      const role = await this.prisma.garageRole.upsert({
+      let role = await this.prisma.garageRole.findUnique({
         where: {
           garageAccountId_slug: { garageAccountId, slug: template.slug },
         },
-        create: {
+        include: { _count: { select: { users: true } } },
+      });
+
+      if (!role) {
+        const renamedSlot = await this.prisma.garageRole.findFirst({
+          where: { garageAccountId, isDefault: true, sortOrder: i },
+          include: { _count: { select: { users: true } } },
+        });
+        if (renamedSlot) {
+          role = await this.prisma.garageRole.update({
+            where: { id: renamedSlot.id },
+            data: { slug: template.slug },
+            include: { _count: { select: { users: true } } },
+          });
+        }
+      }
+
+      if (role) {
+        continue;
+      }
+
+      role = await this.prisma.garageRole.create({
+        data: {
           garageAccountId,
           name: template.name,
           slug: template.slug,
           isDefault: true,
           sortOrder: i,
         },
-        update: { name: template.name },
+        include: { _count: { select: { users: true } } },
       });
-      await this.setRolePermissions(role.id, template.permissions);
+      const granted = filterGaragePermissions(template.permissions, enabledModules);
+      await this.setRolePermissions(role.id, granted, enabledModules);
+    }
+  }
+
+  /** Removes duplicate default-slot rows left by older slug-rename behaviour. */
+  private async dedupeDefaultRoleSlots(garageAccountId: string) {
+    for (let i = 0; i < DEFAULT_GARAGE_ROLES.length; i++) {
+      const template = DEFAULT_GARAGE_ROLES[i];
+      const roles = await this.prisma.garageRole.findMany({
+        where: {
+          garageAccountId,
+          OR: [{ slug: template.slug }, { isDefault: true, sortOrder: i }],
+        },
+        include: { _count: { select: { users: true } } },
+        orderBy: { createdAt: "asc" },
+      });
+      if (roles.length <= 1) continue;
+
+      const keeper =
+        roles.find((r) => r.slug === template.slug) ??
+        roles.find((r) => r._count.users > 0) ??
+        roles[0];
+
+      for (const dup of roles) {
+        if (dup.id === keeper.id) continue;
+        if (dup._count.users > 0) {
+          await this.prisma.user.updateMany({
+            where: { garageRoleId: dup.id, garageAccountId },
+            data: { garageRoleId: keeper.id },
+          });
+        }
+        await this.prisma.garageRole.delete({ where: { id: dup.id } });
+      }
+
+      if (keeper.slug !== template.slug) {
+        await this.prisma.garageRole.update({
+          where: { id: keeper.id },
+          data: { slug: template.slug },
+        });
+      }
     }
   }
 
@@ -89,15 +163,21 @@ export class GarageRolesService {
       },
     });
 
+    const enabledModules = await this.getEnabledModules(garageAccountId);
     return {
-      roles: roles.map((r) => this.toRoleDto(r)),
-      groups: PERMISSION_GROUPS,
+      roles: roles.map((r) => this.toRoleDto(r, enabledModules)),
+      groups: permissionGroupsForGarage(enabledModules),
+      enabledModules,
     };
   }
 
   async getOne(user: RequestUser, id: string): Promise<GarageRoleDetailDto> {
     const role = await this.findRoleInGarage(user, id);
-    return { ...this.toRoleDto(role), groups: PERMISSION_GROUPS };
+    const enabledModules = await this.getEnabledModules(role.garageAccountId);
+    return {
+      ...this.toRoleDto(role, enabledModules),
+      groups: permissionGroupsForGarage(enabledModules),
+    };
   }
 
   async create(user: RequestUser, name: string, permissions: GaragePermission[] = []) {
@@ -121,7 +201,9 @@ export class GarageRolesService {
       },
     });
 
-    await this.setRolePermissions(role.id, permissions);
+    const enabledModules = await this.getEnabledModules(garageAccountId);
+    const granted = filterGaragePermissions(permissions, enabledModules);
+    await this.setRolePermissions(role.id, granted, enabledModules);
 
     await this.audit.log({
       action: "garage_roles.create",
@@ -143,20 +225,31 @@ export class GarageRolesService {
     this.assertOwner(user);
     const existing = await this.findRoleInGarage(user, id);
 
-    let slug = existing.slug;
-    if (data.name && data.name.trim() !== existing.name) {
-      slug = await this.uniqueSlug(existing.garageAccountId, toSlug(data.name), id);
+    const name = data.name?.trim();
+    const updateData: { name?: string; slug?: string } = {};
+
+    if (name && name !== existing.name) {
+      updateData.name = name;
+      if (!existing.isDefault) {
+        updateData.slug = await this.uniqueSlug(
+          existing.garageAccountId,
+          toSlug(name),
+          id,
+        );
+      }
     }
 
-    await this.prisma.garageRole.update({
-      where: { id },
-      data: {
-        ...(data.name ? { name: data.name.trim(), slug } : {}),
-      },
-    });
+    if (Object.keys(updateData).length > 0) {
+      await this.prisma.garageRole.update({
+        where: { id },
+        data: updateData,
+      });
+    }
 
     if (data.permissions) {
-      await this.setRolePermissions(id, data.permissions);
+      const enabledModules = await this.getEnabledModules(existing.garageAccountId);
+      const permissions = filterGaragePermissions(data.permissions, enabledModules);
+      await this.setRolePermissions(id, permissions, enabledModules);
     }
 
     await this.audit.log({
@@ -194,14 +287,35 @@ export class GarageRolesService {
     });
   }
 
-  private async setRolePermissions(garageRoleId: string, granted: GaragePermission[]) {
+  private async setRolePermissions(
+    garageRoleId: string,
+    granted: GaragePermission[],
+    enabledModules: ModuleKey[],
+  ) {
     for (const permission of GARAGE_PERMISSIONS) {
+      const moduleKey = PERMISSION_MODULE[permission];
+      const applicable =
+        moduleKey === undefined || enabledModules.includes(moduleKey);
       await this.prisma.garageRolePermission.upsert({
         where: { garageRoleId_permission: { garageRoleId, permission } },
-        create: { garageRoleId, permission, granted: granted.includes(permission) },
-        update: { granted: granted.includes(permission) },
+        create: {
+          garageRoleId,
+          permission,
+          granted: applicable && granted.includes(permission),
+        },
+        update: {
+          granted: applicable && granted.includes(permission),
+        },
       });
     }
+  }
+
+  private async getEnabledModules(garageAccountId: string): Promise<ModuleKey[]> {
+    const rows = await this.prisma.garageAccountModule.findMany({
+      where: { garageAccountId, enabled: true },
+      select: { moduleKey: true },
+    });
+    return rows.map((r) => r.moduleKey as ModuleKey);
   }
 
   private async uniqueSlug(garageAccountId: string, base: string, excludeId?: string) {
@@ -231,21 +345,25 @@ export class GarageRolesService {
     return role;
   }
 
-  private toRoleDto(role: {
-    id: string;
-    name: string;
-    slug: string;
-    isDefault: boolean;
-    permissions: { permission: string }[];
-    _count: { users: number };
-  }): GarageRoleDto {
+  private toRoleDto(
+    role: {
+      id: string;
+      name: string;
+      slug: string;
+      isDefault: boolean;
+      permissions: { permission: string }[];
+      _count: { users: number };
+    },
+    enabledModules: ModuleKey[],
+  ): GarageRoleDto {
+    const raw = role.permissions.map((p) => p.permission as GaragePermission);
     return {
       id: role.id,
       name: role.name,
       slug: role.slug,
       isDefault: role.isDefault,
       userCount: role._count.users,
-      permissions: role.permissions.map((p) => p.permission as GaragePermission),
+      permissions: filterGaragePermissions(raw, enabledModules),
     };
   }
 

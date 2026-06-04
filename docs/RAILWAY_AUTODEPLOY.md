@@ -1,5 +1,9 @@
 # Railway not deploying after `git push`
 
+**Develop locally while deploys are paused:** [LOCAL_DEVELOPMENT.md](./LOCAL_DEVELOPMENT.md)
+
+---
+
 Git is updated on GitHub (`main`), but Railway shows **no new deployment**. Use this checklist.
 
 Repo: **`Mujtaba-mujadidi/my-garage-pro`** · branch: **`main`**

@@ -11,10 +11,11 @@ import { SettingsModule } from "./settings/settings.module";
 import { UsersModule } from "./users/users.module";
 import { CustomersModule } from "./customers/customers.module";
 import { GarageRolesModule } from "./garage-roles/garage-roles.module";
+import { SuppliersModule } from "./suppliers/suppliers.module";
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
+    ConfigModule.forRoot({ isGlobal: true, envFilePath: ".env" }),
     PrismaModule,
     AuditModule,
     GarageRolesModule,
@@ -23,6 +24,7 @@ import { GarageRolesModule } from "./garage-roles/garage-roles.module";
     PlatformModule,
     UsersModule,
     CustomersModule,
+    SuppliersModule,
   ],
   controllers: [HealthController],
   providers: [

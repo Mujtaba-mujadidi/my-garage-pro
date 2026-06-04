@@ -80,41 +80,26 @@ Redeploy **web** after saving variables.
 
 ## 4. Local development
 
-### Start Postgres (and Redis)
+**Full guide (daily workflow, git, migrations):** [LOCAL_DEVELOPMENT.md](./LOCAL_DEVELOPMENT.md)
+
+Quick start:
 
 ```bash
 docker compose up -d postgres
-```
-
-### API environment
-
-```bash
 cp apps/api/.env.example apps/api/.env
-```
-
-Edit `apps/api/.env` — `DATABASE_URL` should match docker-compose:
-
-```
-DATABASE_URL=postgresql://mygaragepro:mygaragepro_dev@localhost:5432/mygaragepro
-JWT_SECRET=local-dev-secret-change-in-production
-WEB_ORIGIN=http://localhost:3000
-```
-
-### Migrate + seed
-
-```bash
-pnpm --filter @mygaragepro/api exec prisma migrate dev --name init
+cp apps/web/.env.example apps/web/.env.local
+pnpm install
+pnpm db:migrate:deploy
 pnpm db:seed
-```
-
-### Run apps
-
-```bash
 pnpm dev
 ```
 
-- Web: http://localhost:3000  
+- Web: http://localhost:3011  
 - API: http://localhost:4000/health  
+
+If you already have `apps/api/.env` with `WEB_ORIGIN=http://localhost:3000`, update it to `http://localhost:3011` (see `docs/LOCAL_DEVELOPMENT.md` for ports).
+
+Use this while Railway deploys are paused; push to `main` when ready for the team to test on staging.
 
 ---
 
@@ -122,7 +107,7 @@ pnpm dev
 
 | Role | Email | Password |
 |------|--------|----------|
-| Super Admin | `admin@mygaragepro.app` | `ChangeMeAdmin1!` (or `SEED_SUPER_ADMIN_PASSWORD`) |
+| Super Admin | `admin@demo.garage` | `demo` (or `SEED_SUPER_ADMIN_*` in `apps/api/.env`) |
 | Owner (demo garage) | `owner@demo.garage` | `demo` |
 | Manager | `manager@demo.garage` | `demo` |
 | Mechanic | `mechanic@demo.garage` | `demo` |

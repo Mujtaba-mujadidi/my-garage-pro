@@ -1,12 +1,15 @@
 "use client";
 
 import { SearchableTable, type TableColumn } from "@/components/ui/searchable-table";
+import { TableRowActionsMenu } from "@/components/ui/table-row-actions-menu";
 import type { TeamUserDto } from "@mygaragepro/shared";
 
 type Props = {
   users: TeamUserDto[];
   canWrite: boolean;
+  currentUserId?: string;
   onEdit: (user: TeamUserDto) => void;
+  onDelete: (user: TeamUserDto) => void;
 };
 
 function roleLabel(u: TeamUserDto) {
@@ -14,7 +17,7 @@ function roleLabel(u: TeamUserDto) {
   return u.garageRoleName ?? u.role;
 }
 
-export function TeamUsersTable({ users, canWrite, onEdit }: Props) {
+export function TeamUsersTable({ users, canWrite, currentUserId, onEdit, onDelete }: Props) {
   const columns: TableColumn<TeamUserDto>[] = [
     {
       id: "name",
@@ -56,15 +59,28 @@ export function TeamUsersTable({ users, canWrite, onEdit }: Props) {
       id: "actions",
       header: "Actions",
       align: "right" as const,
-      cell: (u: TeamUserDto) => (
-        <button
-          type="button"
-          onClick={() => onEdit(u)}
-          className="rounded-lg border border-[var(--border)] px-3 py-1 text-xs font-medium hover:bg-[var(--background)]"
-        >
-          Edit
-        </button>
-      ),
+      cell: (u: TeamUserDto) => {
+        const isOwner = u.role === "OWNER";
+        const isSelf = currentUserId === u.id;
+        const actions = [
+          { label: "Edit", onClick: () => onEdit(u) },
+          ...(!isOwner && !isSelf
+            ? [
+                {
+                  label: "Delete",
+                  variant: "danger" as const,
+                  onClick: () => onDelete(u),
+                },
+              ]
+            : []),
+        ];
+        return (
+          <TableRowActionsMenu
+            triggerLabel={`Actions for ${u.displayName}`}
+            actions={actions}
+          />
+        );
+      },
     });
   }
 

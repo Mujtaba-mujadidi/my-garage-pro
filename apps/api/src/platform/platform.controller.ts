@@ -15,6 +15,8 @@ import { PermissionsGuard } from "../auth/guards/permissions.guard";
 import type { RequestUser } from "../auth/auth.types";
 import { CreateGarageDto } from "./dto/create-garage.dto";
 import { CreateGarageUserDto } from "./dto/create-garage-user.dto";
+import { ResetGarageOwnerPasswordDto } from "./dto/reset-garage-owner-password.dto";
+import { UpdateGarageDto } from "./dto/update-garage.dto";
 import { UpdateGarageModulesDto } from "./dto/update-garage-modules.dto";
 import { PlatformService } from "./platform.service";
 
@@ -35,6 +37,16 @@ export class PlatformController {
     return this.platform.createGarage(user, dto);
   }
 
+  @Patch("garages/:id")
+  @RequirePermissions("platform.garage.manage")
+  updateGarage(
+    @CurrentUser() user: RequestUser,
+    @Param("id") id: string,
+    @Body() dto: UpdateGarageDto,
+  ) {
+    return this.platform.updateGarage(user, id, dto);
+  }
+
   @Patch("garages/:id/suspend")
   @RequirePermissions("platform.garage.manage")
   suspend(@CurrentUser() user: RequestUser, @Param("id") id: string) {
@@ -45,6 +57,16 @@ export class PlatformController {
   @RequirePermissions("platform.garage.manage")
   activate(@CurrentUser() user: RequestUser, @Param("id") id: string) {
     return this.platform.setGarageStatus(user, id, "ACTIVE");
+  }
+
+  @Patch("garages/:id/reset-owner-password")
+  @RequirePermissions("platform.garage.manage")
+  resetOwnerPassword(
+    @CurrentUser() user: RequestUser,
+    @Param("id") id: string,
+    @Body() dto: ResetGarageOwnerPasswordDto,
+  ) {
+    return this.platform.resetOwnerPassword(user, id, dto);
   }
 
   @Patch("garages/:id/modules")

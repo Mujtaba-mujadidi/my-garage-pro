@@ -1,21 +1,17 @@
 "use client";
 
 import { SearchableTable, type TableColumn } from "@/components/ui/searchable-table";
-import type { GarageRoleDto } from "@mygaragepro/shared";
+import type { GarageRoleDto, PermissionGroup } from "@mygaragepro/shared";
+import { summarizeRoleAccess } from "@mygaragepro/shared";
 
 type Props = {
   roles: GarageRoleDto[];
+  groups: PermissionGroup[];
   onEdit: (role: GarageRoleDto) => void;
   onDelete: (role: GarageRoleDto) => void;
 };
 
-function permissionSummary(role: GarageRoleDto) {
-  if (role.permissions.length === 0) return "No access";
-  if (role.permissions.length >= 8) return "Broad access";
-  return `${role.permissions.length} permission(s)`;
-}
-
-export function GarageRolesTable({ roles, onEdit, onDelete }: Props) {
+export function GarageRolesTable({ roles, groups, onEdit, onDelete }: Props) {
   const columns: TableColumn<GarageRoleDto>[] = [
     {
       id: "name",
@@ -35,8 +31,12 @@ export function GarageRolesTable({ roles, onEdit, onDelete }: Props) {
     {
       id: "access",
       header: "Access",
-      searchText: (r) => permissionSummary(r),
-      cell: (r) => <span className="text-[var(--muted)]">{permissionSummary(r)}</span>,
+      searchText: (r) => summarizeRoleAccess(r.permissions, groups),
+      cell: (r) => (
+        <span className="text-[var(--muted)]">
+          {summarizeRoleAccess(r.permissions, groups)}
+        </span>
+      ),
     },
     {
       id: "users",

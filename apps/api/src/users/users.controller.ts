@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   ForbiddenException,
   Get,
   NotFoundException,
@@ -64,7 +65,9 @@ export class UsersController {
     if (!garageRole) throw new NotFoundException("Role not found");
 
     const email = dto.email.toLowerCase().trim();
-    const existing = await this.prisma.user.findUnique({ where: { email } });
+    const existing = await this.prisma.user.findFirst({
+      where: { email, deletedAt: null },
+    });
     if (existing) throw new ConflictException("Email already registered");
 
     const created = await this.prisma.user.create({
@@ -129,7 +132,7 @@ export class UsersController {
     if (dto.email !== undefined) {
       const email = dto.email.toLowerCase().trim();
       const existing = await this.prisma.user.findFirst({
-        where: { email, NOT: { id: target.id } },
+        where: { email, deletedAt: null, NOT: { id: target.id } },
       });
       if (existing) throw new ConflictException("Email already registered");
     }
@@ -159,6 +162,44 @@ export class UsersController {
     });
 
     return this.toDto(updated);
+  }
+
+  @Delete(":id")
+  @RequirePermissions("users.write")
+  async remove(@CurrentUser() actor: RequestUser, @Param("id") id: string) {
+    if (!actor.garageAccountId) throw new ForbiddenException();
+
+    if (actor.id === id) {
+      throw new ForbiddenException("You cannot delete your own account");
+    }
+
+    const target = await this.prisma.user.findFirst({
+      where: { id, garageAccountId: actor.garageAccountId, deletedAt: null },
+    });
+    if (!target) throw new NotFoundException("User not found");
+
+    if (target.role === UserRole.OWNER) {
+      throw new ForbiddenException("The garage owner account cannot be deleted");
+    }
+    if (target.role === UserRole.SUPER_ADMIN) {
+      throw new ForbiddenException("Cannot delete platform admin accounts");
+    }
+
+    await this.prisma.user.update({
+      where: { id: target.id },
+      data: { deletedAt: new Date(), deletedBy: actor.id },
+    });
+
+    await this.audit.log({
+      action: "users.delete",
+      userId: actor.id,
+      garageAccountId: actor.garageAccountId,
+      entityType: "user",
+      entityId: target.id,
+      metadata: { email: target.email, displayName: target.displayName },
+    });
+
+    return { ok: true };
   }
 
   private toDto(u: {

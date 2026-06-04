@@ -15,3 +15,4 @@ export * from "./permissions";
 export * from "./permission-matrix";
 export * from "./auth-types";
 export * from "./customer-types";
+export * from "./supplier-types";

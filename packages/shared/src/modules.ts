@@ -38,6 +38,7 @@ export const MODULE_LABELS: Record<ModuleKey, string> = {
 /** MVP defaults for a new garage (Phase 1 seed). */
 export const DEFAULT_ENABLED_MODULES: ModuleKey[] = [
   "customers",
+  "suppliers",
   "repair",
   "invoices",
   "ledger",
@@ -62,14 +63,12 @@ export const MODULE_DESCRIPTIONS: Record<ModuleKey, string> = {
 };
 
 /**
- * When set, the sidebar requires this permission (plus garage module enabled).
- * Modules without an entry are shown to all staff when the garage has enabled them.
+ * Sidebar requires this permission (plus garage module enabled).
+ * Each product module uses `{moduleKey}.read` for nav visibility.
  */
-export const MODULE_NAV_READ_PERMISSION: Partial<Record<ModuleKey, Permission>> = {
-  customers: "customers.read",
-  ledger: "ledger.read",
-  partners: "partners.read",
-};
+export const MODULE_NAV_READ_PERMISSION: Record<ModuleKey, Permission> = Object.fromEntries(
+  MODULE_KEYS.map((key) => [key, `${key}.read` as Permission]),
+) as Record<ModuleKey, Permission>;
 
 /** App route per module (must match Next.js pages). */
 export const MODULE_PATHS: Record<ModuleKey, string> = {

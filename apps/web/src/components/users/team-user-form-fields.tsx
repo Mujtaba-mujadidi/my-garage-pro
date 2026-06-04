@@ -1,5 +1,6 @@
 "use client";
 
+import { Select } from "@/components/ui/select";
 import type { TeamUserDto } from "@mygaragepro/shared";
 
 export type RoleOption = { id: string; name: string; slug: string };
@@ -42,6 +43,7 @@ export function TeamUserFormFields(props: Props) {
           value={props.displayName}
           onChange={(e) => props.onDisplayNameChange(e.target.value)}
           required
+          autoComplete={props.mode === "create" ? "off" : "name"}
           className={inputClass}
         />
       </div>
@@ -52,6 +54,7 @@ export function TeamUserFormFields(props: Props) {
           value={props.email}
           onChange={(e) => props.onEmailChange(e.target.value)}
           required
+          autoComplete={props.mode === "create" ? "off" : "email"}
           className={inputClass}
         />
       </div>
@@ -59,30 +62,25 @@ export function TeamUserFormFields(props: Props) {
         <>
           <div>
             <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Role</label>
-            <select
+            <Select
               value={props.garageRoleId}
-              onChange={(e) => props.onGarageRoleIdChange(e.target.value)}
+              onChange={props.onGarageRoleIdChange}
               required
-              className={inputClass}
-            >
-              {props.roles.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.name}
-                </option>
-              ))}
-            </select>
+              placeholder="Select a role…"
+              options={props.roles.map((r) => ({ value: r.id, label: r.name }))}
+            />
           </div>
           {props.mode === "edit" && (
             <div>
               <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Status</label>
-              <select
+              <Select
                 value={props.status}
-                onChange={(e) => props.onStatusChange(e.target.value as "ACTIVE" | "DISABLED")}
-                className={inputClass}
-              >
-                <option value="ACTIVE">Active</option>
-                <option value="DISABLED">Disabled</option>
-              </select>
+                onChange={(v) => props.onStatusChange(v as "ACTIVE" | "DISABLED")}
+                options={[
+                  { value: "ACTIVE", label: "Active" },
+                  { value: "DISABLED", label: "Disabled" },
+                ]}
+              />
             </div>
           )}
         </>
@@ -98,10 +96,14 @@ export function TeamUserFormFields(props: Props) {
         </label>
         <input
           type="password"
+          name={props.mode === "create" ? "new-team-member-password" : undefined}
           value={props.password}
           onChange={(e) => props.onPasswordChange(e.target.value)}
-          placeholder={props.mode === "edit" ? "Leave blank to keep current" : undefined}
+          placeholder={
+            props.mode === "edit" ? "Leave blank to keep current" : "Enter a password"
+          }
           required={props.mode === "create"}
+          autoComplete={props.mode === "create" ? "new-password" : "new-password"}
           className={inputClass}
         />
       </div>

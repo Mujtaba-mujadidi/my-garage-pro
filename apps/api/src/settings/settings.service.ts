@@ -6,6 +6,7 @@ import {
 import { AuditService } from "../audit/audit.service";
 import { PrismaService } from "../prisma/prisma.service";
 import type { RequestUser } from "../auth/auth.types";
+import { ensureDefaultGarageSettings } from "./default-garage-settings";
 import { CreateSettingDto } from "./dto/create-setting.dto";
 import { UpdateSettingDto } from "./dto/update-setting.dto";
 
@@ -23,6 +24,7 @@ export class SettingsService {
 
   async list(user: RequestUser, optionType?: string) {
     const garageAccountId = this.garageId(user);
+    await ensureDefaultGarageSettings(this.prisma, garageAccountId);
     return this.prisma.settingOption.findMany({
       where: {
         garageAccountId,

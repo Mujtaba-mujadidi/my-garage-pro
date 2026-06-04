@@ -7,7 +7,7 @@ import { notFound } from "next/navigation";
 const PHASE_BY_MODULE: Partial<Record<ModuleKey, string>> = {
   repair: "Phase 6 — Repair jobs",
   bodywork: "Phase 6 — Bodywork",
-  suppliers: "Phase 7 — Suppliers",
+  suppliers: "Phase 3 — Suppliers",
   tyres: "Phase 8 — Tyres",
   parts: "Phase 7 — Parts",
   invoices: "Phase 5 — Invoicing",

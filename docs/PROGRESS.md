@@ -2,10 +2,12 @@
 
 Companion to [PROJECT_PLAN.md](PROJECT_PLAN.md). **Delivery model:** gated phases — build → deploy staging → **you test → sign off** → next module (see PROJECT_PLAN §25).
 
-**Last updated:** 2026-05-19
-**Current phase:** Phase 2 — Customers (build ready — deploy + UAT)
-**Current gate:** ⏳ Phase 2 staging deploy + your UAT
-**Staging URL:** https://mygarageweb-production.up.railway.app
+**Last updated:** 2026-06-04  
+**Current phase:** Phase 2–3 — Customers + Suppliers (built locally; **staging deploy pending**)  
+**Current gate:** ⏳ Push to `main` → Railway redeploy → team UAT on staging  
+**Staging URL:** _Railway → **web** service → Settings → Networking → **Public domain**_ (verify in dashboard; stale docs URLs cause 404)
+
+**Local dev:** [LOCAL_DEVELOPMENT.md](./LOCAL_DEVELOPMENT.md) · **Railway deploy:** [RAILWAY_AUTODEPLOY.md](./RAILWAY_AUTODEPLOY.md)
 
 ---
 
@@ -20,9 +22,9 @@ Companion to [PROJECT_PLAN.md](PROJECT_PLAN.md). **Delivery model:** gated phase
 
 ## How you sign off a gate
 
-1. Open **staging URL** (above) when the phase is marked ready for test.
-2. Follow the **Test script** for that phase below.
-3. Log bugs in GitHub Issues (tag with phase number, e.g. `phase-6`).
+1. Open **staging URL** when the phase is marked ready for test.
+2. Follow the **Test script** for that phase below (or `docs/UAT_TEST_CASES.csv`).
+3. Log bugs in GitHub Issues (tag with phase number, e.g. `phase-3`).
 4. Tell the dev: **Pass** (next phase can start) or **Fail** (list blockers).
 5. Dev updates **Gate** column below to ✅ only after your Pass.
 
@@ -35,9 +37,9 @@ Companion to [PROJECT_PLAN.md](PROJECT_PLAN.md). **Delivery model:** gated phase
 | Phase | Module | Build | Deployed | Gate | Signed off |
 |-------|--------|-------|----------|------|------------|
 | 0 | Staging + UI shell | `[x]` | `[x]` | ✅ | 2026-05-19 |
-| 1 | Auth, settings, Super Admin | `[x]` | `[x]` | ✅ | 2026-05-19 |
+| 1 | Auth, settings, Super Admin | `[x]` | `[~]` | ⏳ | 2026-05-19 (partial — see Phase 1+) |
 | 2 | Customers | `[x]` | `[ ]` | ⏳ | |
-| 3 | Suppliers | `[ ]` | `[ ]` | ⏳ | |
+| 3 | Suppliers | `[x]` | `[ ]` | ⏳ | |
 | 4 | Ledger + banks/cash | `[ ]` | `[ ]` | ⏳ | |
 | 5 | Invoices + payments | `[ ]` | `[ ]` | ⏳ | |
 | 6 | Repair jobs + tasks (web) | `[ ]` | `[ ]` | ⏳ | |
@@ -50,6 +52,31 @@ Companion to [PROJECT_PLAN.md](PROJECT_PLAN.md). **Delivery model:** gated phase
 | 13 | Reports + dashboard | `[ ]` | `[ ]` | ⏳ | |
 | 14 | Polish (cash, adjust, bugs) | `[ ]` | `[ ]` | ⏳ | |
 | 15 | Go-live | `[ ]` | `[ ]` | ⏳ | |
+
+---
+
+## Railway: does `git push main` apply everything?
+
+**Short answer:** Yes, **if** each Railway service is connected to GitHub `main` with **auto deploy** on — but only for services whose **watch paths** include the files you changed. This repo uses `apps/api/railway.toml` and `apps/web/railway.toml` for that.
+
+| What | Automatic on push to `main`? | Notes |
+|------|------------------------------|--------|
+| **Web build & deploy** | Yes (web service) | Rebuilds when `apps/web/**`, `packages/shared/**`, or lockfile changes |
+| **API build & deploy** | Yes (api service) | Rebuilds when `apps/api/**`, `packages/shared/**`, or lockfile changes |
+| **DB migrations** | Yes (API **start** command) | `prisma migrate deploy` runs on every API container start — see `apps/api/railway.toml` |
+| **Seed data** | **No** | `prisma db seed` is **not** run on Railway; run manually if needed |
+| **Docs-only push** | **Skipped** | Watch paths exclude `docs/**` — use **Deployments → Deploy** to force |
+
+**After this push, staging should pick up:**
+
+- Migration `20260602101701_suppliers` (and any earlier not yet applied)
+- Customers + suppliers API/UI
+- Super Admin garage edit (tabs, sticky save bar)
+- Settings tabs (General + Roles & access)
+- Team delete, disable/enable confirmations
+- Dynamic permissions per enabled module
+
+**Verify after deploy:** API logs show `migrate deploy` success; web build SHA on staging matches latest commit.
 
 ---
 
@@ -80,17 +107,7 @@ Companion to [PROJECT_PLAN.md](PROJECT_PLAN.md). **Delivery model:** gated phase
 - [x] Dashboard layout (KPI placeholders + demo table/chart)
 - [x] Mobile scroll, responsive top bar, Phase 0 sign out
 
-**Test script (you run on staging)**
-1. Open staging URL — page loads over HTTPS.
-2. Log in as demo owner.
-3. See dashboard shell (sidebar, top bar, KPI card placeholders).
-4. Click **☰** — sidebar collapses to icons only; expand again.
-5. Toggle **light / dark** — all text readable (tables, KPIs, nav).
-6. Log out and log back in.
-
-**Gate criteria:** UI matches approved preview (§28); deploy is automatic; no console errors on login.
-
-**Gate:** ✅ **Signed off:** 2026-05-19 (stakeholder UAT — Pass)
+**Gate:** ✅ **Signed off:** 2026-05-19
 
 ---
 
@@ -98,76 +115,24 @@ Companion to [PROJECT_PLAN.md](PROJECT_PLAN.md). **Delivery model:** gated phase
 
 **Build checklist**
 - [x] Tenancy + Postgres schema; users, roles, permissions (app-layer + tenant context)
-- [x] Dynamic settings CRUD + seed defaults
+- [x] Dynamic settings CRUD + seed defaults (VAT + expense categories on garage create / first load)
 - [x] Audit log; soft delete on settings
-- [x] Super Admin: create/suspend garage; enable modules (flags only)
-- [x] Custom garage roles + permission modal (`/settings/permissions`)
-- [x] Team: create, edit (name, email, role, status, password)
-- [ ] **You:** Phase 1 UAT below on staging (see `docs/PHASE1_SETUP.md` for deploy)
+- [x] Super Admin: create/suspend garage; enable modules; **edit garage** (details, modules, security tabs)
+- [x] Custom garage roles + permission editor (per-module read/write; table UI)
+- [x] Settings page: **General** + **Roles & access** tabs (`/settings/permissions` redirects)
+- [x] Team: create, edit, disable/enable (confirm), **delete** (soft-delete + confirm)
+- [ ] **You:** Full Phase 1 UAT on **updated** staging after Railway deploy
 
-**Staging URL:** https://mygarageweb-production.up.railway.app
+**Phase 1+ (since last staging deploy — local only until push)**
 
-**Demo accounts** (after seed):
+- [x] Permissions filtered by garage **enabled modules** (shared + API + role editor)
+- [x] Default garage roles: stable slugs; dedupe mechanic/manager duplicates on seed
+- [x] Super Admin: PATCH garage details; reset owner password; module save confirm
+- [x] Garage edit modal: fixed-height tabs, **sticky footer** Save / Close
+- [x] `Select` component; customer/supplier modals use shared patterns
+- [ ] Dashboard financial KPI gating (deferred — decide at end of MVP)
 
-| Role | Email | Password |
-|------|--------|----------|
-| Super Admin | `admin@mygaragepro.app` | `ChangeMeAdmin1!` |
-| Owner | `owner@demo.garage` | `demo` |
-| Manager | `manager@demo.garage` | `demo` |
-| Mechanic | `mechanic@demo.garage` | `demo` |
-
-### Phase 1 UAT — run in order
-
-Tick each when **Pass** or note **Fail** + what you saw.
-
-**A — Deploy & health**
-
-- [ ] **A1** API health: open `https://YOUR-API-DOMAIN/health` → JSON with `"ok": true`
-- [ ] **A2** Web login page loads with no console errors (F12)
-
-**B — Super Admin**
-
-- [ ] **B1** Log in as Super Admin → **Super Admin** in nav
-- [ ] **B2** Garage list shows Demo Garage (or create a second garage: name + slug)
-- [ ] **B3** Toggle module pills on a garage → save → refresh → still correct
-- [ ] **B4** Audit log shows recent platform actions
-
-**C — Owner: settings**
-
-- [ ] **C1** Log out → log in as `owner@demo.garage` / `demo`
-- [ ] **C2** **Settings** → add an expense category → appears in list
-- [ ] **C3** VAT rates list visible (seeded)
-
-**D — Owner: roles & access**
-
-- [ ] **D1** **Settings** → **Manage roles** → see Manager, Mechanic, Staff (defaults)
-- [ ] **D2** **Edit access** on Mechanic → enable **Customers → View** only → Save
-- [ ] **D3** **Add role** e.g. `Workshop lead` with limited access → appears in list
-
-**E — Owner: team**
-
-- [ ] **E1** **Team** → list shows owner, manager, mechanic
-- [ ] **E2** **Add user** (test email) with role **Staff** → user appears
-- [ ] **E3** **Edit** mechanic → change display name → Save → list updates
-- [ ] **E4** **Edit** mechanic → change **Role** to Manager → Save
-- [ ] **E5** Sign out → log in as mechanic → sidebar matches new role (sign out/in after role change)
-- [ ] **E6** **Edit** test user → **Disabled** → they cannot log in
-- [ ] **E7** **Edit** owner → only name/email/password; cannot disable owner or change “role”
-
-**F — Staff access (permissions)**
-
-- [ ] **F1** Log in as **mechanic** (after D2: customers view only) → **Customers** visible if granted; **Finance** / **Partners** hidden or access denied
-- [ ] **F2** Log in as **manager@demo.garage** → broader access per Manager role defaults
-- [ ] **F3** Mechanic cannot open **Settings → Manage roles** (owner only)
-
-**G — Sign-off**
-
-- [ ] **G1** Super Admin audit log shows settings / users / role changes
-- [ ] **G2** No blocking bugs → Phase 1 gate **Pass**
-
-**Gate:** ⏳ **Signed off:** _date / name_
-
----
+**Gate:** ⏳ Re-test on staging after deploy
 
 ---
 
@@ -175,16 +140,17 @@ Tick each when **Pass** or note **Fail** + what you saw.
 
 **Build checklist**
 - [x] Prisma: `customer`, `customer_vehicle`, `customer_account_terms`
-- [x] API: CRUD, search by name/reg, soft-delete, restore (owner/manager)
-- [x] Web: list, new, detail, vehicles on customer
-- [x] RBAC: `customers.read` / `customers.write`; mechanic read-only
-- [ ] **You:** Push, migrate on Railway, redeploy api + web
+- [x] API: CRUD, search, soft-delete, restore
+- [x] Web: list (searchable table), create/edit modal, detail page, archive/restore confirm
+- [x] Row actions **⋮** menu (View / Edit / Archive); portal menu (no clip under table)
+- [x] RBAC: `customers.read` / `customers.write`
+- [ ] **You:** UAT on staging after deploy
 
 **Test script**
 1. Add individual customer + vehicle reg.
 2. Add business account customer (credit limit, payment terms).
 3. Search customer by name and reg.
-4. Edit customer; soft-delete and restore (owner).
+4. Edit customer; archive and restore (owner).
 
 **Gate:** ⏳ **Signed off:** _
 
@@ -192,10 +158,17 @@ Tick each when **Pass** or note **Fail** + what you saw.
 
 ## Phase 3 — Suppliers
 
+**Build checklist**
+- [x] Prisma migration `20260602101701_suppliers`
+- [x] API: CRUD, search, activate/deactivate
+- [x] Web: list, create/edit modal, deactivate/activate confirm
+- [x] RBAC: `suppliers.read` / `suppliers.write`; nav gated by module + permission
+- [ ] **You:** UAT on staging after deploy
+
 **Test script**
 1. Add supplier with contact details.
 2. Search and edit supplier.
-3. Deactivate supplier (not referenced).
+3. Deactivate supplier; activate again.
 
 **Gate:** ⏳ **Signed off:** _
 
@@ -320,6 +293,8 @@ Tick each when **Pass** or note **Fail** + what you saw.
 
 **Gate:** ⏳ **Signed off:** _
 
+**Deferred:** Role-based hiding of financial dashboard widgets (see Phase 1+).
+
 ---
 
 ## Phase 14 — Polish
@@ -365,6 +340,8 @@ Tick each when **Pass** or note **Fail** + what you saw.
 | 2026-05-08 | Collapsible sidebar + dark mode WCAG | Preview feedback | Stakeholder |
 | 2026-05-08 | **Gated delivery: test & sign off each module before next** | Owner wants phase-by-phase UAT | Stakeholder |
 | 2026-05-19 | **Phase 0 gate ✅** | Staging UAT Pass — UI shell, mobile, sign out | Stakeholder |
+| 2026-06-04 | **Dashboard RBAC deferred** | Focus core modules; gate financial KPIs at end | Stakeholder |
+| 2026-06-04 | **Disable ≠ delete** for team | Disable = reversible; delete = soft-remove from list | Dev |
 
 ---
 
@@ -372,7 +349,7 @@ Tick each when **Pass** or note **Fail** + what you saw.
 
 | Date | Blocker | Phase | Owner | Resolution |
 |------|---------|-------|-------|------------|
-| | | | | |
+| 2026-06-04 | Railway staging behind `main` | 2–3 | Dev | Push + verify auto-deploy & migrations |
 
 ---
 
@@ -382,3 +359,4 @@ Tick each when **Pass** or note **Fail** + what you saw.
 |------|--------|
 | 2026-05-08 | Replaced parallel 12-week plan with **15 gated phases** (§25); PROGRESS rewritten with per-phase test scripts |
 | 2026-05-19 | Phase 0 signed off; staging URL set; Phase 1 next |
+| 2026-06-04 | Phase 2–3 build complete locally; Railway deploy section; Phase 1+ enhancements listed |

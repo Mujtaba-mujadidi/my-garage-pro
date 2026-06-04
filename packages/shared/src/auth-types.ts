@@ -38,6 +38,15 @@ export type ChangePasswordRequestDto = {
   newPassword: string;
 };
 
+export type ResetGarageOwnerPasswordRequestDto = {
+  tempPassword: string;
+};
+
+export type ResetGarageOwnerPasswordResponseDto = {
+  ok: true;
+  ownerEmail: string;
+};
+
 export type CreateGarageRequestDto = {
   name: string;
   slug: string;
@@ -49,6 +58,17 @@ export type CreateGarageRequestDto = {
   ownerEmail: string;
   tempPassword: string;
   enabledModules?: ModuleKey[];
+};
+
+export type UpdateGarageRequestDto = {
+  name: string;
+  slug: string;
+  directorOwnerName: string;
+  address: string;
+  contactNumber: string;
+  phoneNumber: string;
+  vatNumber?: string;
+  ownerEmail?: string;
 };
 
 export type SettingOptionDto = {

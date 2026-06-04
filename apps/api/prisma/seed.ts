@@ -1,4 +1,8 @@
+import { config as loadEnv } from "dotenv";
+import { resolve } from "node:path";
 import { PrismaClient, UserRole } from "@prisma/client";
+
+loadEnv({ path: resolve(__dirname, "../.env") });
 import * as argon2 from "argon2";
 import {
   DEFAULT_ENABLED_MODULES,
@@ -7,22 +11,9 @@ import {
   MODULE_KEYS,
   type ModuleKey,
 } from "@mygaragepro/shared";
+import { ensureDefaultGarageSettings } from "../src/settings/default-garage-settings";
 
 const prisma = new PrismaClient();
-
-const DEFAULT_EXPENSE_CATEGORIES = [
-  "Parts purchase",
-  "Subcontractor",
-  "Utilities",
-  "Rent",
-  "Marketing",
-];
-
-const DEFAULT_VAT_RATES = [
-  { label: "Standard VAT 20%", value: "20" },
-  { label: "Reduced VAT 5%", value: "5" },
-  { label: "Zero rated", value: "0" },
-];
 
 async function hashPassword(password: string) {
   return argon2.hash(password);
@@ -75,52 +66,37 @@ async function seedGarageRoles(garageAccountId: string) {
   }
 }
 
-async function seedSettings(garageAccountId: string) {
-  for (let i = 0; i < DEFAULT_EXPENSE_CATEGORIES.length; i++) {
-    const label = DEFAULT_EXPENSE_CATEGORIES[i];
-    await prisma.settingOption.create({
-      data: {
-        garageAccountId,
-        optionType: "expense_category",
-        label,
-        value: label.toLowerCase().replace(/\s+/g, "_"),
-        sortOrder: i,
-      },
-    });
-  }
-  for (let i = 0; i < DEFAULT_VAT_RATES.length; i++) {
-    const row = DEFAULT_VAT_RATES[i];
-    await prisma.settingOption.create({
-      data: {
-        garageAccountId,
-        optionType: "vat_rate",
-        label: row.label,
-        value: row.value,
-        sortOrder: i,
-      },
-    });
-  }
-}
-
 async function main() {
-  const superEmail = process.env.SEED_SUPER_ADMIN_EMAIL ?? "admin@mygaragepro.app";
-  const superPassword = process.env.SEED_SUPER_ADMIN_PASSWORD ?? "ChangeMeAdmin1!";
+  const superEmail = process.env.SEED_SUPER_ADMIN_EMAIL ?? "admin@demo.garage";
+  const superPassword = process.env.SEED_SUPER_ADMIN_PASSWORD ?? "demo";
 
-  await prisma.user.upsert({
-    where: { email: superEmail },
-    create: {
-      email: superEmail,
-      displayName: "Platform Super Admin",
-      role: UserRole.SUPER_ADMIN,
-      passwordHash: await hashPassword(superPassword),
-    },
-    update: {
-      displayName: "Platform Super Admin",
-      role: UserRole.SUPER_ADMIN,
-      passwordHash: await hashPassword(superPassword),
-      status: "ACTIVE",
-    },
-  });
+  async function upsertSuperAdmin(email: string, password: string, displayName: string) {
+    await prisma.user.upsert({
+      where: { email },
+      create: {
+        email,
+        displayName,
+        role: UserRole.SUPER_ADMIN,
+        garageAccountId: null,
+        garageRoleId: null,
+        passwordHash: await hashPassword(password),
+        mustChangePassword: false,
+      },
+      update: {
+        displayName,
+        role: UserRole.SUPER_ADMIN,
+        garageAccountId: null,
+        garageRoleId: null,
+        passwordHash: await hashPassword(password),
+        mustChangePassword: false,
+        status: "ACTIVE",
+      },
+    });
+  }
+
+  await upsertSuperAdmin(superEmail, superPassword, "Platform Super Admin");
+  // Primary demo super admin (always seeded, even when SEED_SUPER_ADMIN_* overrides above)
+  await upsertSuperAdmin("admin@demo.garage", "demo", "Demo Super Admin");
 
   const demoGarage = await prisma.garageAccount.upsert({
     where: { slug: "demo-garage" },
@@ -159,7 +135,7 @@ async function main() {
     where: { garageAccountId: demoGarage.id, deletedAt: null },
   });
   if (existingSettings === 0) {
-    await seedSettings(demoGarage.id);
+    await ensureDefaultGarageSettings(prisma, demoGarage.id);
   }
 
   const demoUsers: {
@@ -210,11 +186,69 @@ async function main() {
     });
   }
 
+  // Suppliers (Phase 3)
+  const demoSuppliers = [
+    {
+      name: "Euro Car Parts",
+      email: "accounts@eurocarparts.example",
+      phone: "020 7000 1111",
+      vatNumber: "GB999999999",
+      city: "London",
+      postcode: "SW1A 1AA",
+    },
+    {
+      name: "GSF Car Parts",
+      email: "billing@gsfcarparts.example",
+      phone: "020 7000 2222",
+      vatNumber: null as string | null,
+      city: "London",
+      postcode: "E1 6AN",
+    },
+  ];
+
+  for (const s of demoSuppliers) {
+    const existing = await prisma.supplier.findFirst({
+      where: { garageAccountId: demoGarage.id, name: s.name, deletedAt: null },
+      select: { id: true },
+    });
+
+    if (!existing) {
+      await prisma.supplier.create({
+        data: {
+          garageAccountId: demoGarage.id,
+          name: s.name,
+          email: s.email,
+          phone: s.phone,
+          vatNumber: s.vatNumber,
+          city: s.city,
+          postcode: s.postcode,
+          status: "ACTIVE",
+        },
+      });
+    } else {
+      await prisma.supplier.update({
+        where: { id: existing.id },
+        data: {
+          email: s.email,
+          phone: s.phone,
+          vatNumber: s.vatNumber,
+          city: s.city,
+          postcode: s.postcode,
+          status: "ACTIVE",
+        },
+      });
+    }
+  }
+
   console.log("Seed complete.");
-  console.log(`  Super Admin: ${superEmail} / (see SEED_SUPER_ADMIN_PASSWORD or default)`);
+  console.log("  Super Admin: admin@demo.garage / demo");
+  if (superEmail !== "admin@demo.garage") {
+    console.log(`  Super Admin (env): ${superEmail} / (see SEED_SUPER_ADMIN_PASSWORD)`);
+  }
   console.log("  Demo garage: owner@demo.garage / demo");
   console.log("               manager@demo.garage / demo");
   console.log("               mechanic@demo.garage / demo");
+  console.log("  Suppliers: Euro Car Parts, GSF Car Parts");
 }
 
 main()
