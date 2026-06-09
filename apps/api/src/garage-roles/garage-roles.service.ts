@@ -20,6 +20,7 @@ import {
 } from "@mygaragepro/shared";
 import {
   filterGaragePermissions,
+  normalizeWorkshopViewPermissions,
   permissionGroupsForGarage,
 } from "@mygaragepro/shared";
 import { AuditService } from "../audit/audit.service";
@@ -55,7 +56,8 @@ export class GarageRolesService {
       const rows = await this.prisma.garageRolePermission.findMany({
         where: { garageRoleId, granted: true },
       });
-      return rows.map((r) => r.permission as Permission);
+      const raw = rows.map((r) => r.permission as Permission);
+      return normalizeWorkshopViewPermissions(raw) as Permission[];
     }
 
     return [];
@@ -93,6 +95,8 @@ export class GarageRolesService {
       }
 
       if (role) {
+        const granted = filterGaragePermissions(template.permissions, enabledModules);
+        await this.setRolePermissions(role.id, granted, enabledModules);
         continue;
       }
 

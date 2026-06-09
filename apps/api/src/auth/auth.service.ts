@@ -107,7 +107,13 @@ export class AuthService {
     garageAccountId: string | null;
     garageRoleId: string | null;
     mustChangePassword: boolean;
-    garageAccount: { id: string; name: string; slug: string; status: string } | null;
+    garageAccount: {
+      id: string;
+      name: string;
+      slug: string;
+      status: string;
+      vatNumber: string | null;
+    } | null;
     garageRole: { id: string; name: string } | null;
   }): Promise<AuthSessionDto> {
     const isSuperAdmin = user.role === PrismaUserRole.SUPER_ADMIN;
@@ -152,7 +158,12 @@ export class AuthService {
         mustChangePassword: user.mustChangePassword,
       },
       garage: user.garageAccount
-        ? { id: user.garageAccount.id, name: user.garageAccount.name, slug: user.garageAccount.slug }
+        ? {
+            id: user.garageAccount.id,
+            name: user.garageAccount.name,
+            slug: user.garageAccount.slug,
+            vatNumber: user.garageAccount.vatNumber,
+          }
         : null,
       enabledModules,
       permissions,

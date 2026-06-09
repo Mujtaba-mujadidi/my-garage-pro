@@ -35,7 +35,7 @@ const MODULE_ICONS: Record<ModuleKey, string> = {
 
 const MODULE_PHASE_LABELS: Partial<Record<ModuleKey, string>> = {
   repair: "Phase 6",
-  bodywork: "Phase 6",
+  bodywork: "Bodywork",
   suppliers: "Phase 3",
   tyres: "Phase 8",
   parts: "Phase 7",
@@ -72,5 +72,6 @@ export const FOOTER_NAV: NavItem[] = [
 
 /** Module keys that use the shared `[module]` placeholder route (not a dedicated page). */
 export const PLACEHOLDER_MODULE_KEYS = SIDEBAR_MODULE_ORDER.filter(
-  (key) => !["customers", "suppliers", "ledger", "partners"].includes(key),
+  (key) =>
+    !["customers", "suppliers", "ledger", "invoices", "repair", "bodywork", "partners", "parts"].includes(key),
 );

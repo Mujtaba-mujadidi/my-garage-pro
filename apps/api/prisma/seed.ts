@@ -5,7 +5,6 @@ import { PrismaClient, UserRole } from "@prisma/client";
 loadEnv({ path: resolve(__dirname, "../.env") });
 import * as argon2 from "argon2";
 import {
-  DEFAULT_ENABLED_MODULES,
   DEFAULT_GARAGE_ROLES,
   GARAGE_PERMISSIONS,
   MODULE_KEYS,
@@ -19,7 +18,8 @@ async function hashPassword(password: string) {
   return argon2.hash(password);
 }
 
-async function seedGarageModules(garageAccountId: string, enabled: ModuleKey[]) {
+/** Create missing module rows only — never overwrite enabled toggles set in Super Admin. */
+async function ensureGarageModuleRows(garageAccountId: string, enabledOnCreate: ModuleKey[]) {
   for (const moduleKey of MODULE_KEYS) {
     await prisma.garageAccountModule.upsert({
       where: {
@@ -28,11 +28,20 @@ async function seedGarageModules(garageAccountId: string, enabled: ModuleKey[]) 
       create: {
         garageAccountId,
         moduleKey,
-        enabled: enabled.includes(moduleKey),
+        enabled: enabledOnCreate.includes(moduleKey),
       },
-      update: { enabled: enabled.includes(moduleKey) },
+      update: {},
     });
   }
+}
+
+/** Demo garage: local UAT expects every module on; re-seed restores without touching other garages. */
+async function enableAllModulesForDemoGarage(garageAccountId: string) {
+  await ensureGarageModuleRows(garageAccountId, MODULE_KEYS as unknown as ModuleKey[]);
+  await prisma.garageAccountModule.updateMany({
+    where: { garageAccountId },
+    data: { enabled: true },
+  });
 }
 
 async function seedGarageRoles(garageAccountId: string) {
@@ -121,7 +130,7 @@ async function main() {
     },
   });
 
-  await seedGarageModules(demoGarage.id, DEFAULT_ENABLED_MODULES);
+  await enableAllModulesForDemoGarage(demoGarage.id);
   await seedGarageRoles(demoGarage.id);
 
   const managerRole = await prisma.garageRole.findUniqueOrThrow({
@@ -249,6 +258,575 @@ async function main() {
   console.log("               manager@demo.garage / demo");
   console.log("               mechanic@demo.garage / demo");
   console.log("  Suppliers: Euro Car Parts, GSF Car Parts");
+
+  // Parts stock (Phase 7)
+  const euroSupplier = await prisma.supplier.findFirst({
+    where: { garageAccountId: demoGarage.id, name: "Euro Car Parts", deletedAt: null },
+    select: { id: true },
+  });
+
+  type DemoPartSeed = {
+    partNumber: string;
+    description: string;
+    category: string;
+    quantityOnHand: number;
+    minQuantity: number;
+    costPriceNet: number;
+    sellPriceNet: number;
+    location: string;
+    fitmentType: "UNIVERSAL" | "VEHICLE_SPECIFIC";
+    fitments?: { make: string; model: string; yearFrom: number; yearTo?: number | null }[];
+  };
+
+  const demoParts: DemoPartSeed[] = [
+    {
+      partNumber: "OIL-5W30-5L",
+      description: "5W-30 fully synthetic engine oil 5L",
+      category: "Fluids",
+      quantityOnHand: 12,
+      minQuantity: 4,
+      costPriceNet: 18.5,
+      sellPriceNet: 32,
+      location: "Shelf A1",
+      fitmentType: "UNIVERSAL",
+    },
+    {
+      partNumber: "FLT-OIL-STD",
+      description: "Standard oil filter — Toyota Corolla",
+      category: "Filters",
+      quantityOnHand: 3,
+      minQuantity: 5,
+      costPriceNet: 4.2,
+      sellPriceNet: 9.5,
+      location: "Shelf B2",
+      fitmentType: "VEHICLE_SPECIFIC",
+      fitments: [{ make: "Toyota", model: "Corolla", yearFrom: 2012, yearTo: 2018 }],
+    },
+    {
+      partNumber: "BRK-PAD-FRT",
+      description: "Front brake pad set — Toyota Prius",
+      category: "Brakes",
+      quantityOnHand: 8,
+      minQuantity: 2,
+      costPriceNet: 28,
+      sellPriceNet: 55,
+      location: "Shelf C3",
+      fitmentType: "VEHICLE_SPECIFIC",
+      fitments: [{ make: "Toyota", model: "Prius", yearFrom: 2010, yearTo: 2015 }],
+    },
+    {
+      partNumber: "SK-PRIUS-10-15",
+      description: "Service kit — Toyota Prius 2010–2015",
+      category: "Service kits",
+      quantityOnHand: 4,
+      minQuantity: 2,
+      costPriceNet: 42,
+      sellPriceNet: 79,
+      location: "Shelf D1",
+      fitmentType: "VEHICLE_SPECIFIC",
+      fitments: [{ make: "Toyota", model: "Prius", yearFrom: 2010, yearTo: 2015 }],
+    },
+    {
+      partNumber: "SK-PRIUS-16-19",
+      description: "Service kit — Toyota Prius 2016–2019",
+      category: "Service kits",
+      quantityOnHand: 3,
+      minQuantity: 2,
+      costPriceNet: 48,
+      sellPriceNet: 89,
+      location: "Shelf D2",
+      fitmentType: "VEHICLE_SPECIFIC",
+      fitments: [{ make: "Toyota", model: "Prius", yearFrom: 2016, yearTo: 2019 }],
+    },
+  ];
+
+  for (const p of demoParts) {
+    const existing = await prisma.part.findFirst({
+      where: { garageAccountId: demoGarage.id, partNumber: p.partNumber, deletedAt: null },
+      select: { id: true },
+    });
+
+    const partData = {
+      description: p.description,
+      category: p.category,
+      fitmentType: p.fitmentType,
+      quantityOnHand: p.quantityOnHand,
+      minQuantity: p.minQuantity,
+      costPriceNet: p.costPriceNet,
+      sellPriceNet: p.sellPriceNet,
+      location: p.location,
+      supplierId: euroSupplier?.id ?? null,
+      status: "ACTIVE" as const,
+    };
+
+    let partId = existing?.id;
+    if (!existing) {
+      const created = await prisma.part.create({
+        data: {
+          garageAccountId: demoGarage.id,
+          partNumber: p.partNumber,
+          ...partData,
+        },
+      });
+      partId = created.id;
+    } else {
+      await prisma.part.update({ where: { id: existing.id }, data: partData });
+    }
+
+    // Re-seed fitment rows so demo data stays in sync without duplicating.
+    if (partId) {
+      await prisma.partFitment.deleteMany({ where: { partId } });
+      if (p.fitmentType === "VEHICLE_SPECIFIC" && p.fitments?.length) {
+        await prisma.partFitment.createMany({
+          data: p.fitments.map((f, index) => ({
+            partId,
+            make: f.make,
+            model: f.model,
+            yearFrom: f.yearFrom,
+            yearTo: f.yearTo ?? null,
+            sortOrder: index,
+          })),
+        });
+      }
+    }
+  }
+
+  console.log(
+    "  Parts: OIL-5W30-5L (universal), FLT-OIL-STD, BRK-PAD-FRT, SK-PRIUS-10-15, SK-PRIUS-16-19",
+  );
+
+  // Ledger (Phase 4) — bank & cash accounts
+  const demoAccounts = [
+    { name: "Main business account", type: "BANK" as const, openingBalance: 12500 },
+    { name: "Petty cash", type: "CASH" as const, openingBalance: 200 },
+  ];
+
+  for (const [i, a] of demoAccounts.entries()) {
+    const existing = await prisma.paymentAccount.findFirst({
+      where: { garageAccountId: demoGarage.id, name: a.name, deletedAt: null },
+      select: { id: true },
+    });
+    if (!existing) {
+      await prisma.paymentAccount.create({
+        data: {
+          garageAccountId: demoGarage.id,
+          name: a.name,
+          type: a.type,
+          openingBalance: a.openingBalance,
+          sortOrder: i,
+          isActive: true,
+        },
+      });
+    }
+  }
+
+  console.log("  Ledger: Main business account, Petty cash");
+
+  // Phase 5 — account customer + open invoices for payment UAT
+  const ownerUser = await prisma.user.findUnique({
+    where: { email: "owner@demo.garage" },
+    select: { id: true },
+  });
+
+  let abcCustomer = await prisma.customer.findFirst({
+    where: {
+      garageAccountId: demoGarage.id,
+      companyName: "ABC Cabs Ltd",
+      deletedAt: null,
+    },
+  });
+
+  if (!abcCustomer) {
+    abcCustomer = await prisma.customer.create({
+      data: {
+        garageAccountId: demoGarage.id,
+        type: "BUSINESS",
+        companyName: "ABC Cabs Ltd",
+        email: "accounts@abccabs.example",
+        phone: "020 7946 0100",
+        city: "London",
+        postcode: "E14 5AB",
+        isAccountCustomer: true,
+        accountTerms: {
+          create: {
+            paymentTermsDays: 30,
+            billingCycle: "MONTHLY",
+            statementDay: 1,
+          },
+        },
+      },
+    });
+  }
+
+  const demoInvoiceTotals = [250, 180, 120, 450];
+  const existingInvCount = await prisma.invoice.count({
+    where: { garageAccountId: demoGarage.id, customerId: abcCustomer.id },
+  });
+
+  if (existingInvCount === 0 && ownerUser) {
+    for (const gross of demoInvoiceTotals) {
+      const garage = await prisma.garageAccount.update({
+        where: { id: demoGarage.id },
+        data: { invoiceNextSeq: { increment: 1 } },
+        select: { invoiceNextSeq: true },
+      });
+      const year = new Date().getFullYear();
+      const invoiceNumber = `INV-${year}-${String(garage.invoiceNextSeq).padStart(5, "0")}`;
+      const net = gross / 1.2;
+      const vat = gross - net;
+      const issueDate = new Date();
+      const dueDate = new Date(issueDate.getTime() + 30 * 24 * 60 * 60 * 1000);
+
+      await prisma.invoice.create({
+        data: {
+          garageAccountId: demoGarage.id,
+          customerId: abcCustomer.id,
+          invoiceNumber,
+          status: "SENT",
+          issueDate,
+          dueDate,
+          amountNet: net.toFixed(2),
+          amountGross: gross.toFixed(2),
+          vatAmount: vat.toFixed(2),
+          vehicleRegistration: gross === 250 ? "AB12 CDE" : null,
+          notes: "Demo invoice for Phase 5 UAT",
+          createdById: ownerUser.id,
+          sentAt: new Date(),
+          lines: {
+            create: [
+              {
+                lineType: "PARTS",
+                description: "Parts & materials",
+                quantity: 1,
+                unitPriceNet: net.toFixed(2),
+                vatRatePercent: "20",
+                amountNet: net.toFixed(2),
+                vatAmount: vat.toFixed(2),
+                amountGross: gross.toFixed(2),
+                sortOrder: 0,
+              },
+            ],
+          },
+        },
+      });
+    }
+    console.log("  Invoices: 4 open for ABC Cabs Ltd (£250, £180, £120, £450)");
+  }
+
+  // Phase 6 — demo repair jobs
+  const mechanicUser = await prisma.user.findUnique({
+    where: { email: "mechanic@demo.garage" },
+    select: { id: true },
+  });
+
+  const repairJobCount = await prisma.repairJob.count({
+    where: { garageAccountId: demoGarage.id },
+  });
+
+  if (repairJobCount === 0 && ownerUser && abcCustomer) {
+    const garageSeq = await prisma.garageAccount.update({
+      where: { id: demoGarage.id },
+      data: { repairNextSeq: { increment: 1 } },
+      select: { repairNextSeq: true },
+    });
+    const year = new Date().getFullYear();
+    const jobNumber = `REJ-${year}-${String(garageSeq.repairNextSeq).padStart(5, "0")}`;
+
+    await prisma.repairJob.create({
+      data: {
+        garageAccountId: demoGarage.id,
+        customerId: abcCustomer.id,
+        jobNumber,
+        status: "IN_PROGRESS",
+        source: "CUSTOMER",
+        vehicleRegistration: "AB12 CDE",
+        vehicleMake: "Ford",
+        vehicleModel: "Focus",
+        customerConcern: "Clutch slipping under load",
+        notes: "Demo repair job for Phase 6 UAT",
+        vatEnabled: true,
+        vatRatePercent: "20",
+        createdById: ownerUser.id,
+        tasks: {
+          create: [
+            {
+              title: "Clutch replacement",
+              description: "Remove gearbox, fit new clutch kit, road test",
+              status: mechanicUser ? "ASSIGNED" : "AVAILABLE",
+              assigneeId: mechanicUser?.id ?? null,
+              amountNet: "477.5",
+              useBreakdown: true,
+              labourHours: "4.5",
+              labourRateNet: "65",
+              sortOrder: 0,
+              parts: {
+                create: [
+                  {
+                    description: "Clutch kit (OEM spec)",
+                    quantity: "1",
+                    unitPriceNet: "185",
+                    sortOrder: 0,
+                  },
+                ],
+              },
+            },
+            {
+              title: "Gearbox oil change",
+              status: "AVAILABLE",
+              amountNet: "57.5",
+              useBreakdown: true,
+              labourHours: "0.5",
+              labourRateNet: "65",
+              sortOrder: 1,
+              parts: {
+                create: [
+                  {
+                    description: "Gearbox oil 2L",
+                    quantity: "2",
+                    unitPriceNet: "12.5",
+                    sortOrder: 0,
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      },
+    });
+
+    const garageSeq2 = await prisma.garageAccount.update({
+      where: { id: demoGarage.id },
+      data: { repairNextSeq: { increment: 1 } },
+      select: { repairNextSeq: true },
+    });
+    const jobNumber2 = `REJ-${year}-${String(garageSeq2.repairNextSeq).padStart(5, "0")}`;
+
+    await prisma.repairJob.create({
+      data: {
+        garageAccountId: demoGarage.id,
+        customerId: abcCustomer.id,
+        jobNumber: jobNumber2,
+        status: "QUOTE_SENT",
+        source: "CUSTOMER",
+        vehicleRegistration: "XY99 ZZZ",
+        vehicleMake: "Vauxhall",
+        vehicleModel: "Astra",
+        customerConcern: "Annual service + brake check",
+        createdById: ownerUser.id,
+        tasks: {
+          create: [
+            {
+              title: "Full service",
+              amountNet: "158",
+              useBreakdown: true,
+              labourHours: "2",
+              labourRateNet: "55",
+              sortOrder: 0,
+              parts: {
+                create: [
+                  {
+                    description: "Service kit (filters, oil)",
+                    quantity: "1",
+                    unitPriceNet: "48",
+                    sortOrder: 0,
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      },
+    });
+
+    const garageSeq3 = await prisma.garageAccount.update({
+      where: { id: demoGarage.id },
+      data: { repairNextSeq: { increment: 1 } },
+      select: { repairNextSeq: true },
+    });
+    const jobNumber3 = `REJ-${year}-${String(garageSeq3.repairNextSeq).padStart(5, "0")}`;
+
+    await prisma.repairJob.create({
+      data: {
+        garageAccountId: demoGarage.id,
+        customerId: abcCustomer.id,
+        jobNumber: jobNumber3,
+        status: "APPROVED",
+        source: "CUSTOMER",
+        vehicleRegistration: "CD34 EFG",
+        vehicleMake: "Toyota",
+        vehicleModel: "Corolla",
+        customerConcern: "Brake pads worn — approved, awaiting vehicle drop-off",
+        createdById: ownerUser.id,
+        tasks: {
+          create: [
+            {
+              title: "Front brake pads",
+              description: "Replace front pads and skim discs",
+              status: "AVAILABLE",
+              amountNet: "139.5",
+              useBreakdown: true,
+              labourHours: "1.5",
+              labourRateNet: "65",
+              sortOrder: 0,
+              parts: {
+                create: [
+                  {
+                    description: "Brake pad set (front)",
+                    quantity: "1",
+                    unitPriceNet: "42",
+                    sortOrder: 0,
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      },
+    });
+
+    console.log(
+      `  Repair jobs: ${jobNumber} (in progress), ${jobNumber2} (quote sent), ${jobNumber3} (approved, claimable)`,
+    );
+  }
+
+  // Phase 6 — demo bodywork jobs (mechanic work queue: assigned + claimable tasks)
+  const bodyworkJobCount = await prisma.bodyworkJob.count({
+    where: { garageAccountId: demoGarage.id },
+  });
+
+  if (bodyworkJobCount === 0 && ownerUser && abcCustomer) {
+    const year = new Date().getFullYear();
+
+    const garageSeq = await prisma.garageAccount.update({
+      where: { id: demoGarage.id },
+      data: { bodyworkNextSeq: { increment: 1 } },
+      select: { bodyworkNextSeq: true },
+    });
+    const jobNumber = `BWJ-${year}-${String(garageSeq.bodyworkNextSeq).padStart(5, "0")}`;
+
+    await prisma.bodyworkJob.create({
+      data: {
+        garageAccountId: demoGarage.id,
+        customerId: abcCustomer.id,
+        jobNumber,
+        status: "IN_PROGRESS",
+        source: "INSURANCE",
+        vehicleRegistration: "FG56 HIJ",
+        vehicleMake: "BMW",
+        vehicleModel: "3 Series",
+        customerConcern: "NS side impact — bumper, door and wing damage",
+        colourCode: "300",
+        notes: "Demo bodywork job for mechanic work-queue UAT",
+        vatEnabled: true,
+        vatRatePercent: "20",
+        createdById: ownerUser.id,
+        tasks: {
+          create: [
+            {
+              panel: "Front bumper",
+              title: "Front bumper repair & refinish",
+              description: "Strip, fill, prime and paint to colour code 300",
+              status: mechanicUser ? "ASSIGNED" : "AVAILABLE",
+              assigneeId: mechanicUser?.id ?? null,
+              amountNet: "385",
+              useBreakdown: true,
+              labourHours: "5",
+              labourRateNet: "65",
+              sortOrder: 0,
+            },
+            {
+              panel: "NS rear door",
+              title: "NS rear door blend",
+              description: "Localised blend into adjacent panel",
+              status: "AVAILABLE",
+              amountNet: "97.5",
+              useBreakdown: true,
+              labourHours: "1.5",
+              labourRateNet: "65",
+              sortOrder: 1,
+            },
+          ],
+        },
+      },
+    });
+
+    const garageSeq2 = await prisma.garageAccount.update({
+      where: { id: demoGarage.id },
+      data: { bodyworkNextSeq: { increment: 1 } },
+      select: { bodyworkNextSeq: true },
+    });
+    const jobNumber2 = `BWJ-${year}-${String(garageSeq2.bodyworkNextSeq).padStart(5, "0")}`;
+
+    await prisma.bodyworkJob.create({
+      data: {
+        garageAccountId: demoGarage.id,
+        customerId: abcCustomer.id,
+        jobNumber: jobNumber2,
+        status: "QUOTE_SENT",
+        source: "CUSTOMER",
+        vehicleRegistration: "HK11 LMN",
+        vehicleMake: "Audi",
+        vehicleModel: "A4",
+        customerConcern: "Boot lid dent — awaiting customer approval",
+        createdById: ownerUser.id,
+        tasks: {
+          create: [
+            {
+              panel: "Boot lid",
+              title: "Boot lid dent repair",
+              amountNet: "195",
+              useBreakdown: true,
+              labourHours: "3",
+              labourRateNet: "65",
+              sortOrder: 0,
+            },
+          ],
+        },
+      },
+    });
+
+    const garageSeq3 = await prisma.garageAccount.update({
+      where: { id: demoGarage.id },
+      data: { bodyworkNextSeq: { increment: 1 } },
+      select: { bodyworkNextSeq: true },
+    });
+    const jobNumber3 = `BWJ-${year}-${String(garageSeq3.bodyworkNextSeq).padStart(5, "0")}`;
+
+    await prisma.bodyworkJob.create({
+      data: {
+        garageAccountId: demoGarage.id,
+        customerId: abcCustomer.id,
+        jobNumber: jobNumber3,
+        status: "APPROVED",
+        source: "INSURANCE",
+        vehicleRegistration: "PQ78 RST",
+        vehicleMake: "Mercedes-Benz",
+        vehicleModel: "C-Class",
+        customerConcern: "NS wing dent — approved, ready to claim",
+        colourCode: "197",
+        createdById: ownerUser.id,
+        tasks: {
+          create: [
+            {
+              panel: "NS wing",
+              title: "NS wing dent repair & refinish",
+              description: "PDR where possible, fill and paint to 197",
+              status: "AVAILABLE",
+              amountNet: "227.5",
+              useBreakdown: true,
+              labourHours: "3.5",
+              labourRateNet: "65",
+              sortOrder: 0,
+            },
+          ],
+        },
+      },
+    });
+
+    console.log(
+      `  Bodywork jobs: ${jobNumber} (in progress), ${jobNumber2} (quote sent), ${jobNumber3} (approved, claimable)`,
+    );
+  }
 }
 
 main()

@@ -11,6 +11,8 @@ export type Permission =
   | "users.read"
   | "users.write"
   | "permissions.manage"
+  | "repair.work"
+  | "bodywork.work"
   | ModuleCrudPermission;
 
 /** Super Admin only — not stored per garage. */
@@ -28,8 +30,10 @@ const SUPER_ADMIN_PERMISSIONS: Permission[] = [
   "suppliers.write",
   "repair.read",
   "repair.write",
+  "repair.work",
   "bodywork.read",
   "bodywork.write",
+  "bodywork.work",
   "tyres.read",
   "tyres.write",
   "parts.read",

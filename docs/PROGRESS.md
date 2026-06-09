@@ -2,9 +2,10 @@
 
 Companion to [PROJECT_PLAN.md](PROJECT_PLAN.md). **Delivery model:** gated phases — build → deploy staging → **you test → sign off** → next module (see PROJECT_PLAN §25).
 
-**Last updated:** 2026-06-04  
-**Current phase:** Phase 2–3 — Customers + Suppliers (built locally; **staging deploy pending**)  
-**Current gate:** ⏳ Push to `main` → Railway redeploy → team UAT on staging  
+**Last updated:** 2026-06-06  
+**Current phase:** **Phase 7** (Parts stock — ready for local UAT)  
+**Current gate:** ⏳ Phase 7 local UAT → sign-off (Phases 4–6 still open)  
+**UAT note:** Phases 1–3 signed off on **local** (`pnpm dev`); Railway staging deferred.
 **Staging URL:** _Railway → **web** service → Settings → Networking → **Public domain**_ (verify in dashboard; stale docs URLs cause 404)
 
 **Local dev:** [LOCAL_DEVELOPMENT.md](./LOCAL_DEVELOPMENT.md) · **Railway deploy:** [RAILWAY_AUTODEPLOY.md](./RAILWAY_AUTODEPLOY.md)
@@ -37,13 +38,14 @@ Companion to [PROJECT_PLAN.md](PROJECT_PLAN.md). **Delivery model:** gated phase
 | Phase | Module | Build | Deployed | Gate | Signed off |
 |-------|--------|-------|----------|------|------------|
 | 0 | Staging + UI shell | `[x]` | `[x]` | ✅ | 2026-05-19 |
-| 1 | Auth, settings, Super Admin | `[x]` | `[~]` | ⏳ | 2026-05-19 (partial — see Phase 1+) |
-| 2 | Customers | `[x]` | `[ ]` | ⏳ | |
-| 3 | Suppliers | `[x]` | `[ ]` | ⏳ | |
-| 4 | Ledger + banks/cash | `[ ]` | `[ ]` | ⏳ | |
-| 5 | Invoices + payments | `[ ]` | `[ ]` | ⏳ | |
-| 6 | Repair jobs + tasks (web) | `[ ]` | `[ ]` | ⏳ | |
-| 7 | Parts stock | `[ ]` | `[ ]` | ⏳ | |
+| 1 | Auth, settings, Super Admin | `[x]` | `[ ]` | ✅ | 2026-06-04 (local UAT) |
+| 2 | Customers | `[x]` | `[ ]` | ✅ | 2026-06-04 (local UAT) |
+| 3 | Suppliers | `[x]` | `[ ]` | ✅ | 2026-06-04 (local UAT) |
+| 4 | Ledger + banks/cash | `[x]` | `[ ]` | ⏳ | |
+| 5 | Invoices + payments | `[x]` | `[ ]` | ⏳ | |
+| 6 | Repair jobs + tasks (web) | `[x]` | `[ ]` | ⏳ | |
+| 7 | Parts stock | `[x]` | `[ ]` | ⏳ | |
+| — | Bodywork (parallel) | `[x]` | `[ ]` | ⏳ | |
 | 8 | Tyre stock | `[ ]` | `[ ]` | ⏳ | |
 | 9 | Mechanic PWA | `[ ]` | `[ ]` | ⏳ | |
 | 10 | Used cars | `[ ]` | `[ ]` | ⏳ | |
@@ -121,9 +123,9 @@ Companion to [PROJECT_PLAN.md](PROJECT_PLAN.md). **Delivery model:** gated phase
 - [x] Custom garage roles + permission editor (per-module read/write; table UI)
 - [x] Settings page: **General** + **Roles & access** tabs (`/settings/permissions` redirects)
 - [x] Team: create, edit, disable/enable (confirm), **delete** (soft-delete + confirm)
-- [ ] **You:** Full Phase 1 UAT on **updated** staging after Railway deploy
+- [x] **You:** Phase 1 UAT (local, 2026-06-04)
 
-**Phase 1+ (since last staging deploy — local only until push)**
+**Phase 1+ (included in local UAT)**
 
 - [x] Permissions filtered by garage **enabled modules** (shared + API + role editor)
 - [x] Default garage roles: stable slugs; dedupe mechanic/manager duplicates on seed
@@ -132,7 +134,7 @@ Companion to [PROJECT_PLAN.md](PROJECT_PLAN.md). **Delivery model:** gated phase
 - [x] `Select` component; customer/supplier modals use shared patterns
 - [ ] Dashboard financial KPI gating (deferred — decide at end of MVP)
 
-**Gate:** ⏳ Re-test on staging after deploy
+**Gate:** ✅ **Signed off:** 2026-06-04 (local UAT — stakeholder Pass)
 
 ---
 
@@ -144,7 +146,7 @@ Companion to [PROJECT_PLAN.md](PROJECT_PLAN.md). **Delivery model:** gated phase
 - [x] Web: list (searchable table), create/edit modal, detail page, archive/restore confirm
 - [x] Row actions **⋮** menu (View / Edit / Archive); portal menu (no clip under table)
 - [x] RBAC: `customers.read` / `customers.write`
-- [ ] **You:** UAT on staging after deploy
+- [x] **You:** UAT (local, 2026-06-04)
 
 **Test script**
 1. Add individual customer + vehicle reg.
@@ -152,7 +154,7 @@ Companion to [PROJECT_PLAN.md](PROJECT_PLAN.md). **Delivery model:** gated phase
 3. Search customer by name and reg.
 4. Edit customer; archive and restore (owner).
 
-**Gate:** ⏳ **Signed off:** _
+**Gate:** ✅ **Signed off:** 2026-06-04 (local UAT — stakeholder Pass)
 
 ---
 
@@ -163,14 +165,14 @@ Companion to [PROJECT_PLAN.md](PROJECT_PLAN.md). **Delivery model:** gated phase
 - [x] API: CRUD, search, activate/deactivate
 - [x] Web: list, create/edit modal, deactivate/activate confirm
 - [x] RBAC: `suppliers.read` / `suppliers.write`; nav gated by module + permission
-- [ ] **You:** UAT on staging after deploy
+- [x] **You:** UAT (local, 2026-06-04)
 
 **Test script**
 1. Add supplier with contact details.
 2. Search and edit supplier.
 3. Deactivate supplier; activate again.
 
-**Gate:** ⏳ **Signed off:** _
+**Gate:** ✅ **Signed off:** 2026-06-04 (local UAT — stakeholder Pass)
 
 ---
 
@@ -202,6 +204,14 @@ Companion to [PROJECT_PLAN.md](PROJECT_PLAN.md). **Delivery model:** gated phase
 
 ## Phase 6 — Repair jobs + tasks (web)
 
+**Build checklist**
+- [x] Prisma: `repair_job`, `repair_task`; invoice/ledger link to job
+- [x] API: CRUD jobs, tasks, status workflow, assign mechanic, generate invoice + ledger income
+- [x] Web: `/repair` list, job detail, tasks, status buttons, invoice from job
+- [x] RBAC: `repair.read` / `repair.write`; manager/staff/mechanic defaults
+- [x] Seed: 2 demo jobs for ABC Cabs Ltd
+- [ ] **You:** UAT (local)
+
 **Test script**
 1. Create repair job (customer, vehicle, status flow).
 2. Add tasks; assign mechanic.
@@ -220,6 +230,19 @@ Companion to [PROJECT_PLAN.md](PROJECT_PLAN.md). **Delivery model:** gated phase
 2. On open job, consume part — stock decrements, line on invoice.
 3. Return unused part to stock.
 4. Low-stock shows on dashboard (if Phase 13 not done, on parts screen).
+
+**Gate:** ⏳ **Signed off:** _
+
+---
+
+## Bodywork jobs (built alongside repair)
+
+**Test script**
+1. Open **Bodywork** in sidebar (`/bodywork`).
+2. Create job — pick customer, set panel/colour, choose **Insurance** source if applicable.
+3. Add tasks (with optional panel per task), approve job, assign staff.
+4. Set paint/material and outsourced costs on job; generate invoice — extra lines appear.
+5. QC flow: complete tasks → Awaiting QC → sign-off or send back.
 
 **Gate:** ⏳ **Signed off:** _
 
@@ -342,6 +365,7 @@ Companion to [PROJECT_PLAN.md](PROJECT_PLAN.md). **Delivery model:** gated phase
 | 2026-05-19 | **Phase 0 gate ✅** | Staging UAT Pass — UI shell, mobile, sign out | Stakeholder |
 | 2026-06-04 | **Dashboard RBAC deferred** | Focus core modules; gate financial KPIs at end | Stakeholder |
 | 2026-06-04 | **Disable ≠ delete** for team | Disable = reversible; delete = soft-remove from list | Dev |
+| 2026-06-04 | **Phases 1–3 gate ✅ (local)** | Stakeholder UAT Pass on localhost; Railway deferred | Stakeholder |
 
 ---
 
@@ -349,7 +373,7 @@ Companion to [PROJECT_PLAN.md](PROJECT_PLAN.md). **Delivery model:** gated phase
 
 | Date | Blocker | Phase | Owner | Resolution |
 |------|---------|-------|-------|------------|
-| 2026-06-04 | Railway staging behind `main` | 2–3 | Dev | Push + verify auto-deploy & migrations |
+| 2026-06-04 | Railway web 502 on staging | deploy | Dev | Deferred — develop on local until fixed |
 
 ---
 
@@ -360,3 +384,7 @@ Companion to [PROJECT_PLAN.md](PROJECT_PLAN.md). **Delivery model:** gated phase
 | 2026-05-08 | Replaced parallel 12-week plan with **15 gated phases** (§25); PROGRESS rewritten with per-phase test scripts |
 | 2026-05-19 | Phase 0 signed off; staging URL set; Phase 1 next |
 | 2026-06-04 | Phase 2–3 build complete locally; Railway deploy section; Phase 1+ enhancements listed |
+| 2026-06-04 | Phases 1–3 signed off (local UAT); Phase 4 next |
+| 2026-06-04 | Phase 4 build complete (ledger API + web, migration, seed accounts) |
+| 2026-06-05 | Phase 5 build complete (invoices, payments, PDF, allocations, demo ABC invoices) |
+| 2026-06-06 | Phase 6 build complete (repair jobs, tasks, invoice from job, ledger REPAIR income) |

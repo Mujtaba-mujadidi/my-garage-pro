@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 type ModalProps = {
   title: string;
@@ -10,6 +10,10 @@ type ModalProps = {
   size?: "md" | "lg";
   /** Fixed-height body; tab panels scroll inside instead of resizing the modal. */
   fixedHeight?: boolean;
+  /** Panel height follows content (up to 90vh), then scrolls — for forms that expand. */
+  autoHeight?: boolean;
+  /** Show expand / restore control for near full-screen editing. */
+  allowFullscreen?: boolean;
 };
 
 export function Modal({
@@ -19,33 +23,87 @@ export function Modal({
   children,
   size = "md",
   fixedHeight = false,
+  autoHeight = false,
+  allowFullscreen = false,
 }: ModalProps) {
+  const [fullscreen, setFullscreen] = useState(false);
+
+  useEffect(() => {
+    if (!open) setFullscreen(false);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open || !fullscreen) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [open, fullscreen]);
+
   if (!open) return null;
 
-  const panelClass =
-    size === "lg"
-      ? `max-h-[90vh] w-full max-w-2xl rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-xl ${
-          fixedHeight ? "flex max-h-[min(90vh,640px)] flex-col overflow-hidden" : "overflow-y-auto"
-        }`
-      : `max-h-[90vh] w-full max-w-md rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-xl ${
-          fixedHeight ? "flex max-h-[min(90vh,640px)] flex-col overflow-hidden" : "overflow-y-auto"
-        }`;
+  const overflowClass = fixedHeight
+    ? fullscreen
+      ? "flex min-h-0 flex-1 flex-col overflow-hidden"
+      : "flex h-[min(90vh,640px)] max-h-[min(90vh,640px)] flex-col overflow-hidden"
+    : autoHeight
+      ? "max-h-[90vh] overflow-y-auto"
+      : "max-h-[90vh] overflow-y-auto";
+
+  const panelClass = fullscreen
+    ? `flex h-full w-full max-w-none flex-col overflow-hidden rounded-none border-0 bg-[var(--surface)] shadow-none ${overflowClass}`
+    : size === "lg"
+      ? `w-full max-w-2xl rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-xl ${overflowClass}`
+      : `w-full max-w-md rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-xl ${overflowClass}`;
+
+  const backdropClass = fullscreen
+    ? "fixed inset-0 z-50 flex flex-col bg-[var(--surface)]"
+    : "fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4";
+
+  const paddingClass = fullscreen ? "flex min-h-0 flex-1 flex-col px-4 py-3 sm:px-6" : "";
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      className={backdropClass}
       role="dialog"
       aria-modal="true"
       aria-labelledby="modal-title"
       onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        if (!fullscreen && e.target === e.currentTarget) onClose();
       }}
     >
-      <div className={panelClass}>
-        <h2 id="modal-title" className="mb-4 text-lg font-semibold text-[var(--foreground)]">
-          {title}
-        </h2>
-        {children}
+      <div className={`${panelClass} ${paddingClass}`}>
+        <div className={`mb-4 flex shrink-0 items-start justify-between gap-3 ${fullscreen ? "border-b border-[var(--border)] pb-3" : ""}`}>
+          <h2 id="modal-title" className="text-lg font-semibold text-[var(--foreground)]">
+            {title}
+          </h2>
+          <div className="flex shrink-0 items-center gap-1">
+            {allowFullscreen && (
+              <button
+                type="button"
+                onClick={() => setFullscreen((v) => !v)}
+                className="rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs font-medium text-[var(--foreground)] hover:bg-[var(--background)]"
+                aria-label={fullscreen ? "Exit full screen" : "Full screen"}
+              >
+                {fullscreen ? "Exit full screen" : "Full screen"}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs font-medium text-[var(--muted)] hover:bg-[var(--background)] hover:text-[var(--foreground)]"
+              aria-label="Close"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+        {fixedHeight ? (
+          <div className="flex min-h-0 flex-1 flex-col">{children}</div>
+        ) : (
+          children
+        )}
       </div>
     </div>
   );

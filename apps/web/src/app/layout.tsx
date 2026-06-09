@@ -18,7 +18,11 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${inter.variable} min-h-dvh font-sans antialiased`}>
+      {/* suppressHydrationWarning: browser extensions often inject attributes on <body> before React hydrates. */}
+      <body
+        className={`${inter.variable} min-h-dvh font-sans antialiased`}
+        suppressHydrationWarning
+      >
         <ThemeProvider>
           <SessionProvider>{children}</SessionProvider>
         </ThemeProvider>

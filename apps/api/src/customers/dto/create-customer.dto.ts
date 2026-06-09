@@ -107,6 +107,10 @@ export class CreateCustomerDto {
   isAccountCustomer?: boolean;
 
   @IsOptional()
+  @IsBoolean()
+  chargeVat?: boolean;
+
+  @IsOptional()
   @ValidateNested()
   @Type(() => AccountTermsDto)
   accountTerms?: AccountTermsDto;

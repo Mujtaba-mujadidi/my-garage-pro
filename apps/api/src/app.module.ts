@@ -12,6 +12,11 @@ import { UsersModule } from "./users/users.module";
 import { CustomersModule } from "./customers/customers.module";
 import { GarageRolesModule } from "./garage-roles/garage-roles.module";
 import { SuppliersModule } from "./suppliers/suppliers.module";
+import { LedgerModule } from "./ledger/ledger.module";
+import { InvoicesModule } from "./invoices/invoices.module";
+import { RepairJobsModule } from "./repair-jobs/repair-jobs.module";
+import { BodyworkJobsModule } from "./bodywork-jobs/bodywork-jobs.module";
+import { PartsModule } from "./parts/parts.module";
 
 @Module({
   imports: [
@@ -25,6 +30,11 @@ import { SuppliersModule } from "./suppliers/suppliers.module";
     UsersModule,
     CustomersModule,
     SuppliersModule,
+    LedgerModule,
+    InvoicesModule,
+    RepairJobsModule,
+    BodyworkJobsModule,
+    PartsModule,
   ],
   controllers: [HealthController],
   providers: [

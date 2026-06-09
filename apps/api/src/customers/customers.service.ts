@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -87,6 +88,7 @@ export class CustomersService {
   async create(user: RequestUser, dto: CreateCustomerDto) {
     const garageAccountId = this.garageId(user);
     this.validateCustomerDto(dto);
+    await this.assertEmailAvailable(garageAccountId, dto.email);
 
     const row = await this.prisma.customer.create({
       data: {
@@ -103,6 +105,7 @@ export class CustomersService {
         postcode: dto.postcode?.trim() || null,
         notes: dto.notes?.trim() || null,
         isAccountCustomer: dto.isAccountCustomer ?? false,
+        chargeVat: dto.chargeVat ?? true,
         accountTerms:
           dto.isAccountCustomer && dto.accountTerms
             ? {
@@ -154,6 +157,10 @@ export class CustomersService {
 
     if (dto.type) this.validateCustomerDto({ ...dto, type: dto.type } as CreateCustomerDto);
 
+    if (dto.email !== undefined) {
+      await this.assertEmailAvailable(garageAccountId, dto.email, id);
+    }
+
     const isAccount = dto.isAccountCustomer ?? existing.isAccountCustomer;
 
     await this.prisma.$transaction(async (tx) => {
@@ -175,6 +182,7 @@ export class CustomersService {
           postcode: dto.postcode !== undefined ? dto.postcode?.trim() || null : undefined,
           notes: dto.notes !== undefined ? dto.notes?.trim() || null : undefined,
           isAccountCustomer: dto.isAccountCustomer,
+          chargeVat: dto.chargeVat,
         },
       });
 
@@ -264,16 +272,74 @@ export class CustomersService {
     return this.getOne(user, id);
   }
 
+  /** Save vehicle on customer if registration is new (compares normalized reg, no duplicates). */
+  async ensureVehicle(
+    garageAccountId: string,
+    customerId: string,
+    vehicle: { registration: string; make?: string | null; model?: string | null },
+  ) {
+    const normalized = normalizeRegistration(vehicle.registration);
+    if (!normalized) return;
+
+    const customer = await this.prisma.customer.findFirst({
+      where: { id: customerId, garageAccountId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!customer) return;
+
+    const existing = await this.findVehicleByRegistration(customerId, normalized);
+    if (existing) {
+      const make = vehicle.make?.trim() || null;
+      const model = vehicle.model?.trim() || null;
+      if (
+        existing.registration !== normalized ||
+        (make && !existing.make) ||
+        (model && !existing.model)
+      ) {
+        await this.prisma.customerVehicle.update({
+          where: { id: existing.id },
+          data: {
+            registration: normalized,
+            ...(make && !existing.make ? { make } : {}),
+            ...(model && !existing.model ? { model } : {}),
+          },
+        });
+      }
+      return;
+    }
+
+    await this.prisma.customerVehicle.create({
+      data: {
+        customerId,
+        registration: normalized,
+        make: vehicle.make?.trim() || null,
+        model: vehicle.model?.trim() || null,
+      },
+    });
+  }
+
   async addVehicle(
     user: RequestUser,
     customerId: string,
     vehicle: { registration: string; make?: string; model?: string; colour?: string; year?: number; notes?: string },
   ) {
     await this.getOne(user, customerId);
+    const normalized = normalizeRegistration(vehicle.registration);
+    if (!normalized) {
+      throw new BadRequestException("Registration is required");
+    }
+
+    const existing = await this.findVehicleByRegistration(customerId, normalized);
+    if (existing) {
+      throw new ConflictException(
+        `Registration ${normalized} is already saved for this customer`,
+      );
+    }
+
     const row = await this.prisma.customerVehicle.create({
       data: {
         customerId,
-        registration: normalizeRegistration(vehicle.registration),
+        registration: normalized,
         make: vehicle.make?.trim() || null,
         model: vehicle.model?.trim() || null,
         colour: vehicle.colour?.trim() || null,
@@ -282,6 +348,48 @@ export class CustomersService {
       },
     });
     return row;
+  }
+
+  private async findVehicleByRegistration(customerId: string, normalized: string) {
+    const vehicles = await this.prisma.customerVehicle.findMany({
+      where: { customerId, deletedAt: null },
+    });
+    return vehicles.find((v) => normalizeRegistration(v.registration) === normalized) ?? null;
+  }
+
+  private async assertEmailAvailable(
+    garageAccountId: string,
+    email: string | undefined,
+    excludeCustomerId?: string,
+  ) {
+    const normalized = email?.trim().toLowerCase();
+    if (!normalized) return;
+
+    const existing = await this.prisma.customer.findFirst({
+      where: {
+        garageAccountId,
+        email: normalized,
+        deletedAt: null,
+        ...(excludeCustomerId ? { id: { not: excludeCustomerId } } : {}),
+      },
+      select: {
+        id: true,
+        type: true,
+        firstName: true,
+        lastName: true,
+        companyName: true,
+      },
+    });
+
+    if (existing) {
+      const name =
+        existing.type === "BUSINESS" && existing.companyName
+          ? existing.companyName
+          : [existing.firstName, existing.lastName].filter(Boolean).join(" ") || "Unnamed customer";
+      throw new ConflictException(
+        `A customer with email ${normalized} already exists (${name})`,
+      );
+    }
   }
 
   private validateCustomerDto(dto: CreateCustomerDto) {

@@ -10,11 +10,30 @@ import {
 type Props = {
   enabledModules: ModuleKey[];
   onToggle: (moduleKey: ModuleKey, enabled: boolean) => void;
+  onSetAll?: (enabled: boolean) => void;
   disabled?: boolean;
 };
 
-export function ModuleToggleList({ enabledModules, onToggle, disabled }: Props) {
+export function ModuleToggleList({ enabledModules, onToggle, onSetAll, disabled }: Props) {
+  const allEnabled = enabledModules.length === MODULE_KEYS.length;
+
   return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs text-[var(--muted)]">
+          {enabledModules.length} of {MODULE_KEYS.length} enabled
+        </p>
+        {onSetAll && (
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => onSetAll(!allEnabled)}
+            className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-medium text-[var(--foreground)] transition-colors hover:bg-[var(--background)] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {allEnabled ? "Disable all" : "Enable all"}
+          </button>
+        )}
+      </div>
     <ul className="divide-y divide-[var(--border)] overflow-hidden rounded-lg border border-[var(--border)]">
       {MODULE_KEYS.map((key) => {
         const on = enabledModules.includes(key);
@@ -50,5 +69,6 @@ export function ModuleToggleList({ enabledModules, onToggle, disabled }: Props) 
         );
       })}
     </ul>
+    </div>
   );
 }

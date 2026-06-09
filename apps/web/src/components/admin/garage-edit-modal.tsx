@@ -11,6 +11,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Modal } from "@/components/ui/modal";
 import { apiFetch, ApiError } from "@/lib/api-client";
 import { modulesEqual, toggleModuleList } from "@/lib/module-utils";
+import { MODULE_KEYS } from "@mygaragepro/shared";
 import type { GarageAccountDto, ModuleKey, UpdateGarageRequestDto } from "@mygaragepro/shared";
 import { FormEvent, useEffect, useState } from "react";
 
@@ -30,7 +31,9 @@ const TABS: { id: EditTab; label: string }[] = [
   { id: "security", label: "Security" },
 ];
 
-const TAB_PANEL_CLASS = "min-h-0 flex-1 overflow-y-auto pr-1";
+/** Fixed height so the modal does not resize when switching tabs. */
+const TAB_PANEL_CLASS =
+  "h-[min(420px,calc(90vh-14rem))] min-h-[320px] shrink-0 overflow-y-auto pr-1";
 const DETAILS_FORM_ID = "garage-edit-details-form";
 
 function TabBar({
@@ -273,6 +276,10 @@ export function GarageEditModal({ garage, open, onClose, onUpdated, onMessage }:
                   enabledModules={draftModules}
                   onToggle={(key, enabled) => {
                     setDraftModules((c) => toggleModuleList(c, key, enabled));
+                    setError("");
+                  }}
+                  onSetAll={(enabled) => {
+                    setDraftModules(enabled ? [...MODULE_KEYS] : []);
                     setError("");
                   }}
                   disabled={saving}

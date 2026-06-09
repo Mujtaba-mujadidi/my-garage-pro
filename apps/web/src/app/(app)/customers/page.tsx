@@ -12,64 +12,10 @@ import { Modal } from "@/components/ui/modal";
 import { SearchableTable, type TableColumn } from "@/components/ui/searchable-table";
 import { TableRowActionsMenu } from "@/components/ui/table-row-actions-menu";
 import { apiFetch, ApiError } from "@/lib/api-client";
+import { buildCustomerPayload, toDraftCustomer } from "@/lib/customer-payload";
 import type { CustomerDto } from "@mygaragepro/shared";
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-
-function toDraft(c: CustomerDto): DraftCustomer {
-  return {
-    id: c.id,
-    type: c.type,
-    firstName: c.firstName ?? "",
-    lastName: c.lastName ?? "",
-    companyName: c.companyName ?? "",
-    email: c.email ?? "",
-    phone: c.phone ?? "",
-    registration: "",
-    make: "",
-    model: "",
-    isAccountCustomer: c.isAccountCustomer,
-    paymentTermsDays: c.accountTerms?.paymentTermsDays ?? 30,
-    creditLimit: c.accountTerms?.creditLimit ?? "",
-    billingCycle: c.accountTerms?.billingCycle ?? "MONTHLY",
-  };
-}
-
-function buildPayload(draft: DraftCustomer, isEdit: boolean) {
-  const body: Record<string, unknown> = {
-    type: draft.type,
-    email: draft.email || undefined,
-    phone: draft.phone || undefined,
-    isAccountCustomer: draft.isAccountCustomer,
-  };
-
-  if (draft.type === "INDIVIDUAL") {
-    body.firstName = draft.firstName;
-    body.lastName = draft.lastName || undefined;
-  } else {
-    body.companyName = draft.companyName;
-  }
-
-  if (draft.isAccountCustomer) {
-    body.accountTerms = {
-      paymentTermsDays: draft.paymentTermsDays,
-      creditLimit: draft.creditLimit || undefined,
-      billingCycle: draft.billingCycle,
-    };
-  }
-
-  if (!isEdit && draft.registration.trim()) {
-    body.vehicles = [
-      {
-        registration: draft.registration.trim(),
-        make: draft.make || undefined,
-        model: draft.model || undefined,
-      },
-    ];
-  }
-
-  return body;
-}
 
 export default function CustomersPage() {
   const { hasPermission } = useSession();
@@ -137,11 +83,19 @@ export default function CustomersPage() {
       {
         id: "contact",
         header: "Contact",
-        searchText: (c) => [c.email ?? "", c.phone ?? ""].join(" "),
+        searchText: (c) =>
+          [c.email ?? "", c.phone ?? "", c.city ?? "", c.postcode ?? "", c.addressLine1 ?? ""].join(
+            " ",
+          ),
         cell: (c) => (
           <div className="text-xs text-[var(--muted)]">
             <div>{c.email ?? "—"}</div>
             <div>{c.phone ?? ""}</div>
+            {(c.city || c.postcode) && (
+              <div>
+                {[c.city, c.postcode].filter(Boolean).join(", ")}
+              </div>
+            )}
           </div>
         ),
       },
@@ -186,7 +140,7 @@ export default function CustomersPage() {
                     {
                       label: "Edit",
                       onClick: () => {
-                        setDraft(toDraft(c));
+                        setDraft(toDraftCustomer(c));
                         setModalOpen(true);
                       },
                     },
@@ -216,7 +170,7 @@ export default function CustomersPage() {
     setError("");
     const isEdit = Boolean(draft.id);
     try {
-      const payload = buildPayload(draft, isEdit);
+      const payload = buildCustomerPayload(draft, isEdit);
       if (draft.id) {
         await apiFetch(`/customers/${draft.id}`, {
           method: "PATCH",

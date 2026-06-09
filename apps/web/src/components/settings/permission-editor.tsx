@@ -1,7 +1,11 @@
 "use client";
 
 import type { GaragePermission, PermissionGroup, RoleAccessLevel } from "@mygaragepro/shared";
-import { roleAccessLevelForGroup } from "@mygaragepro/shared";
+import {
+  roleAccessLevelForGroup,
+  workshopViewRolePermissions,
+  type WorkshopModuleKey,
+} from "@mygaragepro/shared";
 
 type Props = {
   groups: PermissionGroup[];
@@ -27,8 +31,19 @@ function applyAccessLevel(
 ): GaragePermission[] {
   let next = toggle(current, group.read, false);
   if (group.write) next = toggle(next, group.write, false);
+  if (group.id === "repair" || group.id === "bodywork") {
+    for (const perm of workshopViewRolePermissions(group.id as WorkshopModuleKey)) {
+      next = toggle(next, perm, false);
+    }
+  }
   if (level === "view") {
-    next = toggle(next, group.read, true);
+    if (group.id === "repair" || group.id === "bodywork") {
+      for (const perm of workshopViewRolePermissions(group.id as WorkshopModuleKey)) {
+        next = toggle(next, perm, true);
+      }
+    } else {
+      next = toggle(next, group.read, true);
+    }
   } else if (level === "full" && group.write) {
     next = toggle(next, group.read, true);
     next = toggle(next, group.write, true);

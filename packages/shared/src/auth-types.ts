@@ -18,6 +18,8 @@ export type AuthGarageDto = {
   id: string;
   name: string;
   slug: string;
+  /** Set when the garage is VAT-registered; required to charge VAT on jobs and invoices. */
+  vatNumber: string | null;
 } | null;
 
 export type AuthSessionDto = {

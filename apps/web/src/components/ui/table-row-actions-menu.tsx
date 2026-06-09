@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useMounted } from "@/lib/use-mounted";
 
 export type TableRowAction = {
   label: string;
@@ -50,6 +51,7 @@ export function TableRowActionsMenu({
   actions,
   triggerLabel = "Row actions",
 }: TableRowActionsMenuProps) {
+  const mounted = useMounted();
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState<MenuPosition | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -180,9 +182,7 @@ export function TableRowActionsMenu({
           ⋮
         </button>
       </div>
-      {typeof document !== "undefined" && menu
-        ? createPortal(menu, document.body)
-        : null}
+      {mounted && menu ? createPortal(menu, document.body) : null}
     </>
   );
 }

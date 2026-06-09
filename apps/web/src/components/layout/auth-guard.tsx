@@ -20,7 +20,7 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
     }
   }, [loading, session, router, pathname]);
 
-  if (loading) {
+  if (loading && !session) {
     return (
       <div className="flex h-dvh items-center justify-center bg-[var(--background)] text-sm text-[var(--muted)]">
         Loading…

@@ -1,4 +1,4 @@
-import { MODULE_NAV_READ_PERMISSION } from "@mygaragepro/shared";
+import { canAccessWorkshopModule, MODULE_NAV_READ_PERMISSION } from "@mygaragepro/shared";
 import type { NavItem } from "@/lib/nav-items";
 
 export function canAccessNavItem(
@@ -19,8 +19,12 @@ export function canAccessNavItem(
     }
     const readPerm =
       item.permission ?? MODULE_NAV_READ_PERMISSION[item.moduleKey];
-    if (readPerm && !permissions.includes(readPerm)) {
-      return false;
+    if (readPerm) {
+      const canRead =
+        item.moduleKey === "repair" || item.moduleKey === "bodywork"
+          ? canAccessWorkshopModule(permissions, item.moduleKey)
+          : permissions.includes(readPerm);
+      if (!canRead) return false;
     }
     return true;
   }

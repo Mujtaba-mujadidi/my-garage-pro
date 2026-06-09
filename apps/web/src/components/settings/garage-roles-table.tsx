@@ -1,6 +1,7 @@
 "use client";
 
 import { SearchableTable, type TableColumn } from "@/components/ui/searchable-table";
+import { TableRowActionsMenu } from "@/components/ui/table-row-actions-menu";
 import type { GarageRoleDto, PermissionGroup } from "@mygaragepro/shared";
 import { summarizeRoleAccess } from "@mygaragepro/shared";
 
@@ -48,26 +49,26 @@ export function GarageRolesTable({ roles, groups, onEdit, onDelete }: Props) {
       id: "actions",
       header: "Actions",
       align: "right",
-      cell: (r) => (
-        <div className="flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={() => onEdit(r)}
-            className="rounded-lg border border-[var(--border)] px-3 py-1 text-xs font-medium hover:bg-[var(--background)]"
-          >
-            Edit
-          </button>
-          {!r.isDefault && (
-            <button
-              type="button"
-              onClick={() => onDelete(r)}
-              className="rounded-lg border border-red-300 px-3 py-1 text-xs text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30"
-            >
-              Delete
-            </button>
-          )}
-        </div>
-      ),
+      cell: (r) => {
+        const actions = [
+          { label: "Edit", onClick: () => onEdit(r) },
+          ...(!r.isDefault
+            ? [
+                {
+                  label: "Delete",
+                  variant: "danger" as const,
+                  onClick: () => onDelete(r),
+                },
+              ]
+            : []),
+        ];
+        return (
+          <TableRowActionsMenu
+            triggerLabel={`Actions for ${r.name}`}
+            actions={actions}
+          />
+        );
+      },
     },
   ];
 

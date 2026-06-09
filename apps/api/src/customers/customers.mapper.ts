@@ -40,6 +40,7 @@ export function toCustomerDto(c: CustomerWithRelations): CustomerDto {
     postcode: c.postcode,
     notes: c.notes,
     isAccountCustomer: c.isAccountCustomer,
+    chargeVat: c.chargeVat,
     accountTerms: c.accountTerms
       ? {
           paymentTermsDays: c.accountTerms.paymentTermsDays,

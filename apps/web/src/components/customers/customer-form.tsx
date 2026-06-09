@@ -1,5 +1,7 @@
 "use client";
 
+import { normalizeRegistration } from "@/lib/vehicle-registration";
+
 import { Select } from "@/components/ui/select";
 import type { BillingCycle, CustomerType } from "@mygaragepro/shared";
 import type { Dispatch, FormEvent, SetStateAction } from "react";
@@ -12,6 +14,10 @@ export type DraftCustomer = {
   companyName: string;
   email: string;
   phone: string;
+  addressLine1: string;
+  addressLine2: string;
+  city: string;
+  postcode: string;
   registration: string;
   make: string;
   model: string;
@@ -29,6 +35,10 @@ export function emptyDraft(): DraftCustomer {
     companyName: "",
     email: "",
     phone: "",
+    addressLine1: "",
+    addressLine2: "",
+    city: "",
+    postcode: "",
     registration: "",
     make: "",
     model: "",
@@ -45,9 +55,18 @@ type Props = {
   saving: boolean;
   onSubmit: (e: FormEvent) => void;
   onCancel: () => void;
+  /** Walk-in / repair intake: email is the unique identifier. */
+  emailRequired?: boolean;
 };
 
-export function CustomerForm({ draft, setDraft, saving, onSubmit, onCancel }: Props) {
+export function CustomerForm({
+  draft,
+  setDraft,
+  saving,
+  onSubmit,
+  onCancel,
+  emailRequired = false,
+}: Props) {
   const isEdit = Boolean(draft.id);
 
   return (
@@ -105,13 +124,16 @@ export function CustomerForm({ draft, setDraft, saving, onSubmit, onCancel }: Pr
 
       <div className="grid gap-3 sm:grid-cols-2">
         <div>
-          <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Email</label>
+          <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
+            Email{emailRequired ? " (required)" : ""}
+          </label>
           <input
             type="email"
             value={draft.email}
             onChange={(e) => setDraft((d) => ({ ...d, email: e.target.value }))}
             className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
             placeholder="email@example.com"
+            required={emailRequired}
           />
         </div>
         <div>
@@ -125,14 +147,58 @@ export function CustomerForm({ draft, setDraft, saving, onSubmit, onCancel }: Pr
         </div>
       </div>
 
+      <fieldset className="rounded-lg border border-[var(--border)] p-3">
+        <legend className="px-1 text-xs font-medium text-[var(--muted)]">Address</legend>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="sm:col-span-2">
+            <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Address line 1</label>
+            <input
+              value={draft.addressLine1}
+              onChange={(e) => setDraft((d) => ({ ...d, addressLine1: e.target.value }))}
+              className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+              placeholder="1 High Street"
+            />
+          </div>
+          <div className="sm:col-span-2">
+            <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Address line 2</label>
+            <input
+              value={draft.addressLine2}
+              onChange={(e) => setDraft((d) => ({ ...d, addressLine2: e.target.value }))}
+              className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+              placeholder="Optional"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-[var(--muted)]">City</label>
+            <input
+              value={draft.city}
+              onChange={(e) => setDraft((d) => ({ ...d, city: e.target.value }))}
+              className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+              placeholder="London"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Postcode</label>
+            <input
+              value={draft.postcode}
+              onChange={(e) => setDraft((d) => ({ ...d, postcode: e.target.value.toUpperCase() }))}
+              className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm uppercase"
+              placeholder="SW1A 1AA"
+            />
+          </div>
+        </div>
+      </fieldset>
+
       {!isEdit && (
         <fieldset className="rounded-lg border border-[var(--border)] p-3">
           <legend className="px-1 text-xs font-medium text-[var(--muted)]">Vehicle (optional)</legend>
           <div className="grid gap-3 sm:grid-cols-3">
             <input
-              placeholder="Reg e.g. AB12 CDE"
+              placeholder="Reg e.g. AB12CDE"
               value={draft.registration}
-              onChange={(e) => setDraft((d) => ({ ...d, registration: e.target.value }))}
+              onChange={(e) =>
+                setDraft((d) => ({ ...d, registration: normalizeRegistration(e.target.value) }))
+              }
               className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 font-mono text-sm uppercase"
             />
             <input

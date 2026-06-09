@@ -43,6 +43,146 @@ enum SupplierStatus {
   INACTIVE
 }
 
+enum PaymentAccountType {
+  BANK
+  CASH
+}
+
+enum LedgerEntryDirection {
+  INCOME
+  EXPENSE
+}
+
+enum LedgerEntryStatus {
+  PENDING
+  CHECKED
+  POSTED
+  VOID
+}
+
+enum LedgerSourceModule {
+  GENERAL
+  TRANSFER
+  ADJUSTMENT
+  INVOICES
+  REPAIR
+  BODYWORK
+  PARTS
+}
+
+enum PartStatus {
+  ACTIVE
+  INACTIVE
+}
+
+/// Whether a part applies to any vehicle (universal) or only listed fitment rows.
+enum PartFitmentType {
+  UNIVERSAL
+  VEHICLE_SPECIFIC
+}
+
+enum PartMovementType {
+  RECEIPT
+  CONSUMPTION
+  RETURN
+  ADJUSTMENT
+}
+
+enum JobPartUsageStatus {
+  CONSUMED
+  RETURNED
+}
+
+enum RepairJobStatus {
+  NEW
+  QUOTE_SENT
+  APPROVED
+  AWAITING_VEHICLE
+  AWAITING_PARTS
+  ON_HOLD
+  IN_PROGRESS
+  TESTING
+  READY
+  COMPLETED
+  CANCELLED
+}
+
+enum RepairJobSource {
+  CUSTOMER
+  INTERNAL
+  RENTAL
+  WARRANTY
+}
+
+enum RepairTaskStatus {
+  AVAILABLE
+  ASSIGNED
+  STARTED
+  AWAITING_VEHICLE
+  AWAITING_PARTS
+  IN_PROGRESS
+  ON_HOLD
+  TESTING
+  COMPLETED
+  CANCELLED
+}
+
+enum BodyworkJobStatus {
+  NEW
+  QUOTE_SENT
+  APPROVED
+  AWAITING_VEHICLE
+  AWAITING_PARTS
+  ON_HOLD
+  IN_PROGRESS
+  TESTING
+  READY
+  COMPLETED
+  CANCELLED
+}
+
+enum BodyworkJobSource {
+  CUSTOMER
+  INSURANCE
+  INTERNAL
+  RENTAL
+  WARRANTY
+}
+
+enum BodyworkTaskStatus {
+  AVAILABLE
+  ASSIGNED
+  STARTED
+  AWAITING_VEHICLE
+  AWAITING_PARTS
+  IN_PROGRESS
+  ON_HOLD
+  TESTING
+  COMPLETED
+  CANCELLED
+}
+
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  PART_PAID
+  PAID
+  CANCELLED
+}
+
+enum InvoiceLineType {
+  LABOUR
+  PARTS
+}
+
+enum PaymentMethod {
+  BANK_TRANSFER
+  CARD
+  CASH
+  CHEQUE
+  OTHER
+}
+
 model GarageAccount {
   id                String              @id @default(uuid()) @db.Uuid
   name              String
@@ -53,6 +193,9 @@ model GarageAccount {
   phoneNumber       String              @map("phone_number")
   vatNumber         String?             @map("vat_number")
   status            GarageAccountStatus @default(ACTIVE)
+  invoiceNextSeq    Int                 @default(0) @map("invoice_next_seq")
+  repairNextSeq     Int                 @default(0) @map("repair_next_seq")
+  bodyworkNextSeq   Int                 @default(0) @map("bodywork_next_seq")
   createdAt         DateTime            @default(now()) @map("created_at")
   updatedAt         DateTime            @updatedAt @map("updated_at")
   deletedAt         DateTime?           @map("deleted_at")
@@ -62,9 +205,18 @@ model GarageAccount {
   modules   GarageAccountModule[]
   settings  SettingOption[]
   auditLogs AuditLog[]
-  customers       Customer[]
-  suppliers       Supplier[]
-  garageRoles     GarageRole[]
+  customers        Customer[]
+  suppliers        Supplier[]
+  paymentAccounts  PaymentAccount[]
+  ledgerEntries    LedgerEntry[]
+  garageRoles      GarageRole[]
+  invoices         Invoice[]
+  customerPayments CustomerPayment[]
+  repairJobs       RepairJob[]
+  bodyworkJobs     BodyworkJob[]
+  parts            Part[]
+  partMovements    PartMovement[]
+  jobPartUsages    JobPartUsage[]
 
   @@map("garage_account")
 }
@@ -99,9 +251,16 @@ model User {
   deletedAt       DateTime?  @map("deleted_at")
   deletedBy       String?    @map("deleted_by") @db.Uuid
 
-  garageAccount GarageAccount? @relation(fields: [garageAccountId], references: [id], onDelete: Cascade)
-  garageRole    GarageRole?    @relation(fields: [garageRoleId], references: [id], onDelete: SetNull)
-  auditLogs     AuditLog[]
+  garageAccount        GarageAccount? @relation(fields: [garageAccountId], references: [id], onDelete: Cascade)
+  garageRole           GarageRole?    @relation(fields: [garageRoleId], references: [id], onDelete: SetNull)
+  auditLogs            AuditLog[]
+  ledgerEntriesCreated LedgerEntry[]  @relation("LedgerEntryCreatedBy")
+  repairJobsCreated    RepairJob[]    @relation("RepairJobCreatedBy")
+  repairTasksAssigned  RepairTask[]   @relation("RepairTaskAssignee")
+  bodyworkJobsCreated  BodyworkJob[]  @relation("BodyworkJobCreatedBy")
+  bodyworkTasksAssigned BodyworkTask[] @relation("BodyworkTaskAssignee")
+  partMovementsCreated PartMovement[] @relation("PartMovementCreatedBy")
+  jobPartUsagesCreated JobPartUsage[] @relation("JobPartUsageCreatedBy")
 
   @@map("users")
 }
@@ -156,6 +315,7 @@ model Customer {
   postcode          String?
   notes             String?
   isAccountCustomer Boolean      @default(false) @map("is_account_customer")
+  chargeVat         Boolean      @default(true) @map("charge_vat")
   createdAt         DateTime     @default(now()) @map("created_at")
   updatedAt         DateTime     @updatedAt @map("updated_at")
   deletedAt         DateTime?    @map("deleted_at")
@@ -164,8 +324,14 @@ model Customer {
   garageAccount GarageAccount          @relation(fields: [garageAccountId], references: [id], onDelete: Cascade)
   accountTerms  CustomerAccountTerms?
   vehicles      CustomerVehicle[]
+  invoices       Invoice[]
+  payments       CustomerPayment[]
+  ledgerEntries  LedgerEntry[]
+  repairJobs     RepairJob[]
+  bodyworkJobs   BodyworkJob[]
 
   @@index([garageAccountId, type])
+  @@index([garageAccountId, email])
   @@index([garageAccountId, deletedAt])
   @@map("customer")
 }
@@ -225,11 +391,78 @@ model Supplier {
   deletedBy       String?        @map("deleted_by") @db.Uuid
 
   garageAccount GarageAccount @relation(fields: [garageAccountId], references: [id], onDelete: Cascade)
+  parts         Part[]
 
   @@index([garageAccountId, name])
   @@index([garageAccountId, status])
   @@index([garageAccountId, deletedAt])
   @@map("supplier")
+}
+
+model PaymentAccount {
+  id              String             @id @default(uuid()) @db.Uuid
+  garageAccountId String             @map("garage_account_id") @db.Uuid
+  name            String
+  type            PaymentAccountType
+  openingBalance  Decimal            @default(0) @map("opening_balance") @db.Decimal(14, 2)
+  isActive        Boolean            @default(true) @map("is_active")
+  sortOrder       Int                @default(0) @map("sort_order")
+  createdAt       DateTime           @default(now()) @map("created_at")
+  updatedAt       DateTime           @updatedAt @map("updated_at")
+  deletedAt       DateTime?          @map("deleted_at")
+  deletedBy       String?            @map("deleted_by") @db.Uuid
+
+  garageAccount     GarageAccount     @relation(fields: [garageAccountId], references: [id], onDelete: Cascade)
+  ledgerEntries     LedgerEntry[]
+  customerPayments  CustomerPayment[]
+
+  @@index([garageAccountId, deletedAt])
+  @@map("payment_account")
+}
+
+model LedgerEntry {
+  id               String               @id @default(uuid()) @db.Uuid
+  garageAccountId  String               @map("garage_account_id") @db.Uuid
+  paymentAccountId String               @map("payment_account_id") @db.Uuid
+  direction        LedgerEntryDirection
+  status           LedgerEntryStatus    @default(PENDING)
+  sourceModule     LedgerSourceModule   @default(GENERAL) @map("source_module")
+  customerId       String?              @map("customer_id") @db.Uuid
+  customerPaymentId String?             @unique @map("customer_payment_id") @db.Uuid
+  valueDate        DateTime             @map("value_date") @db.Date
+  postedAt         DateTime?            @map("posted_at")
+  amountNet        Decimal              @map("amount_net") @db.Decimal(14, 2)
+  vatAmount        Decimal              @default(0) @map("vat_amount") @db.Decimal(14, 2)
+  amountGross      Decimal              @map("amount_gross") @db.Decimal(14, 2)
+  category         String?
+  supplierId       String?              @map("supplier_id") @db.Uuid
+  notes            String?
+  reversesEntryId  String?              @unique @map("reverses_entry_id") @db.Uuid
+  createdById      String               @map("created_by_id") @db.Uuid
+  checkedById      String?              @map("checked_by_id") @db.Uuid
+  approvedById     String?              @map("approved_by_id") @db.Uuid
+  voidedById       String?              @map("voided_by_id") @db.Uuid
+  checkedAt        DateTime?            @map("checked_at")
+  voidedAt         DateTime?            @map("voided_at")
+  createdAt        DateTime             @default(now()) @map("created_at")
+  updatedAt        DateTime             @updatedAt @map("updated_at")
+
+  garageAccount     GarageAccount      @relation(fields: [garageAccountId], references: [id], onDelete: Cascade)
+  paymentAccount    PaymentAccount     @relation(fields: [paymentAccountId], references: [id], onDelete: Restrict)
+  customer          Customer?          @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  customerPayment   CustomerPayment?   @relation(fields: [customerPaymentId], references: [id], onDelete: SetNull)
+  repairJobId       String?            @map("repair_job_id") @db.Uuid
+  repairJob         RepairJob?         @relation(fields: [repairJobId], references: [id], onDelete: SetNull)
+  bodyworkJobId     String?            @map("bodywork_job_id") @db.Uuid
+  bodyworkJob       BodyworkJob?       @relation(fields: [bodyworkJobId], references: [id], onDelete: SetNull)
+  createdBy         User               @relation("LedgerEntryCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  reversesEntry   LedgerEntry?   @relation("LedgerReversal", fields: [reversesEntryId], references: [id], onDelete: SetNull)
+  reversedBy      LedgerEntry?   @relation("LedgerReversal")
+
+  @@index([garageAccountId, status])
+  @@index([garageAccountId, valueDate])
+  @@index([paymentAccountId, status])
+  @@map("ledger_entry")
 }
 
 model GarageRole {
@@ -263,4 +496,355 @@ model GarageRolePermission {
 
   @@unique([garageRoleId, permission])
   @@map("garage_role_permission")
+}
+
+model Invoice {
+  id              String        @id @default(uuid()) @db.Uuid
+  garageAccountId String        @map("garage_account_id") @db.Uuid
+  customerId      String        @map("customer_id") @db.Uuid
+  invoiceNumber   String        @map("invoice_number")
+  status          InvoiceStatus @default(DRAFT)
+  issueDate       DateTime?     @map("issue_date") @db.Date
+  dueDate         DateTime?     @map("due_date") @db.Date
+  amountNet       Decimal       @map("amount_net") @db.Decimal(14, 2)
+  vatAmount       Decimal       @default(0) @map("vat_amount") @db.Decimal(14, 2)
+  amountGross           Decimal       @map("amount_gross") @db.Decimal(14, 2)
+  vehicleRegistration String?       @map("vehicle_registration")
+  depositAmount       Decimal       @default(0) @map("deposit_amount") @db.Decimal(14, 2)
+  repairJobId         String?       @unique @map("repair_job_id") @db.Uuid
+  bodyworkJobId       String?       @unique @map("bodywork_job_id") @db.Uuid
+  notes                 String?
+  createdById           String        @map("created_by_id") @db.Uuid
+  sentAt          DateTime?     @map("sent_at")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+
+  garageAccount GarageAccount        @relation(fields: [garageAccountId], references: [id], onDelete: Cascade)
+  customer      Customer             @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  repairJob     RepairJob?           @relation(fields: [repairJobId], references: [id], onDelete: SetNull)
+  bodyworkJob   BodyworkJob?         @relation(fields: [bodyworkJobId], references: [id], onDelete: SetNull)
+  lines         InvoiceLine[]
+  allocations   PaymentAllocation[]
+
+  @@unique([garageAccountId, invoiceNumber])
+  @@index([garageAccountId, customerId, status])
+  @@index([garageAccountId, status])
+  @@map("invoice")
+}
+
+model InvoiceLine {
+  id             String  @id @default(uuid()) @db.Uuid
+  invoiceId      String  @map("invoice_id") @db.Uuid
+  lineType       InvoiceLineType @default(PARTS) @map("line_type")
+  description    String
+  quantity       Decimal         @default(1) @db.Decimal(12, 3)
+  unitPriceNet   Decimal @map("unit_price_net") @db.Decimal(14, 2)
+  vatRatePercent Decimal @default(0) @map("vat_rate_percent") @db.Decimal(5, 2)
+  amountNet      Decimal @map("amount_net") @db.Decimal(14, 2)
+  vatAmount      Decimal @default(0) @map("vat_amount") @db.Decimal(14, 2)
+  amountGross    Decimal @map("amount_gross") @db.Decimal(14, 2)
+  sortOrder      Int     @default(0) @map("sort_order")
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId])
+  @@map("invoice_line")
+}
+
+model CustomerPayment {
+  id                String         @id @default(uuid()) @db.Uuid
+  garageAccountId   String         @map("garage_account_id") @db.Uuid
+  customerId        String         @map("customer_id") @db.Uuid
+  paymentAccountId  String         @map("payment_account_id") @db.Uuid
+  amount            Decimal        @db.Decimal(14, 2)
+  allocatedAmount   Decimal        @default(0) @map("allocated_amount") @db.Decimal(14, 2)
+  valueDate         DateTime       @map("value_date") @db.Date
+  method            PaymentMethod? @default(BANK_TRANSFER)
+  reference         String?
+  notes             String?
+  createdById       String         @map("created_by_id") @db.Uuid
+  createdAt         DateTime       @default(now()) @map("created_at")
+
+  garageAccount   GarageAccount      @relation(fields: [garageAccountId], references: [id], onDelete: Cascade)
+  customer        Customer           @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  paymentAccount  PaymentAccount     @relation(fields: [paymentAccountId], references: [id], onDelete: Restrict)
+  allocations     PaymentAllocation[]
+  ledgerEntry     LedgerEntry?
+
+  @@index([garageAccountId, customerId])
+  @@index([garageAccountId, valueDate])
+  @@map("customer_payment")
+}
+
+model PaymentAllocation {
+  id         String    @id @default(uuid()) @db.Uuid
+  paymentId  String    @map("payment_id") @db.Uuid
+  invoiceId  String    @map("invoice_id") @db.Uuid
+  amount     Decimal   @db.Decimal(14, 2)
+  createdAt  DateTime  @default(now()) @map("created_at")
+  deletedAt  DateTime? @map("deleted_at")
+  deletedById String?  @map("deleted_by_id") @db.Uuid
+
+  payment CustomerPayment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  invoice Invoice         @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+
+  @@index([invoiceId])
+  @@index([paymentId])
+  @@map("payment_allocation")
+}
+
+model RepairJob {
+  id                  String          @id @default(uuid()) @db.Uuid
+  garageAccountId     String          @map("garage_account_id") @db.Uuid
+  customerId          String          @map("customer_id") @db.Uuid
+  jobNumber           String          @map("job_number")
+  status              RepairJobStatus @default(NEW)
+  source              RepairJobSource @default(CUSTOMER)
+  vehicleRegistration String?         @map("vehicle_registration")
+  vehicleMake         String?         @map("vehicle_make")
+  vehicleModel        String?         @map("vehicle_model")
+  customerConcern     String?         @map("customer_concern")
+  notes               String?
+  vatEnabled          Boolean         @default(true) @map("vat_enabled")
+  vatRatePercent      Decimal         @default(20) @map("vat_rate_percent") @db.Decimal(5, 2)
+  createdById         String          @map("created_by_id") @db.Uuid
+  createdAt           DateTime        @default(now()) @map("created_at")
+  updatedAt           DateTime        @updatedAt @map("updated_at")
+
+  garageAccount GarageAccount @relation(fields: [garageAccountId], references: [id], onDelete: Cascade)
+  customer      Customer      @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  createdBy     User          @relation("RepairJobCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  tasks         RepairTask[]
+  invoice       Invoice?
+  ledgerEntries LedgerEntry[]
+  partUsages    JobPartUsage[]
+  partMovements PartMovement[]
+
+  @@unique([garageAccountId, jobNumber])
+  @@index([garageAccountId, status])
+  @@index([garageAccountId, customerId])
+  @@map("repair_job")
+}
+
+model RepairTask {
+  id            String           @id @default(uuid()) @db.Uuid
+  repairJobId   String           @map("repair_job_id") @db.Uuid
+  title         String
+  description   String?
+  status        RepairTaskStatus @default(AVAILABLE)
+  assigneeId    String?          @map("assignee_id") @db.Uuid
+  amountNet     Decimal          @default(0) @map("amount_net") @db.Decimal(14, 2)
+  useBreakdown  Boolean          @default(false) @map("use_breakdown")
+  labourHours   Decimal          @default(1) @map("labour_hours") @db.Decimal(8, 2)
+  labourRateNet Decimal          @default(0) @map("labour_rate_net") @db.Decimal(14, 2)
+  sortOrder     Int              @default(0) @map("sort_order")
+  createdAt     DateTime         @default(now()) @map("created_at")
+  updatedAt     DateTime         @updatedAt @map("updated_at")
+
+  repairJob  RepairJob        @relation(fields: [repairJobId], references: [id], onDelete: Cascade)
+  assignee   User?            @relation("RepairTaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  parts      RepairTaskPart[]
+  stockParts JobPartUsage[]
+
+  @@index([repairJobId])
+  @@index([assigneeId])
+  @@map("repair_task")
+}
+
+model RepairTaskPart {
+  id           String   @id @default(uuid()) @db.Uuid
+  repairTaskId String   @map("repair_task_id") @db.Uuid
+  description  String
+  quantity     Decimal  @default(1) @db.Decimal(12, 3)
+  unitPriceNet Decimal  @map("unit_price_net") @db.Decimal(14, 2)
+  sortOrder    Int      @default(0) @map("sort_order")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  repairTask RepairTask @relation(fields: [repairTaskId], references: [id], onDelete: Cascade)
+
+  @@index([repairTaskId])
+  @@map("repair_task_part")
+}
+
+model BodyworkJob {
+  id                  String            @id @default(uuid()) @db.Uuid
+  garageAccountId     String            @map("garage_account_id") @db.Uuid
+  customerId          String            @map("customer_id") @db.Uuid
+  jobNumber           String            @map("job_number")
+  status              BodyworkJobStatus @default(NEW)
+  source              BodyworkJobSource @default(CUSTOMER)
+  vehicleRegistration String?           @map("vehicle_registration")
+  vehicleMake         String?             @map("vehicle_make")
+  vehicleModel        String?             @map("vehicle_model")
+  customerConcern     String?             @map("customer_concern")
+  panelCode           String?             @map("panel_code")
+  colourCode          String?             @map("colour_code")
+  paintMaterialCostNet Decimal          @default(0) @map("paint_material_cost_net") @db.Decimal(14, 2)
+  outsourcedCostNet   Decimal           @default(0) @map("outsourced_cost_net") @db.Decimal(14, 2)
+  notes               String?
+  vatEnabled          Boolean           @default(true) @map("vat_enabled")
+  vatRatePercent      Decimal           @default(20) @map("vat_rate_percent") @db.Decimal(5, 2)
+  createdById         String            @map("created_by_id") @db.Uuid
+  createdAt           DateTime          @default(now()) @map("created_at")
+  updatedAt           DateTime          @updatedAt @map("updated_at")
+
+  garageAccount GarageAccount @relation(fields: [garageAccountId], references: [id], onDelete: Cascade)
+  customer      Customer      @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  createdBy     User          @relation("BodyworkJobCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  tasks         BodyworkTask[]
+  invoice       Invoice?
+  ledgerEntries LedgerEntry[]
+
+  @@unique([garageAccountId, jobNumber])
+  @@index([garageAccountId, status])
+  @@index([garageAccountId, customerId])
+  @@map("bodywork_job")
+}
+
+model BodyworkTask {
+  id            String             @id @default(uuid()) @db.Uuid
+  bodyworkJobId String             @map("bodywork_job_id") @db.Uuid
+  title         String
+  description   String?
+  panel         String?
+  status        BodyworkTaskStatus @default(AVAILABLE)
+  assigneeId    String?            @map("assignee_id") @db.Uuid
+  amountNet     Decimal            @default(0) @map("amount_net") @db.Decimal(14, 2)
+  useBreakdown  Boolean            @default(false) @map("use_breakdown")
+  labourHours   Decimal            @default(1) @map("labour_hours") @db.Decimal(8, 2)
+  labourRateNet Decimal            @default(0) @map("labour_rate_net") @db.Decimal(14, 2)
+  sortOrder     Int                @default(0) @map("sort_order")
+  createdAt     DateTime           @default(now()) @map("created_at")
+  updatedAt     DateTime           @updatedAt @map("updated_at")
+
+  bodyworkJob BodyworkJob        @relation(fields: [bodyworkJobId], references: [id], onDelete: Cascade)
+  assignee    User?              @relation("BodyworkTaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  parts       BodyworkTaskPart[]
+
+  @@index([bodyworkJobId])
+  @@index([assigneeId])
+  @@map("bodywork_task")
+}
+
+model BodyworkTaskPart {
+  id             String   @id @default(uuid()) @db.Uuid
+  bodyworkTaskId String   @map("bodywork_task_id") @db.Uuid
+  description    String
+  quantity       Decimal  @default(1) @db.Decimal(12, 3)
+  unitPriceNet   Decimal  @map("unit_price_net") @db.Decimal(14, 2)
+  sortOrder      Int      @default(0) @map("sort_order")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  bodyworkTask BodyworkTask @relation(fields: [bodyworkTaskId], references: [id], onDelete: Cascade)
+
+  @@index([bodyworkTaskId])
+  @@map("bodywork_task_part")
+}
+
+model Part {
+  id              String          @id @default(uuid()) @db.Uuid
+  garageAccountId String          @map("garage_account_id") @db.Uuid
+  partNumber      String          @map("part_number")
+  description     String
+  category        String?
+  /// UNIVERSAL = any vehicle; VEHICLE_SPECIFIC = must match at least one fitment row.
+  fitmentType     PartFitmentType @default(UNIVERSAL) @map("fitment_type")
+  quantityOnHand  Decimal         @default(0) @map("quantity_on_hand") @db.Decimal(12, 3)
+  minQuantity     Decimal         @default(0) @map("min_quantity") @db.Decimal(12, 3)
+  costPriceNet    Decimal         @default(0) @map("cost_price_net") @db.Decimal(14, 2)
+  sellPriceNet    Decimal         @default(0) @map("sell_price_net") @db.Decimal(14, 2)
+  supplierId      String?         @map("supplier_id") @db.Uuid
+  location        String?
+  notes           String?
+  status          PartStatus      @default(ACTIVE)
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
+  deletedAt       DateTime?       @map("deleted_at")
+
+  garageAccount GarageAccount  @relation(fields: [garageAccountId], references: [id], onDelete: Cascade)
+  supplier      Supplier?      @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  fitments      PartFitment[]
+  movements     PartMovement[]
+  jobUsages     JobPartUsage[]
+
+  @@unique([garageAccountId, partNumber])
+  @@index([garageAccountId, status])
+  @@index([garageAccountId, deletedAt])
+  @@map("part")
+}
+
+/// One make/model/year-range line — a part can have many (e.g. one wiper fits Corolla + Auris).
+model PartFitment {
+  id        String   @id @default(uuid()) @db.Uuid
+  partId    String   @map("part_id") @db.Uuid
+  make      String
+  model     String
+  yearFrom  Int      @map("year_from")
+  yearTo    Int?     @map("year_to")
+  notes     String?
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  part Part @relation(fields: [partId], references: [id], onDelete: Cascade)
+
+  @@index([partId])
+  @@map("part_fitment")
+}
+
+model PartMovement {
+  id              String           @id @default(uuid()) @db.Uuid
+  garageAccountId String           @map("garage_account_id") @db.Uuid
+  partId          String           @map("part_id") @db.Uuid
+  type            PartMovementType
+  quantity        Decimal          @db.Decimal(12, 3)
+  quantityBefore  Decimal          @map("quantity_before") @db.Decimal(12, 3)
+  quantityAfter   Decimal          @map("quantity_after") @db.Decimal(12, 3)
+  repairJobId     String?          @map("repair_job_id") @db.Uuid
+  jobPartUsageId  String?          @map("job_part_usage_id") @db.Uuid
+  notes           String?
+  createdById     String           @map("created_by_id") @db.Uuid
+  createdAt       DateTime         @default(now()) @map("created_at")
+
+  garageAccount GarageAccount @relation(fields: [garageAccountId], references: [id], onDelete: Cascade)
+  part          Part          @relation(fields: [partId], references: [id], onDelete: Cascade)
+  repairJob     RepairJob?    @relation(fields: [repairJobId], references: [id], onDelete: SetNull)
+  jobPartUsage  JobPartUsage? @relation(fields: [jobPartUsageId], references: [id], onDelete: SetNull)
+  createdBy     User          @relation("PartMovementCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([partId])
+  @@index([garageAccountId, createdAt])
+  @@index([repairJobId])
+  @@map("part_movement")
+}
+
+model JobPartUsage {
+  id              String             @id @default(uuid()) @db.Uuid
+  garageAccountId String             @map("garage_account_id") @db.Uuid
+  repairJobId     String             @map("repair_job_id") @db.Uuid
+  repairTaskId    String?            @map("repair_task_id") @db.Uuid
+  partId          String             @map("part_id") @db.Uuid
+  quantity        Decimal            @db.Decimal(12, 3)
+  costPriceNet    Decimal            @map("cost_price_net") @db.Decimal(14, 2)
+  sellPriceNet    Decimal            @map("sell_price_net") @db.Decimal(14, 2)
+  status          JobPartUsageStatus @default(CONSUMED)
+  invoiceLineId   String?            @unique @map("invoice_line_id") @db.Uuid
+  consumedAt      DateTime           @default(now()) @map("consumed_at")
+  returnedAt      DateTime?          @map("returned_at")
+  createdById     String             @map("created_by_id") @db.Uuid
+  createdAt       DateTime           @default(now()) @map("created_at")
+  updatedAt       DateTime           @updatedAt @map("updated_at")
+
+  garageAccount GarageAccount @relation(fields: [garageAccountId], references: [id], onDelete: Cascade)
+  repairJob     RepairJob     @relation(fields: [repairJobId], references: [id], onDelete: Cascade)
+  repairTask    RepairTask?   @relation(fields: [repairTaskId], references: [id], onDelete: SetNull)
+  part          Part          @relation(fields: [partId], references: [id], onDelete: Restrict)
+  createdBy     User          @relation("JobPartUsageCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  movements     PartMovement[]
+
+  @@index([repairJobId])
+  @@index([partId])
+  @@index([garageAccountId, status])
+  @@map("job_part_usage")
 }

@@ -1,0 +1,2 @@
+-- AlterEnum
+ALTER TYPE "RepairJobStatus" ADD VALUE IF NOT EXISTS 'AWAITING_VEHICLE';

@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -33,6 +34,50 @@ export class SettingsService {
       },
       orderBy: [{ optionType: "asc" }, { sortOrder: "asc" }],
     });
+  }
+
+  /** Idempotent create for ledger expense categories (label is the stored value on entries). */
+  async createExpenseCategory(user: RequestUser, label: string) {
+    const garageAccountId = this.garageId(user);
+    const trimmed = label.trim();
+    if (!trimmed) throw new BadRequestException("Category name is required");
+
+    await ensureDefaultGarageSettings(this.prisma, garageAccountId);
+
+    const existing = await this.prisma.settingOption.findFirst({
+      where: {
+        garageAccountId,
+        optionType: "expense_category",
+        deletedAt: null,
+        label: { equals: trimmed, mode: "insensitive" },
+      },
+    });
+    if (existing) return existing;
+
+    const agg = await this.prisma.settingOption.aggregate({
+      where: { garageAccountId, optionType: "expense_category", deletedAt: null },
+      _max: { sortOrder: true },
+    });
+    const sortOrder = (agg._max.sortOrder ?? -1) + 1;
+
+    const row = await this.prisma.settingOption.create({
+      data: {
+        garageAccountId,
+        optionType: "expense_category",
+        label: trimmed,
+        value: trimmed.toLowerCase().replace(/\s+/g, "_"),
+        sortOrder,
+      },
+    });
+    await this.audit.log({
+      action: "settings.expense_category.create",
+      userId: user.id,
+      garageAccountId,
+      entityType: "setting_option",
+      entityId: row.id,
+      metadata: { label: trimmed },
+    });
+    return row;
   }
 
   async create(user: RequestUser, dto: CreateSettingDto) {

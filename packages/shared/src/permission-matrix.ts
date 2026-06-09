@@ -24,6 +24,8 @@ const MODULE_CRUD_PERMISSIONS = MODULE_KEYS.flatMap(
 export const GARAGE_PERMISSIONS = [
   ...CORE_GARAGE_PERMISSIONS,
   ...MODULE_CRUD_PERMISSIONS,
+  "repair.work",
+  "bodywork.work",
 ] as const satisfies readonly Permission[];
 
 export type GaragePermission = (typeof GARAGE_PERMISSIONS)[number];
@@ -137,6 +139,12 @@ export function roleAccessLevelForGroup(
 ): RoleAccessLevel {
   if (group.write && permissions.includes(group.write)) return "full";
   if (permissions.includes(group.read)) return "view";
+  if (
+    (group.id === "repair" || group.id === "bodywork") &&
+    permissions.includes(`${group.id}.work` as GaragePermission)
+  ) {
+    return "view";
+  }
   return "none";
 }
 
@@ -183,13 +191,22 @@ export const DEFAULT_GARAGE_ROLES: DefaultGarageRoleTemplate[] = [
       "suppliers.read",
       "suppliers.write",
       "ledger.read",
+      "ledger.write",
+      "invoices.read",
+      "invoices.write",
+      "repair.read",
+      "repair.write",
+      "bodywork.read",
+      "bodywork.write",
+      "parts.read",
+      "parts.write",
       "partners.read",
     ],
   },
   {
     slug: "mechanic",
     name: "Mechanic",
-    permissions: [],
+    permissions: ["repair.read", "repair.work", "bodywork.read", "bodywork.work"],
   },
   {
     slug: "staff",
@@ -199,6 +216,15 @@ export const DEFAULT_GARAGE_ROLES: DefaultGarageRoleTemplate[] = [
       "customers.read",
       "suppliers.read",
       "ledger.read",
+      "ledger.write",
+      "invoices.read",
+      "invoices.write",
+      "repair.read",
+      "repair.write",
+      "bodywork.read",
+      "bodywork.write",
+      "parts.read",
+      "parts.write",
       "partners.read",
     ],
   },

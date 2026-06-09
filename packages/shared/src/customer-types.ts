@@ -33,6 +33,8 @@ export type CustomerDto = {
   postcode: string | null;
   notes: string | null;
   isAccountCustomer: boolean;
+  /** @deprecated VAT is set per repair job; kept for API compatibility. */
+  chargeVat: boolean;
   accountTerms: CustomerAccountTermsDto | null;
   vehicles: CustomerVehicleDto[];
   deletedAt: string | null;
