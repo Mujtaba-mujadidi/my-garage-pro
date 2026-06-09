@@ -139,16 +139,20 @@ export function InvoicesPageContent() {
   const load = useCallback(async () => {
     setError("");
     try {
-      const [inv, pay, cust, accts] = await Promise.all([
+      const [inv, pay, cust] = await Promise.all([
         apiFetch<InvoiceDto[]>("/invoices"),
         apiFetch<CustomerPaymentDto[]>("/invoices/payments"),
         apiFetch<CustomerDto[]>("/customers"),
-        apiFetch<PaymentAccountDto[]>("/ledger/accounts"),
       ]);
       setInvoices(inv);
       setPayments(pay);
       setCustomers(cust);
-      setAccounts(accts);
+      try {
+        const accts = await apiFetch<PaymentAccountDto[]>("/ledger/accounts");
+        setAccounts(accts);
+      } catch {
+        setAccounts([]);
+      }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not load invoices");
     }

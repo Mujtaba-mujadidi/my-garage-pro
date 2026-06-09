@@ -20,6 +20,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const [session, setSessionState] = useState<AuthSessionDto | null>(null);
   const [loading, setLoading] = useState(true);
   const refreshIdRef = useRef(0);
+  const refreshInFlightRef = useRef(0);
 
   const refreshSession = useCallback(async () => {
     const refreshId = ++refreshIdRef.current;
@@ -29,6 +30,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       setLoading(false);
       return;
     }
+
+    refreshInFlightRef.current += 1;
     setLoading(true);
     try {
       const fresh = await meRequest();
@@ -40,7 +43,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       clearSession();
       setSessionState(null);
     } finally {
-      if (refreshId === refreshIdRef.current) setLoading(false);
+      refreshInFlightRef.current = Math.max(0, refreshInFlightRef.current - 1);
+      if (refreshInFlightRef.current === 0) setLoading(false);
     }
   }, []);
 

@@ -42,6 +42,17 @@ export class LedgerService {
     return user.garageAccountId;
   }
 
+  /** Payment accounts + invoice payment posting — allowed when ledger or invoices is enabled. */
+  private financeGarageId(user: RequestUser): string {
+    if (!user.garageAccountId) throw new ForbiddenException("No garage context");
+    const ok =
+      user.enabledModules.includes("ledger") || user.enabledModules.includes("invoices");
+    if (!ok) {
+      throw new ForbiddenException("Ledger or Invoices module must be enabled");
+    }
+    return user.garageAccountId;
+  }
+
   private parseAmounts(gross: number, vat = 0) {
     if (gross <= 0) throw new BadRequestException("Amount must be greater than zero");
     if (vat < 0 || vat > gross) throw new BadRequestException("Invalid VAT amount");
@@ -84,7 +95,7 @@ export class LedgerService {
   }
 
   async listAccounts(user: RequestUser, includeInactive = false) {
-    const garageAccountId = this.garageId(user);
+    const garageAccountId = this.financeGarageId(user);
     const rows = await this.prisma.paymentAccount.findMany({
       where: {
         garageAccountId,
@@ -470,7 +481,7 @@ export class LedgerService {
       reference: string;
     },
   ) {
-    const garageAccountId = this.garageId(user);
+    const garageAccountId = this.financeGarageId(user);
     const amounts = this.parseAmounts(params.amountGross, params.vatAmount);
     const now = new Date();
 

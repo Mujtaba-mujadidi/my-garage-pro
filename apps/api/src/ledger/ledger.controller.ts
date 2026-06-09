@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from "@nestjs/common";
 import { LedgerEntryStatus } from "@prisma/client";
 import { CurrentUser } from "../auth/decorators/current-user.decorator";
+import { RequireAnyPermissions } from "../auth/decorators/any-permissions.decorator";
 import { RequirePermissions } from "../auth/decorators/permissions.decorator";
 import type { RequestUser } from "../auth/auth.types";
 import { PermissionsGuard } from "../auth/guards/permissions.guard";
@@ -17,7 +18,7 @@ export class LedgerController {
   constructor(private readonly ledger: LedgerService) {}
 
   @Get("accounts")
-  @RequirePermissions("ledger.read")
+  @RequireAnyPermissions("ledger.read", "invoices.read")
   listAccounts(
     @CurrentUser() user: RequestUser,
     @Query("includeInactive") includeInactive?: string,
