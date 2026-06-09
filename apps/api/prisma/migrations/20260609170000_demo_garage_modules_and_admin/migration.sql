@@ -33,7 +33,7 @@ WHERE gam.garage_account_id = ga.id
   AND ga.slug = 'demo-garage';
 
 -- Reset demo super admin password to "demo" (staging convenience; re-run safe).
-UPDATE "user"
+UPDATE users
 SET
   password_hash = '$argon2id$v=19$m=65536,t=3,p=4$gVzggFO/m5ZVOu2td+118w$SETGIHr44QzUYD5paBBykLhda6WOf+y+xO8L45h32ec',
   must_change_password = false,

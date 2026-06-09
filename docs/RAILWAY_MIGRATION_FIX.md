@@ -65,6 +65,26 @@ If the failed row was already removed, run deploy only:
 pnpm exec prisma migrate deploy
 ```
 
+## Failed migration: `demo_garage_modules_and_admin` (wrong table name)
+
+If API deploy fails after commit `df94e90` with SQL error on relation `"user"`:
+
+```text
+relation "user" does not exist
+```
+
+The fix uses table `users`. Mark the failed migration rolled back, then redeploy API:
+
+```bash
+cd apps/api
+export DATABASE_URL="<Railway Postgres URL>"
+pnpm exec prisma migrate resolve --rolled-back 20260609170000_demo_garage_modules_and_admin
+```
+
+Push includes the corrected SQL; `migrate deploy` on the next API start will apply it.
+
+---
+
 ## If deploy still fails (partial DB state)
 
 In **Postgres → Query** (or `psql`), check:
