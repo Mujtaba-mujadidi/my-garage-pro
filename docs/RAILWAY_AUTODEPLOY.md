@@ -217,6 +217,16 @@ Railway routes traffic to **`$PORT`**. If the process listens on a fixed port (e
 
 **API fix:** `main.ts` uses `process.env.PORT` and listens on `0.0.0.0`.
 
+**API crashed / login timeout on staging:** Open **api → Deployments → latest → Deploy logs**. If you see `relation "user" does not exist` or `P3009`, the migration `20260609170000_demo_garage_modules_and_admin` failed. Latest `main` includes auto-recover in `apps/api/scripts/railway-start.sh` — **Redeploy api**. Or run manually:
+
+```bash
+cd apps/api && export DATABASE_URL="<Railway Postgres URL>"
+pnpm exec prisma migrate resolve --rolled-back 20260609170000_demo_garage_modules_and_admin
+pnpm exec prisma migrate deploy
+```
+
+Also verify **api → Networking → target port** matches deploy log (`API listening on 0.0.0.0:XXXX`, often **8080**).
+
 **Check deploy logs:**
 
 1. **Web** — line like `Ready on http://0.0.0.0:XXXX` where `XXXX` matches Railway’s assigned port.

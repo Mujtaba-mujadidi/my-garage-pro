@@ -12,4 +12,4 @@ watchPatterns = [
 ]
 
 [deploy]
-startCommand = "cd apps/api && pnpm exec prisma migrate deploy && node dist/apps/api/src/main.js"
+startCommand = "sh apps/api/scripts/railway-start.sh"
