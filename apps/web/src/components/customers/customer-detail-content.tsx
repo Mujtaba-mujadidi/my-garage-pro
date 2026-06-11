@@ -2,6 +2,11 @@
 
 import { useSession } from "@/components/providers/session-provider";
 import { Modal } from "@/components/ui/modal";
+import {
+  STICKY_TABLE_HEAD_CLASS,
+  TABLE_SCROLL_COMPACT_MAX_HEIGHT,
+  TableScroll,
+} from "@/components/ui/table-scroll";
 import { TableRowActionsMenu } from "@/components/ui/table-row-actions-menu";
 import { apiFetch, ApiError, downloadAuthenticatedPdf } from "@/lib/api-client";
 import { normalizeRegistration } from "@/lib/vehicle-registration";
@@ -399,9 +404,9 @@ export function CustomerDetailContent({ customerId }: Props) {
           {invoices.length === 0 ? (
             <p className="px-4 py-6 text-sm text-[var(--muted)]">No invoices yet.</p>
           ) : (
-            <div className="overflow-x-auto">
+            <TableScroll>
               <table className="w-full min-w-[40rem] text-left text-sm">
-                <thead className="bg-[var(--background)] text-xs text-[var(--muted)]">
+                <thead className={`${STICKY_TABLE_HEAD_CLASS} text-xs text-[var(--muted)]`}>
                   <tr>
                     <th className="px-4 py-2 font-medium">Invoice</th>
                     <th className="px-4 py-2 font-medium">Status</th>
@@ -446,7 +451,7 @@ export function CustomerDetailContent({ customerId }: Props) {
                   ))}
                 </tbody>
               </table>
-            </div>
+            </TableScroll>
           )}
         </section>
       )}
@@ -483,11 +488,17 @@ export function CustomerDetailContent({ customerId }: Props) {
                 </p>
               )}
             </div>
-            <div className="overflow-x-auto rounded-lg border border-[var(--border)]">
-              <table className="w-full min-w-[32rem] text-left text-sm">
-                <thead className="bg-[var(--background)] text-xs text-[var(--muted)]">
+            <TableScroll
+              className="rounded-lg border border-[var(--border)]"
+              maxHeightClass={TABLE_SCROLL_COMPACT_MAX_HEIGHT}
+            >
+              <table className="w-full min-w-[36rem] text-left text-sm">
+                <thead className={`${STICKY_TABLE_HEAD_CLASS} text-xs text-[var(--muted)]`}>
                   <tr>
                     <th className="px-3 py-2 font-medium">Description</th>
+                    <th className="px-3 py-2 text-right font-medium">Qty</th>
+                    <th className="px-3 py-2 text-right font-medium">Unit (ex VAT)</th>
+                    <th className="px-3 py-2 text-right font-medium">VAT</th>
                     <th className="px-3 py-2 text-right font-medium">Line total (inc VAT)</th>
                   </tr>
                 </thead>
@@ -495,6 +506,13 @@ export function CustomerDetailContent({ customerId }: Props) {
                   {viewInvoice.lines.map((line) => (
                     <tr key={line.id} className="border-t border-[var(--border)]">
                       <td className="px-3 py-2">{line.description}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{line.quantity}</td>
+                      <td className="px-3 py-2 text-right font-mono tabular-nums">
+                        {formatMoney(line.unitPriceNet)}
+                      </td>
+                      <td className="px-3 py-2 text-right font-mono tabular-nums">
+                        {formatMoney(line.vatAmount)}
+                      </td>
                       <td className="px-3 py-2 text-right font-mono tabular-nums">
                         {formatMoney(line.amountGross)}
                       </td>
@@ -502,7 +520,7 @@ export function CustomerDetailContent({ customerId }: Props) {
                   ))}
                 </tbody>
               </table>
-            </div>
+            </TableScroll>
             <dl className="ml-auto max-w-xs space-y-1 text-right">
               <div className="flex justify-between gap-4">
                 <dt className="text-[var(--muted)]">Net</dt>
@@ -546,9 +564,9 @@ export function CustomerDetailContent({ customerId }: Props) {
 
 function JobTable({ jobs }: { jobs: RepairJobListDto[] }) {
   return (
-    <div className="overflow-x-auto">
+    <TableScroll>
       <table className="w-full min-w-[36rem] text-left text-sm">
-        <thead className="bg-[var(--background)] text-xs text-[var(--muted)]">
+        <thead className={`${STICKY_TABLE_HEAD_CLASS} text-xs text-[var(--muted)]`}>
           <tr>
             <th className="px-4 py-2 font-medium">Job</th>
             <th className="px-4 py-2 font-medium">Status</th>
@@ -588,6 +606,6 @@ function JobTable({ jobs }: { jobs: RepairJobListDto[] }) {
           ))}
         </tbody>
       </table>
-    </div>
+    </TableScroll>
   );
 }

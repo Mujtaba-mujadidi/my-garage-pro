@@ -17,6 +17,7 @@ import { InvoicesModule } from "./invoices/invoices.module";
 import { RepairJobsModule } from "./repair-jobs/repair-jobs.module";
 import { BodyworkJobsModule } from "./bodywork-jobs/bodywork-jobs.module";
 import { PartsModule } from "./parts/parts.module";
+import { TyresModule } from "./tyres/tyres.module";
 
 @Module({
   imports: [
@@ -35,6 +36,7 @@ import { PartsModule } from "./parts/parts.module";
     RepairJobsModule,
     BodyworkJobsModule,
     PartsModule,
+    TyresModule,
   ],
   controllers: [HealthController],
   providers: [

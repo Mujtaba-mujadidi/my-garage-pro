@@ -18,7 +18,11 @@ export function PermissionGate({
   const required = Array.isArray(permission) ? permission : [permission];
   const allowed = required.some((p) => hasPermission(p));
 
-  if (!mounted || loading || !session) {
+  if (!mounted) {
+    return <GateLoading />;
+  }
+
+  if (loading && !session) {
     return <GateLoading />;
   }
 

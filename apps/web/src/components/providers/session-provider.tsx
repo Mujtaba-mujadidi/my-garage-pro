@@ -31,8 +31,11 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
+    // Show cached session immediately — do not block the shell on /auth/me.
+    setSessionState(cached);
+    setLoading(false);
+
     refreshInFlightRef.current += 1;
-    setLoading(true);
     try {
       const fresh = await meRequest();
       if (refreshId !== refreshIdRef.current) return;
@@ -44,7 +47,6 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       setSessionState(null);
     } finally {
       refreshInFlightRef.current = Math.max(0, refreshInFlightRef.current - 1);
-      if (refreshInFlightRef.current === 0) setLoading(false);
     }
   }, []);
 

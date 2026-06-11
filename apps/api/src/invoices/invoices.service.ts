@@ -6,7 +6,7 @@ import {
   StreamableFile,
 } from "@nestjs/common";
 import { invoiceBalanceDue } from "@mygaragepro/shared";
-import { InvoiceStatus, Prisma, UserRole } from "@prisma/client";
+import { InvoiceStatus, PaymentMethod, Prisma, UserRole } from "@prisma/client";
 import { AuditService } from "../audit/audit.service";
 import type { RequestUser } from "../auth/auth.types";
 import { LedgerService } from "../ledger/ledger.service";
@@ -44,7 +44,11 @@ export class InvoicesService {
   private invoiceInclude = {
     customer: true,
     lines: { orderBy: { sortOrder: "asc" as const } },
-    allocations: true,
+    allocations: {
+      include: {
+        payment: { include: { paymentAccount: true } },
+      },
+    },
   };
 
   private paymentInclude = {
@@ -384,6 +388,67 @@ export class InvoicesService {
     return toInvoiceDto(row);
   }
 
+  private resolvePaymentSplits(dto: CreatePaymentDto): {
+    splits: { paymentAccountId: string; amount: number; method: PaymentMethod }[];
+    total: number;
+  } {
+    if (dto.splits?.length) {
+      if (dto.paymentAccountId != null || dto.amount != null) {
+        throw new BadRequestException("Use either splits or a single payment account, not both");
+      }
+      const splits = dto.splits.map((s) => ({
+        paymentAccountId: s.paymentAccountId,
+        amount: s.amount,
+        method: s.method ?? PaymentMethod.BANK_TRANSFER,
+      }));
+      const total = splits.reduce((sum, s) => sum + s.amount, 0);
+      return { splits, total };
+    }
+
+    if (!dto.paymentAccountId || !dto.amount) {
+      throw new BadRequestException("Payment account and amount are required");
+    }
+
+    return {
+      splits: [
+        {
+          paymentAccountId: dto.paymentAccountId,
+          amount: dto.amount,
+          method: dto.method ?? PaymentMethod.BANK_TRANSFER,
+        },
+      ],
+      total: dto.amount,
+    };
+  }
+
+  /** Assign invoice allocations to payment splits (FIFO). */
+  private distributeAllocationsToSplits(
+    allocations: { invoiceId: string; amount: number }[],
+    splits: { paymentAccountId: string; amount: number; method: PaymentMethod }[],
+  ): { splitIndex: number; invoiceId: string; amount: number }[] {
+    const rows: { splitIndex: number; invoiceId: string; amount: number }[] = [];
+    let splitIdx = 0;
+    let splitRemaining = splits[0]?.amount ?? 0;
+
+    for (const alloc of allocations) {
+      let allocRemaining = alloc.amount;
+      while (allocRemaining > 0.001 && splitIdx < splits.length) {
+        const take = Math.min(allocRemaining, splitRemaining);
+        rows.push({ splitIndex: splitIdx, invoiceId: alloc.invoiceId, amount: take });
+        allocRemaining -= take;
+        splitRemaining -= take;
+        if (splitRemaining < 0.001) {
+          splitIdx += 1;
+          splitRemaining = splits[splitIdx]?.amount ?? 0;
+        }
+      }
+      if (allocRemaining > 0.009) {
+        throw new BadRequestException("Split amounts do not cover all invoice allocations");
+      }
+    }
+    return rows;
+  }
+
   async recordPayment(user: RequestUser, dto: CreatePaymentDto) {
     const garageAccountId = this.garageId(user);
     const customer = await this.prisma.customer.findFirst({
@@ -391,24 +456,28 @@ export class InvoicesService {
     });
     if (!customer) throw new NotFoundException("Customer not found");
 
-    const account = await this.prisma.paymentAccount.findFirst({
-      where: {
-        id: dto.paymentAccountId,
-        garageAccountId,
-        deletedAt: null,
-        isActive: true,
-      },
-    });
-    if (!account) throw new NotFoundException("Payment account not found");
-
+    const { splits, total } = this.resolvePaymentSplits(dto);
     const allocSum = dto.allocations.reduce((s, a) => s + a.amount, 0);
-    if (allocSum > dto.amount + 0.009) {
+    if (allocSum > total + 0.009) {
       throw new BadRequestException("Allocations exceed payment amount");
     }
 
-    const valueDate = this.parseDate(dto.valueDate);
+    for (const split of splits) {
+      const account = await this.prisma.paymentAccount.findFirst({
+        where: {
+          id: split.paymentAccountId,
+          garageAccountId,
+          deletedAt: null,
+          isActive: true,
+        },
+      });
+      if (!account) throw new NotFoundException("Payment account not found");
+    }
 
-    const result = await this.prisma.$transaction(async (tx) => {
+    const valueDate = this.parseDate(dto.valueDate);
+    const distributed = this.distributeAllocationsToSplits(dto.allocations, splits);
+
+    const results = await this.prisma.$transaction(async (tx) => {
       for (const alloc of dto.allocations) {
         const invoice = await tx.invoice.findFirst({
           where: {
@@ -433,55 +502,72 @@ export class InvoicesService {
         }
       }
 
-      const payment = await tx.customerPayment.create({
-        data: {
-          garageAccountId,
-          customerId: dto.customerId,
-          paymentAccountId: dto.paymentAccountId,
-          amount: roundMoney(dto.amount),
-          allocatedAmount: roundMoney(allocSum),
-          valueDate,
-          method: dto.method ?? "BANK_TRANSFER",
-          reference: dto.reference?.trim() || null,
-          notes: dto.notes?.trim() || null,
-          createdById: user.id,
-          allocations: {
-            create: dto.allocations.map((a) => ({
-              invoiceId: a.invoiceId,
-              amount: roundMoney(a.amount),
-            })),
-          },
-        },
-        include: this.paymentInclude,
-      });
+      const created = [];
+      for (let i = 0; i < splits.length; i++) {
+        const split = splits[i];
+        const splitAllocRows = distributed.filter((r) => r.splitIndex === i);
+        const splitAllocated = splitAllocRows.reduce((s, r) => s + r.amount, 0);
 
-      for (const alloc of dto.allocations) {
-        await this.recomputeInvoiceStatusInTx(tx, alloc.invoiceId);
+        const payment = await tx.customerPayment.create({
+          data: {
+            garageAccountId,
+            customerId: dto.customerId,
+            paymentAccountId: split.paymentAccountId,
+            amount: roundMoney(split.amount),
+            allocatedAmount: roundMoney(splitAllocated),
+            valueDate,
+            method: split.method,
+            reference: dto.reference?.trim() || null,
+            notes: dto.notes?.trim() || null,
+            createdById: user.id,
+            allocations: {
+              create: splitAllocRows.map((r) => ({
+                invoiceId: r.invoiceId,
+                amount: roundMoney(r.amount),
+              })),
+            },
+          },
+          include: this.paymentInclude,
+        });
+        created.push(payment);
       }
 
-      return payment;
+      const invoiceIds = [...new Set(dto.allocations.map((a) => a.invoiceId))];
+      for (const invoiceId of invoiceIds) {
+        await this.recomputeInvoiceStatusInTx(tx, invoiceId);
+      }
+
+      return created;
     });
 
-    await this.ledger.createPostedIncomeForPayment(user, {
-      paymentAccountId: dto.paymentAccountId,
-      customerId: dto.customerId,
-      customerPaymentId: result.id,
-      valueDate,
-      amountGross: dto.amount,
-      vatAmount: 0,
-      reference: dto.reference?.trim() || `Payment ${result.id.slice(0, 8)}`,
-    });
+    for (const payment of results) {
+      await this.ledger.createPostedIncomeForPayment(user, {
+        paymentAccountId: payment.paymentAccountId,
+        customerId: dto.customerId,
+        customerPaymentId: payment.id,
+        valueDate,
+        amountGross: Number(payment.amount),
+        vatAmount: 0,
+        reference:
+          dto.reference?.trim() ||
+          `Payment ${payment.id.slice(0, 8)}${results.length > 1 ? ` (${payment.method})` : ""}`,
+      });
+    }
 
     await this.audit.log({
       action: "invoices.payment.create",
       userId: user.id,
       garageAccountId,
       entityType: "customer_payment",
-      entityId: result.id,
-      metadata: { amount: dto.amount, allocations: dto.allocations.length },
+      entityId: results[0].id,
+      metadata: {
+        amount: total,
+        splits: splits.length,
+        allocations: dto.allocations.length,
+      },
     });
 
-    return toPaymentDto(result);
+    return results.length === 1 ? toPaymentDto(results[0]) : results.map(toPaymentDto);
   }
 
   private async recomputeInvoiceStatusInTx(
@@ -575,7 +661,11 @@ export class InvoicesService {
         customer: true,
         lines: { orderBy: { sortOrder: "asc" } },
         garageAccount: true,
-        allocations: true,
+        allocations: {
+          include: {
+            payment: { include: { paymentAccount: true } },
+          },
+        },
       },
     });
     if (!invoice) throw new NotFoundException("Invoice not found");

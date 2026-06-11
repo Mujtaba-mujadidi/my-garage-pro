@@ -9,7 +9,9 @@ import type {
   CustomerPaymentDto,
   InvoiceDto,
   InvoiceLineDto,
+  InvoicePaymentLineDto,
   PaymentAllocationDto,
+  PaymentMethod,
 } from "@mygaragepro/shared";
 import { invoiceBalanceDue } from "@mygaragepro/shared";
 import { allocatedTotal } from "./invoice-calculations";
@@ -36,8 +38,33 @@ function toLineDto(row: InvoiceLine): InvoiceLineDto {
 type InvoiceWithRelations = Invoice & {
   customer: { companyName: string | null; firstName: string | null; lastName: string | null };
   lines: InvoiceLine[];
-  allocations: PaymentAllocation[];
+  allocations: (PaymentAllocation & {
+    payment?: {
+      id: string;
+      valueDate: Date;
+      method: string | null;
+      reference: string | null;
+      paymentAccount: { name: string };
+    };
+  })[];
 };
+
+function toInvoicePaymentLines(
+  allocations: InvoiceWithRelations["allocations"],
+): InvoicePaymentLineDto[] {
+  return allocations
+    .filter((a) => !a.deletedAt && a.payment)
+    .map((a) => ({
+      allocationId: a.id,
+      paymentId: a.payment!.id,
+      valueDate: a.payment!.valueDate.toISOString().slice(0, 10),
+      amount: decimalToString(a.amount),
+      method: (a.payment!.method as PaymentMethod | null) ?? null,
+      paymentAccountName: a.payment!.paymentAccount.name,
+      reference: a.payment!.reference,
+    }))
+    .sort((a, b) => a.valueDate.localeCompare(b.valueDate) || a.paymentId.localeCompare(b.paymentId));
+}
 
 export function customerDisplayName(c: {
   companyName: string | null;
@@ -82,6 +109,7 @@ export function toInvoiceDto(row: InvoiceWithRelations): InvoiceDto {
       .filter((l) => l.lineType === "PARTS")
       .sort((a, b) => a.sortOrder - b.sortOrder)
       .map(toLineDto),
+    payments: toInvoicePaymentLines(row.allocations),
     createdAt: row.createdAt.toISOString(),
   };
 }

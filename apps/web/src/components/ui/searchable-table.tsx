@@ -1,5 +1,6 @@
 "use client";
 
+import { STICKY_TABLE_HEAD_CLASS, TableScroll } from "@/components/ui/table-scroll";
 import { useMemo, useState, type ReactNode } from "react";
 
 export type TableColumn<T> = {
@@ -73,9 +74,9 @@ export function SearchableTable<T>({
         <p className="text-xs text-[var(--muted)]">{countLabel(filtered.length, rows.length)}</p>
       </div>
 
-      <div className="overflow-x-auto">
+      <TableScroll>
         <table className="w-full text-left text-sm" style={{ minWidth }}>
-          <thead className="bg-[var(--background)] text-[var(--foreground)]">
+          <thead className={`${STICKY_TABLE_HEAD_CLASS} text-[var(--foreground)]`}>
             <tr>
               {columns.map((col) => (
                 <th
@@ -113,7 +114,7 @@ export function SearchableTable<T>({
             )}
           </tbody>
         </table>
-      </div>
+      </TableScroll>
 
       {filtered.length > pageSize && (
         <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[var(--border)] px-4 py-3 text-xs text-[var(--muted)]">

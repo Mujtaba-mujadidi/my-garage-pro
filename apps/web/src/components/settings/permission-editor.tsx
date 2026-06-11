@@ -1,5 +1,6 @@
 "use client";
 
+import { STICKY_TABLE_HEAD_CLASS, TableScroll } from "@/components/ui/table-scroll";
 import type { GaragePermission, PermissionGroup, RoleAccessLevel } from "@mygaragepro/shared";
 import {
   roleAccessLevelForGroup,
@@ -119,9 +120,10 @@ export function PermissionEditor({ groups, permissions, onChange }: Props) {
 
   return (
     <div className="overflow-hidden rounded-lg border border-[var(--border)]">
+      <TableScroll>
       <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-[var(--border)] bg-[var(--background)]">
+        <thead className={STICKY_TABLE_HEAD_CLASS}>
+          <tr className="border-b border-[var(--border)]">
             <th className="px-3 py-2 text-left text-xs font-semibold text-[var(--muted)]">
               Module
             </th>
@@ -152,6 +154,7 @@ export function PermissionEditor({ groups, permissions, onChange }: Props) {
           ))}
         </tbody>
       </table>
+      </TableScroll>
     </div>
   );
 }

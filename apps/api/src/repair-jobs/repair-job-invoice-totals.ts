@@ -30,6 +30,13 @@ type JobStockPartRow = {
   part: { partNumber: string; description: string };
 };
 
+type JobStockTyreRow = {
+  quantity: Prisma.Decimal;
+  sellPriceNet: Prisma.Decimal;
+  fittingChargeNet: Prisma.Decimal;
+  tyre: { skuCode: string; brand: string | null; model: string | null; size: string; loadIndex: string | null; speedRating: string | null };
+};
+
 export function buildTaskLineInputs(
   job: JobVatRow,
   tasks: JobTaskRow[],
@@ -105,15 +112,43 @@ export function buildStockLineInputs(
   return lines;
 }
 
+export function buildStockTyreLineInputs(
+  job: JobVatRow,
+  tyreUsages: JobStockTyreRow[],
+  canChargeVat: boolean,
+): LineCalcInput[] {
+  const vatRate = canChargeVat && job.vatEnabled ? Number(job.vatRatePercent) : 0;
+  const lines: LineCalcInput[] = [];
+
+  for (const usage of tyreUsages) {
+    const qty = Number(usage.quantity) || 1;
+    const unitSell = Number(usage.sellPriceNet);
+    if (unitSell > 0) {
+      const label = `${usage.tyre.skuCode} — ${usage.tyre.brand ?? ""} ${usage.tyre.size}`.trim();
+      lines.push({
+        lineType: InvoiceLineType.TYRES,
+        description: label,
+        quantity: qty,
+        unitPriceNet: unitSell,
+        vatRatePercent: vatRate,
+      });
+    }
+  }
+
+  return lines;
+}
+
 export function computeJobInvoiceTotals(
   job: JobVatRow,
   tasks: JobTaskRow[],
   canChargeVat: boolean,
   partUsages: JobStockPartRow[] = [],
+  tyreUsages: JobStockTyreRow[] = [],
 ): { lineInputs: LineCalcInput[]; lineCalcs: LineCalcResult[]; amountNet: string; amountGross: string } | null {
   const lineInputs = [
     ...buildTaskLineInputs(job, tasks, canChargeVat),
     ...buildStockLineInputs(job, partUsages, canChargeVat),
+    ...buildStockTyreLineInputs(job, tyreUsages, canChargeVat),
   ];
   if (lineInputs.length === 0) return null;
   const lineCalcs = lineInputs.map((l) => calcLine(l));

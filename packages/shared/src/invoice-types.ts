@@ -1,6 +1,20 @@
 export type InvoiceStatus = "DRAFT" | "SENT" | "PART_PAID" | "PAID" | "CANCELLED";
+import type { PaymentAccountType } from "./ledger-types";
+
 export type PaymentMethod = "BANK_TRANSFER" | "CARD" | "CASH" | "CHEQUE" | "OTHER";
-export type InvoiceLineType = "LABOUR" | "PARTS";
+
+export function defaultPaymentMethodForAccount(type: PaymentAccountType): PaymentMethod {
+  return type === "CASH" ? "CASH" : "BANK_TRANSFER";
+}
+
+export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
+  BANK_TRANSFER: "Bank transfer",
+  CARD: "Card",
+  CASH: "Cash",
+  CHEQUE: "Cheque",
+  OTHER: "Other",
+};
+export type InvoiceLineType = "LABOUR" | "PARTS" | "TYRES";
 
 export type InvoiceLineDto = {
   id: string;
@@ -13,6 +27,16 @@ export type InvoiceLineDto = {
   vatAmount: string;
   amountGross: string;
   sortOrder: number;
+};
+
+export type InvoicePaymentLineDto = {
+  allocationId: string;
+  paymentId: string;
+  valueDate: string;
+  amount: string;
+  method: PaymentMethod | null;
+  paymentAccountName: string;
+  reference: string | null;
 };
 
 export type InvoiceDto = {
@@ -34,6 +58,8 @@ export type InvoiceDto = {
   lines: InvoiceLineDto[];
   labourLines: InvoiceLineDto[];
   partsLines: InvoiceLineDto[];
+  /** Payments received against this invoice (may include split methods). */
+  payments: InvoicePaymentLineDto[];
   createdAt: string;
 };
 

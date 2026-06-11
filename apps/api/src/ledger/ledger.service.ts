@@ -573,4 +573,61 @@ export class LedgerService {
 
     return row;
   }
+
+  /** Posted COGS when tyres leave stock (Phase 8). */
+  async createPostedTyreCogs(
+    user: RequestUser,
+    params: {
+      costTotalNet: number;
+      reference: string;
+      valueDate: Date;
+      repairJobId?: string;
+    },
+  ) {
+    const garageAccountId = this.garageId(user);
+    const account = await this.prisma.paymentAccount.findFirst({
+      where: { garageAccountId, deletedAt: null, isActive: true },
+      orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+    });
+    if (!account) {
+      throw new BadRequestException("Configure a payment account before posting tyre COGS");
+    }
+
+    const amounts = this.parseAmounts(params.costTotalNet, 0);
+    const now = new Date();
+
+    const row = await this.prisma.ledgerEntry.create({
+      data: {
+        garageAccountId,
+        paymentAccountId: account.id,
+        repairJobId: params.repairJobId ?? null,
+        direction: LedgerEntryDirection.EXPENSE,
+        status: LedgerEntryStatus.POSTED,
+        sourceModule: LedgerSourceModule.TYRES,
+        valueDate: params.valueDate,
+        postedAt: now,
+        amountGross: amounts.amountGross,
+        vatAmount: amounts.vatAmount,
+        amountNet: amounts.amountNet,
+        category: "Tyre COGS",
+        notes: params.reference,
+        createdById: user.id,
+        checkedById: user.id,
+        checkedAt: now,
+        approvedById: user.id,
+      },
+      include: this.entryInclude,
+    });
+
+    await this.audit.log({
+      action: "ledger.entry.post",
+      userId: user.id,
+      garageAccountId,
+      entityType: "ledger_entry",
+      entityId: row.id,
+      metadata: { source: "tyre_cogs", repairJobId: params.repairJobId },
+    });
+
+    return row;
+  }
 }

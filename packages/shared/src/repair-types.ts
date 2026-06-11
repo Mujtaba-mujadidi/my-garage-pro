@@ -1,5 +1,6 @@
 import type { InvoiceStatus } from "./invoice-types";
 import type { JobPartUsageDto } from "./part-types";
+import type { JobTyreUsageDto } from "./tyre-types";
 
 export type RepairJobStatus =
   | "NEW"
@@ -314,6 +315,7 @@ export type RepairJobDto = RepairJobListDto & {
   tasks: RepairTaskDto[];
   /** Stock parts consumed on this job (manager view). */
   stockParts?: JobPartUsageDto[];
+  stockTyres?: JobTyreUsageDto[];
   /** `work` hides pricing and scopes tasks for mechanics. */
   viewMode?: "full" | "work";
 };

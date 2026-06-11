@@ -6,6 +6,11 @@ import { Modal } from "@/components/ui/modal";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { SearchableTable, type TableColumn } from "@/components/ui/searchable-table";
 import { TabBar } from "@/components/ui/tab-bar";
+import {
+  STICKY_TABLE_HEAD_CLASS,
+  TABLE_SCROLL_COMPACT_MAX_HEIGHT,
+  TableScroll,
+} from "@/components/ui/table-scroll";
 import { TableRowActionsMenu } from "@/components/ui/table-row-actions-menu";
 import { apiFetch, ApiError, downloadAuthenticatedPdf } from "@/lib/api-client";
 import { normalizeRegistration } from "@/lib/vehicle-registration";
@@ -26,7 +31,12 @@ import type {
   PaymentAccountDto,
   PaymentMethod,
 } from "@mygaragepro/shared";
-import { invoiceBalanceDue, previewInvoiceTotals } from "@mygaragepro/shared";
+import {
+  defaultPaymentMethodForAccount,
+  invoiceBalanceDue,
+  PAYMENT_METHOD_LABELS,
+  previewInvoiceTotals,
+} from "@mygaragepro/shared";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 
 const STATUS_LABEL: Record<InvoiceStatus, string> = {
@@ -47,6 +57,23 @@ const PAYMENT_METHOD_OPTIONS: { value: PaymentMethod; label: string }[] = [
 
 type Tab = "invoices" | "payments";
 
+type PaymentSplitDraft = {
+  key: string;
+  paymentAccountId: string;
+  method: PaymentMethod;
+  amount: string;
+};
+
+function emptyPaymentSplit(accountId = "", accounts: PaymentAccountDto[] = []): PaymentSplitDraft {
+  const account = accounts.find((a) => a.id === accountId);
+  return {
+    key: crypto.randomUUID(),
+    paymentAccountId: accountId,
+    method: account ? defaultPaymentMethodForAccount(account.type) : "BANK_TRANSFER",
+    amount: "",
+  };
+}
+
 function formatMoney(value: string) {
   const n = Number(value);
   if (Number.isNaN(n)) return value;
@@ -55,6 +82,10 @@ function formatMoney(value: string) {
 
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
+}
+
+function normalizeInvoice(invoice: InvoiceDto): InvoiceDto {
+  return { ...invoice, payments: invoice.payments ?? [] };
 }
 
 function linesToPayload(lines: InvoiceLineDraft[], lineType: InvoiceLineType): InvoiceLineInput[] {
@@ -123,9 +154,7 @@ export function InvoicesPageContent() {
 
   const [paymentModal, setPaymentModal] = useState(false);
   const [payCustomerId, setPayCustomerId] = useState("");
-  const [payAccountId, setPayAccountId] = useState("");
-  const [payAmount, setPayAmount] = useState("");
-  const [payMethod, setPayMethod] = useState<PaymentMethod>("BANK_TRANSFER");
+  const [paySplits, setPaySplits] = useState<PaymentSplitDraft[]>([emptyPaymentSplit("", [])]);
   const [payDate, setPayDate] = useState(todayIso());
   const [payReference, setPayReference] = useState("");
   const [openInvoices, setOpenInvoices] = useState<InvoiceDto[]>([]);
@@ -134,7 +163,21 @@ export function InvoicesPageContent() {
 
   const [confirmUndoAlloc, setConfirmUndoAlloc] = useState<string | null>(null);
   const [viewInvoice, setViewInvoice] = useState<InvoiceDto | null>(null);
+  const [viewInvoiceLoading, setViewInvoiceLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  async function openViewInvoice(row: InvoiceDto) {
+    setViewInvoice(normalizeInvoice(row));
+    setViewInvoiceLoading(true);
+    try {
+      const full = await apiFetch<InvoiceDto>(`/invoices/${row.id}`);
+      setViewInvoice(normalizeInvoice(full));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not load invoice details");
+    } finally {
+      setViewInvoiceLoading(false);
+    }
+  }
 
   const load = useCallback(async () => {
     setError("");
@@ -144,7 +187,7 @@ export function InvoicesPageContent() {
         apiFetch<CustomerPaymentDto[]>("/invoices/payments"),
         apiFetch<CustomerDto[]>("/customers"),
       ]);
-      setInvoices(inv);
+      setInvoices(inv.map(normalizeInvoice));
       setPayments(pay);
       setCustomers(cust);
       try {
@@ -220,8 +263,13 @@ export function InvoicesPageContent() {
     setAllocations({});
   }
 
+  const payTotal = useMemo(
+    () => paySplits.reduce((sum, s) => sum + (Number(s.amount) || 0), 0),
+    [paySplits],
+  );
+
   function autoAllocateOldest() {
-    let remaining = Number(payAmount) || 0;
+    let remaining = payTotal;
     const next: Record<string, string> = {};
     for (const inv of openInvoices) {
       if (remaining <= 0) break;
@@ -289,18 +337,25 @@ export function InvoicesPageContent() {
 
   async function savePayment(e: FormEvent) {
     e.preventDefault();
-    const amount = Number(payAmount);
+    const splitRows = paySplits
+      .map((s) => ({
+        paymentAccountId: s.paymentAccountId,
+        method: s.method,
+        amount: Number(s.amount),
+      }))
+      .filter((s) => s.paymentAccountId && s.amount > 0);
     const allocRows = Object.entries(allocations)
       .map(([invoiceId, amt]) => ({ invoiceId, amount: Number(amt) }))
       .filter((a) => a.amount > 0);
     const allocSum = allocRows.reduce((s, a) => s + a.amount, 0);
+    const total = splitRows.reduce((s, r) => s + r.amount, 0);
 
-    if (!payCustomerId || !payAccountId || amount <= 0 || allocRows.length === 0) {
-      setError("Customer, account, amount, and at least one allocation are required.");
+    if (!payCustomerId || splitRows.length === 0 || allocRows.length === 0) {
+      setError("Customer, at least one payment line, and invoice allocation are required.");
       return;
     }
-    if (allocSum > amount + 0.01) {
-      setError("Allocations exceed payment amount.");
+    if (allocSum > total + 0.01) {
+      setError("Allocations exceed total payment received.");
       return;
     }
 
@@ -311,15 +366,20 @@ export function InvoicesPageContent() {
         method: "POST",
         body: JSON.stringify({
           customerId: payCustomerId,
-          paymentAccountId: payAccountId,
-          amount,
           valueDate: payDate,
-          method: payMethod,
           reference: payReference || undefined,
           allocations: allocRows,
+          splits: splitRows.length > 1 ? splitRows : undefined,
+          paymentAccountId: splitRows.length === 1 ? splitRows[0].paymentAccountId : undefined,
+          amount: splitRows.length === 1 ? splitRows[0].amount : undefined,
+          method: splitRows.length === 1 ? splitRows[0].method : undefined,
         }),
       });
-      setMessage("Payment recorded and allocated.");
+      setMessage(
+        splitRows.length > 1
+          ? "Split payment recorded and allocated."
+          : "Payment recorded and allocated.",
+      );
       setPaymentModal(false);
       await load();
     } catch (err) {
@@ -407,7 +467,7 @@ export function InvoicesPageContent() {
       align: "right",
       cell: (r) => {
         const actions: { label: string; onClick: () => void }[] = [
-          { label: "View", onClick: () => setViewInvoice(r) },
+          { label: "View", onClick: () => void openViewInvoice(r) },
           { label: "Download PDF", onClick: () => void handleDownloadPdf(r) },
         ];
         if (canWrite && r.status === "DRAFT") {
@@ -442,6 +502,11 @@ export function InvoicesPageContent() {
         header: "Amount",
         align: "right",
         cell: (r) => <span className="font-mono">{formatMoney(r.amount)}</span>,
+      },
+      {
+        id: "method",
+        header: "Method",
+        cell: (r) => (r.method ? PAYMENT_METHOD_LABELS[r.method] : "—"),
       },
       {
         id: "account",
@@ -515,9 +580,7 @@ export function InvoicesPageContent() {
               type="button"
               onClick={() => {
                 setPayCustomerId("");
-                setPayAccountId(accounts[0]?.id ?? "");
-                setPayAmount("");
-                setPayMethod("BANK_TRANSFER");
+                setPaySplits([emptyPaymentSplit(accounts[0]?.id ?? "", accounts)]);
                 setPayDate(todayIso());
                 setPayReference("");
                 setOpenInvoices([]);
@@ -742,49 +805,117 @@ export function InvoicesPageContent() {
               </strong>
             </p>
           )}
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div>
-              <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Amount received (£)</label>
-              <input
-                type="number"
-                step="0.01"
-                min="0.01"
-                value={payAmount}
-                onChange={(e) => setPayAmount(e.target.value)}
-                required
-                className={inputClass}
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Bank / cash account</label>
-              <SearchableSelect
-                value={payAccountId}
-                onChange={setPayAccountId}
-                options={accountOptions}
-                searchPlaceholder="Search accounts…"
-                required
-              />
-            </div>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div>
-              <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Payment method</label>
-              <select
-                value={payMethod}
-                onChange={(e) => setPayMethod(e.target.value as PaymentMethod)}
-                className={inputClass}
+          <div>
+            <div className="mb-2 flex items-center justify-between">
+              <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+                Payment received
+              </p>
+              <button
+                type="button"
+                className="text-xs font-medium text-accent"
+                onClick={() =>
+                  setPaySplits((rows) => [...rows, emptyPaymentSplit(accounts[0]?.id ?? "", accounts)])
+                }
               >
-                {PAYMENT_METHOD_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
+                + Add method / account
+              </button>
             </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Payment date</label>
-              <input type="date" value={payDate} onChange={(e) => setPayDate(e.target.value)} required className={inputClass} />
+            <div className="space-y-2">
+              {paySplits.map((split, index) => (
+                <div
+                  key={split.key}
+                  className="grid gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 sm:grid-cols-[1fr_1fr_1fr_auto]"
+                >
+                  <div>
+                    <label className="mb-1 block text-xs text-[var(--muted)]">Amount (£)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0.01"
+                      value={split.amount}
+                      onChange={(e) =>
+                        setPaySplits((rows) =>
+                          rows.map((r) =>
+                            r.key === split.key ? { ...r, amount: e.target.value } : r,
+                          ),
+                        )
+                      }
+                      required
+                      className={inputClass}
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs text-[var(--muted)]">Method</label>
+                    <select
+                      value={split.method}
+                      onChange={(e) =>
+                        setPaySplits((rows) =>
+                          rows.map((r) =>
+                            r.key === split.key
+                              ? { ...r, method: e.target.value as PaymentMethod }
+                              : r,
+                          ),
+                        )
+                      }
+                      className={inputClass}
+                    >
+                      {PAYMENT_METHOD_OPTIONS.map((o) => (
+                        <option key={o.value} value={o.value}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs text-[var(--muted)]">Account</label>
+                    <SearchableSelect
+                      value={split.paymentAccountId}
+                      onChange={(v) => {
+                        const account = accounts.find((a) => a.id === v);
+                        setPaySplits((rows) =>
+                          rows.map((r) =>
+                            r.key === split.key
+                              ? {
+                                  ...r,
+                                  paymentAccountId: v,
+                                  method: account
+                                    ? defaultPaymentMethodForAccount(account.type)
+                                    : r.method,
+                                }
+                              : r,
+                          ),
+                        );
+                      }}
+                      options={accountOptions}
+                      searchPlaceholder="Search accounts…"
+                      required
+                    />
+                  </div>
+                  {paySplits.length > 1 && (
+                    <div className="flex items-end">
+                      <button
+                        type="button"
+                        className="rounded-lg border border-[var(--border)] px-2 py-2 text-xs"
+                        onClick={() =>
+                          setPaySplits((rows) => rows.filter((r) => r.key !== split.key))
+                        }
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
+            <p className="mt-2 text-xs text-[var(--muted)]">
+              Total received:{" "}
+              <strong className="text-[var(--foreground)]">{formatMoney(payTotal.toFixed(2))}</strong>
+              {paySplits.length > 1 ? " (split across methods/accounts)" : ""}
+            </p>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Payment date</label>
+            <input type="date" value={payDate} onChange={(e) => setPayDate(e.target.value)} required className={inputClass} />
           </div>
           <div>
             <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Reference</label>
@@ -848,6 +979,9 @@ export function InvoicesPageContent() {
       >
         {viewInvoice && (
           <div className="space-y-4 text-sm">
+            {viewInvoiceLoading && (
+              <p className="text-xs text-[var(--muted)]">Loading payment details…</p>
+            )}
             <div className="grid gap-2 sm:grid-cols-2">
               <p>
                 <span className="text-[var(--muted)]">Customer </span>
@@ -883,13 +1017,17 @@ export function InvoicesPageContent() {
               </p>
             )}
 
-            <div className="overflow-x-auto rounded-lg border border-[var(--border)]">
-              <table className="w-full min-w-[32rem] text-left text-sm">
-                <thead className="bg-[var(--background)] text-xs text-[var(--muted)]">
+            <TableScroll
+              className="rounded-lg border border-[var(--border)]"
+              maxHeightClass={TABLE_SCROLL_COMPACT_MAX_HEIGHT}
+            >
+              <table className="w-full min-w-[36rem] text-left text-sm">
+                <thead className={`${STICKY_TABLE_HEAD_CLASS} text-xs text-[var(--muted)]`}>
                   <tr>
                     <th className="px-3 py-2 font-medium">Description</th>
                     <th className="px-3 py-2 text-right font-medium">Qty</th>
                     <th className="px-3 py-2 text-right font-medium">Unit (ex VAT)</th>
+                    <th className="px-3 py-2 text-right font-medium">VAT</th>
                     <th className="px-3 py-2 text-right font-medium">Line total (inc VAT)</th>
                   </tr>
                 </thead>
@@ -898,7 +1036,11 @@ export function InvoicesPageContent() {
                     <tr key={line.id} className="border-t border-[var(--border)]">
                       <td className="px-3 py-2">
                         <span className="text-xs uppercase text-[var(--muted)]">
-                          {line.lineType === "LABOUR" ? "Labour" : "Parts"}
+                          {line.lineType === "LABOUR"
+                            ? "Labour"
+                            : line.lineType === "TYRES"
+                              ? "Tyres"
+                              : "Parts"}
                         </span>
                         <p>{line.description}</p>
                       </td>
@@ -907,13 +1049,16 @@ export function InvoicesPageContent() {
                         {formatMoney(line.unitPriceNet)}
                       </td>
                       <td className="px-3 py-2 text-right font-mono tabular-nums">
+                        {formatMoney(line.vatAmount)}
+                      </td>
+                      <td className="px-3 py-2 text-right font-mono tabular-nums">
                         {formatMoney(line.amountGross)}
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-            </div>
+            </TableScroll>
 
             <dl className="ml-auto max-w-xs space-y-1 text-right">
               <div className="flex justify-between gap-4">
@@ -934,7 +1079,40 @@ export function InvoicesPageContent() {
                   <dd className="font-mono tabular-nums">{formatMoney(viewInvoice.depositAmount)}</dd>
                 </div>
               )}
-              {Number(viewInvoice.amountPaid) > 0 && (
+              {viewInvoice.payments.length > 0 && !viewInvoiceLoading && (
+                <div className="rounded-lg border border-[var(--border)] p-3 text-left">
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+                    Payments received
+                  </p>
+                  <TableScroll maxHeightClass={TABLE_SCROLL_COMPACT_MAX_HEIGHT}>
+                    <table className="w-full text-left text-sm">
+                      <thead className={`${STICKY_TABLE_HEAD_CLASS} text-xs text-[var(--muted)]`}>
+                      <tr>
+                        <th className="pb-1 font-medium">Date</th>
+                        <th className="pb-1 font-medium">Method</th>
+                        <th className="pb-1 font-medium">Account</th>
+                        <th className="pb-1 text-right font-medium">Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {viewInvoice.payments.map((p) => (
+                        <tr key={p.allocationId} className="border-t border-[var(--border)]">
+                          <td className="py-1.5">{p.valueDate}</td>
+                          <td className="py-1.5">
+                            {p.method ? PAYMENT_METHOD_LABELS[p.method] : "—"}
+                          </td>
+                          <td className="py-1.5">{p.paymentAccountName}</td>
+                          <td className="py-1.5 text-right font-mono tabular-nums">
+                            {formatMoney(p.amount)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    </table>
+                  </TableScroll>
+                </div>
+              )}
+              {Number(viewInvoice.amountPaid) > 0 && viewInvoice.payments.length === 0 && (
                 <div className="flex justify-between gap-4">
                   <dt className="text-[var(--muted)]">Paid</dt>
                   <dd className="font-mono tabular-nums">{formatMoney(viewInvoice.amountPaid)}</dd>

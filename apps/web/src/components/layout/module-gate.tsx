@@ -27,7 +27,11 @@ export function ModuleGate({
     navItem !== undefined &&
     canAccessNavItem(navItem, role, permissions, enabledModules);
 
-  if (!mounted || loading || !session) {
+  if (!mounted) {
+    return <GateLoading />;
+  }
+
+  if (loading && !session) {
     return <GateLoading />;
   }
 

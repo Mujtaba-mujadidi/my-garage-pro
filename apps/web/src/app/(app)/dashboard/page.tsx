@@ -1,5 +1,6 @@
 import { KpiCard } from "@/components/dashboard/kpi-card";
 import { StatusChip } from "@/components/dashboard/status-chip";
+import { STICKY_TABLE_HEAD_CLASS, TableScroll } from "@/components/ui/table-scroll";
 import Link from "next/link";
 
 const DEMO_JOBS = [
@@ -39,9 +40,9 @@ export default function DashboardPage() {
             <h2 className="text-sm font-semibold text-[var(--foreground)]">Open repair jobs</h2>
             <span className="text-xs font-semibold text-accent">See all</span>
           </div>
-          <div className="overflow-x-auto">
+          <TableScroll>
           <table className="w-full min-w-[32rem] text-sm text-[var(--foreground)]">
-            <thead>
+            <thead className={STICKY_TABLE_HEAD_CLASS}>
               <tr className="border-b border-[var(--border)] text-left text-[11px] uppercase text-[var(--muted)]">
                 <th className="px-4 py-2">Reg</th>
                 <th className="px-4 py-2">Customer</th>
@@ -68,7 +69,7 @@ export default function DashboardPage() {
               ))}
             </tbody>
           </table>
-          </div>
+          </TableScroll>
         </div>
 
         <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4 lg:col-span-2">

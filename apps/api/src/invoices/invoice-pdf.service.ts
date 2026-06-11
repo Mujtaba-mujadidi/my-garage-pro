@@ -1,4 +1,4 @@
-import { invoiceBalanceDue } from "@mygaragepro/shared";
+import { invoiceBalanceDue, PAYMENT_METHOD_LABELS, type PaymentMethod } from "@mygaragepro/shared";
 import { Injectable } from "@nestjs/common";
 import type {
   Customer,
@@ -6,16 +6,27 @@ import type {
   Invoice,
   InvoiceLine,
   PaymentAllocation,
+  PaymentMethod as PrismaPaymentMethod,
 } from "@prisma/client";
 import PDFDocument from "pdfkit";
 import { allocatedTotal } from "./invoice-calculations";
 import { customerDisplayName } from "./invoices.mapper";
 
+type InvoicePdfAllocation = PaymentAllocation & {
+  payment?: {
+    id: string;
+    valueDate: Date;
+    method: PrismaPaymentMethod | null;
+    reference: string | null;
+    paymentAccount: { name: string };
+  };
+};
+
 type InvoicePdfData = Invoice & {
   customer: Customer;
   lines: InvoiceLine[];
   garageAccount: GarageAccount;
-  allocations?: PaymentAllocation[];
+  allocations?: InvoicePdfAllocation[];
 };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -38,10 +49,19 @@ const PAGE_WIDTH = 595.28;
 const CONTENT_WIDTH = PAGE_WIDTH - MARGIN * 2;
 
 const TABLE_COLS = {
-  description: { x: MARGIN, width: 210 },
-  qty: { x: MARGIN + 210, width: 45 },
-  unit: { x: MARGIN + 255, width: 105 },
-  total: { x: MARGIN + 360, width: CONTENT_WIDTH - 360 },
+  description: { x: MARGIN, width: 175 },
+  qty: { x: MARGIN + 175, width: 40 },
+  unit: { x: MARGIN + 215, width: 80 },
+  vat: { x: MARGIN + 295, width: 70 },
+  total: { x: MARGIN + 365, width: CONTENT_WIDTH - 365 },
+};
+
+/** Align amount column with line-item totals; fixed widths prevent PDFKit cursor drift. */
+const PAYMENT_TABLE_COLS = {
+  date: { x: MARGIN + 10, width: 72 },
+  method: { x: MARGIN + 82, width: 96 },
+  account: { x: MARGIN + 178, width: TABLE_COLS.total.x - (MARGIN + 178) - 8 },
+  amount: { x: TABLE_COLS.total.x, width: TABLE_COLS.total.width - 10 },
 };
 
 function formatGbp(value: string | number): string {
@@ -56,7 +76,9 @@ function formatIsoDate(date: Date | null): string | null {
 }
 
 function lineTypeLabel(lineType: string): string {
-  return lineType === "LABOUR" ? "Labour" : "Parts";
+  if (lineType === "LABOUR") return "Labour";
+  if (lineType === "TYRES") return "Tyres";
+  return "Parts";
 }
 
 @Injectable()
@@ -83,6 +105,10 @@ export class InvoicePdfService {
         this.drawNotes(doc, invoice.notes.trim());
       }
       this.drawLinesTable(doc, sortedLines);
+      const paymentLines = this.activePaymentLines(invoice.allocations);
+      if (paymentLines.length > 0) {
+        this.drawPayments(doc, paymentLines);
+      }
       this.drawTotals(doc, invoice, deposit, paid, balance);
 
       doc.end();
@@ -214,6 +240,10 @@ export class InvoicePdfService {
       width: TABLE_COLS.unit.width,
       align: "right",
     });
+    doc.text("VAT", TABLE_COLS.vat.x, headerY, {
+      width: TABLE_COLS.vat.width,
+      align: "right",
+    });
     doc.text("Line total (inc VAT)", TABLE_COLS.total.x, headerY, {
       width: TABLE_COLS.total.width - 10,
       align: "right",
@@ -258,6 +288,10 @@ export class InvoicePdfService {
           width: TABLE_COLS.unit.width,
           align: "right",
         });
+        doc.text("VAT", TABLE_COLS.vat.x, headerY, {
+          width: TABLE_COLS.vat.width,
+          align: "right",
+        });
         doc.text("Line total (inc VAT)", TABLE_COLS.total.x, headerY, {
           width: TABLE_COLS.total.width - 10,
           align: "right",
@@ -292,6 +326,10 @@ export class InvoicePdfService {
         width: TABLE_COLS.unit.width,
         align: "right",
       });
+      doc.text(formatGbp(line.vatAmount.toString()), TABLE_COLS.vat.x, cellY + 6, {
+        width: TABLE_COLS.vat.width,
+        align: "right",
+      });
       doc.text(formatGbp(line.amountGross.toString()), TABLE_COLS.total.x, cellY + 6, {
         width: TABLE_COLS.total.width - 10,
         align: "right",
@@ -313,6 +351,134 @@ export class InvoicePdfService {
   ) {
     doc.strokeColor(COLORS.border).lineWidth(1);
     doc.roundedRect(x, y, width, height, 6).stroke();
+  }
+
+  private activePaymentLines(allocations?: InvoicePdfAllocation[]) {
+    if (!allocations) return [];
+    return allocations
+      .filter((a) => !a.deletedAt && a.payment)
+      .map((a) => ({
+        date: a.payment!.valueDate.toISOString().slice(0, 10),
+        method:
+          a.payment!.method != null
+            ? PAYMENT_METHOD_LABELS[a.payment!.method as PaymentMethod]
+            : "Payment",
+        account: a.payment!.paymentAccount.name,
+        reference: a.payment!.reference,
+        amount: Number(a.amount),
+        paymentId: a.payment!.id,
+      }))
+      .sort((a, b) => a.date.localeCompare(b.date) || a.paymentId.localeCompare(b.paymentId));
+  }
+
+  private paymentRowHeight(
+    doc: PDFKit.PDFDocument,
+    row: { account: string; reference: string | null },
+  ) {
+    doc.font("Helvetica").fontSize(9);
+    const accountHeight = doc.heightOfString(row.account, {
+      width: PAYMENT_TABLE_COLS.account.width,
+    });
+    let height = Math.max(18, accountHeight + 10);
+    if (row.reference?.trim()) {
+      doc.font("Helvetica").fontSize(7);
+      const refHeight = doc.heightOfString(`Ref: ${row.reference.trim()}`, {
+        width: PAYMENT_TABLE_COLS.method.width + PAYMENT_TABLE_COLS.account.width,
+      });
+      height += refHeight + 4;
+    }
+    return height;
+  }
+
+  private drawPayments(
+    doc: PDFKit.PDFDocument,
+    rows: {
+      date: string;
+      method: string;
+      account: string;
+      reference: string | null;
+      amount: number;
+    }[],
+  ) {
+    doc.fillColor(COLORS.text).font("Helvetica-Bold").fontSize(10);
+    doc.text("Payments received", MARGIN, doc.y, { width: CONTENT_WIDTH });
+    doc.moveDown(0.6);
+
+    const tableX = MARGIN;
+    const tableWidth = CONTENT_WIDTH;
+    const headerHeight = 22;
+    const tableTop = doc.y;
+
+    doc.save();
+    doc
+      .roundedRect(tableX, tableTop, tableWidth, headerHeight, 6)
+      .fillColor(COLORS.background)
+      .fill();
+    doc.restore();
+
+    doc.fillColor(COLORS.muted).font("Helvetica").fontSize(8);
+    const headerY = tableTop + 7;
+    doc.text("Date", PAYMENT_TABLE_COLS.date.x, headerY, {
+      width: PAYMENT_TABLE_COLS.date.width,
+    });
+    doc.text("Method", PAYMENT_TABLE_COLS.method.x, headerY, {
+      width: PAYMENT_TABLE_COLS.method.width,
+    });
+    doc.text("Account", PAYMENT_TABLE_COLS.account.x, headerY, {
+      width: PAYMENT_TABLE_COLS.account.width,
+    });
+    doc.text("Amount", PAYMENT_TABLE_COLS.amount.x, headerY, {
+      width: PAYMENT_TABLE_COLS.amount.width,
+      align: "right",
+    });
+
+    let y = tableTop + headerHeight;
+
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const rowHeight = this.paymentRowHeight(doc, row);
+
+      if (i > 0) {
+        doc
+          .strokeColor(COLORS.border)
+          .moveTo(tableX, y)
+          .lineTo(tableX + tableWidth, y)
+          .stroke();
+      }
+
+      const cellY = y + 6;
+      doc.fillColor(COLORS.text).font("Helvetica").fontSize(9);
+      doc.text(row.date, PAYMENT_TABLE_COLS.date.x, cellY, {
+        width: PAYMENT_TABLE_COLS.date.width,
+        lineBreak: false,
+      });
+      doc.text(row.method, PAYMENT_TABLE_COLS.method.x, cellY, {
+        width: PAYMENT_TABLE_COLS.method.width,
+        lineBreak: false,
+      });
+      doc.text(row.account, PAYMENT_TABLE_COLS.account.x, cellY, {
+        width: PAYMENT_TABLE_COLS.account.width,
+      });
+      doc.font("Courier").fontSize(9);
+      doc.text(formatGbp(row.amount), PAYMENT_TABLE_COLS.amount.x, cellY, {
+        width: PAYMENT_TABLE_COLS.amount.width,
+        align: "right",
+        lineBreak: false,
+      });
+
+      if (row.reference?.trim()) {
+        const refY = cellY + 12;
+        doc.fillColor(COLORS.muted).font("Helvetica").fontSize(7);
+        doc.text(`Ref: ${row.reference.trim()}`, PAYMENT_TABLE_COLS.method.x, refY, {
+          width: PAYMENT_TABLE_COLS.method.width + PAYMENT_TABLE_COLS.account.width,
+        });
+      }
+
+      y += rowHeight;
+    }
+
+    this.strokeTableBody(doc, tableX, tableTop, tableWidth, y - tableTop);
+    doc.y = y + 16;
   }
 
   private drawTotals(

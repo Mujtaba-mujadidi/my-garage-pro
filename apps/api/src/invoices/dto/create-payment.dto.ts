@@ -22,10 +22,7 @@ export class PaymentAllocationInputDto {
   amount!: number;
 }
 
-export class CreatePaymentDto {
-  @IsUUID()
-  customerId!: string;
-
+export class PaymentSplitInputDto {
   @IsUUID()
   paymentAccountId!: string;
 
@@ -33,12 +30,17 @@ export class CreatePaymentDto {
   @Min(0.01)
   amount!: number;
 
-  @IsString()
-  valueDate!: string;
-
   @IsOptional()
   @IsEnum(PaymentMethod)
   method?: PaymentMethod;
+}
+
+export class CreatePaymentDto {
+  @IsUUID()
+  customerId!: string;
+
+  @IsString()
+  valueDate!: string;
 
   @IsOptional()
   @IsString()
@@ -55,4 +57,26 @@ export class CreatePaymentDto {
   @ValidateNested({ each: true })
   @Type(() => PaymentAllocationInputDto)
   allocations!: PaymentAllocationInputDto[];
+
+  /** Single payment (legacy) — use when not splitting methods/accounts. */
+  @IsOptional()
+  @IsUUID()
+  paymentAccountId?: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0.01)
+  amount?: number;
+
+  @IsOptional()
+  @IsEnum(PaymentMethod)
+  method?: PaymentMethod;
+
+  /** Split across methods/accounts (e.g. part cash, part bank). Sum must match total received. */
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => PaymentSplitInputDto)
+  splits?: PaymentSplitInputDto[];
 }

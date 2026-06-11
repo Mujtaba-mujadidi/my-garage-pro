@@ -8,7 +8,6 @@ const PHASE_BY_MODULE: Partial<Record<ModuleKey, string>> = {
   repair: "Phase 6 — Repair jobs (see /repair)",
   bodywork: "Phase 6 — Bodywork",
   suppliers: "Phase 3 — Suppliers",
-  tyres: "Phase 8 — Tyres",
   parts: "Phase 7 — Parts",
   invoices: "Phase 5 — Invoicing",
   used_cars: "Phase 10 — Used cars",

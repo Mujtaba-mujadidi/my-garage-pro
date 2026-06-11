@@ -10,6 +10,7 @@ import {
   Min,
   ValidateNested,
 } from "class-validator";
+import { CreateRepairTaskTyreDto } from "./create-repair-task-tyre.dto";
 import { RepairTaskPartDto } from "./repair-task-part.dto";
 
 export class CreateRepairTaskDto {
@@ -53,4 +54,9 @@ export class CreateRepairTaskDto {
   @ValidateNested({ each: true })
   @Type(() => RepairTaskPartDto)
   parts?: RepairTaskPartDto[];
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => CreateRepairTaskTyreDto)
+  tyre?: CreateRepairTaskTyreDto;
 }

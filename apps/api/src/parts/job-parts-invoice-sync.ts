@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
-import { InvoiceStatus, JobPartUsageStatus, Prisma } from "@prisma/client";
+import { InvoiceStatus, JobPartUsageStatus, JobTyreUsageStatus, Prisma } from "@prisma/client";
 import { allocatedTotal, sumLines } from "../invoices/invoice-calculations";
 import { computeJobInvoiceTotals, lineCreateData } from "../repair-jobs/repair-job-invoice-totals";
 
@@ -20,6 +20,14 @@ export class JobPartsInvoiceSync {
           where: { status: JobPartUsageStatus.CONSUMED },
           include: { part: { select: { partNumber: true, description: true } } },
         },
+        tyreUsages: {
+          where: { status: JobTyreUsageStatus.CONSUMED },
+          include: {
+            tyre: {
+              select: { skuCode: true, brand: true, model: true, size: true, loadIndex: true, speedRating: true },
+            },
+          },
+        },
       },
     });
     if (!job?.invoice) return;
@@ -36,7 +44,13 @@ export class JobPartsInvoiceSync {
       select: { vatNumber: true },
     });
     const canChargeVat = Boolean(garage?.vatNumber?.trim());
-    const computed = computeJobInvoiceTotals(job, job.tasks, canChargeVat, job.partUsages);
+    const computed = computeJobInvoiceTotals(
+      job,
+      job.tasks,
+      canChargeVat,
+      job.partUsages,
+      job.tyreUsages,
+    );
     if (!computed) {
       throw new BadRequestException("No billable lines for invoice update");
     }

@@ -22,6 +22,7 @@ import type {
 } from "@mygaragepro/shared";
 import {
   allBodyworkTasksComplete,
+  defaultPaymentMethodForAccount,
   filterJobStatusOptionsWithoutTasks,
   isBodyworkJobApprovedForWork,
   jobStatusRequiresTasks,
@@ -39,6 +40,7 @@ import {
   workshopTaskAssigneeLabel,
 } from "@mygaragepro/shared";
 import { GateLoading } from "@/components/layout/gate-loading";
+import { STICKY_TABLE_HEAD_CLASS, TableScroll } from "@/components/ui/table-scroll";
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 
@@ -755,11 +757,17 @@ export function BodyworkJobDetail({ jobId }: Props) {
     }
   }
 
+  function methodForAccount(accountId: string): PaymentMethod {
+    const account = paymentAccounts.find((a) => a.id === accountId);
+    return account ? defaultPaymentMethodForAccount(account.type) : "BANK_TRANSFER";
+  }
+
   function openPaymentModal() {
     if (!job?.invoiceId || !job.invoiceBalanceDue) return;
     setPayAmount(job.invoiceBalanceDue);
-    setPayAccountId(paymentAccounts[0]?.id ?? "");
-    setPayMethod("BANK_TRANSFER");
+    const firstAccountId = paymentAccounts[0]?.id ?? "";
+    setPayAccountId(firstAccountId);
+    setPayMethod(methodForAccount(firstAccountId));
     setPayDate(todayIso());
     setPayReference(job.invoiceNumber ? `Payment — ${job.invoiceNumber}` : "");
     setPaymentModal(true);
@@ -1240,9 +1248,9 @@ export function BodyworkJobDetail({ jobId }: Props) {
               : "No tasks yet. Add a task for each panel with a total amount per line."}
           </p>
         ) : isWorkView ? (
-          <div className="overflow-x-auto">
+          <TableScroll>
             <table className="w-full min-w-[40rem] text-left text-sm">
-              <thead className="bg-[var(--background)] text-[var(--foreground)]">
+              <thead className={`${STICKY_TABLE_HEAD_CLASS} text-[var(--foreground)]`}>
                 <tr>
                   <th className="px-4 py-3 font-semibold">Task</th>
                   <th className="px-4 py-3 font-semibold">Status</th>
@@ -1309,11 +1317,11 @@ export function BodyworkJobDetail({ jobId }: Props) {
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableScroll>
         ) : (
-          <div className="overflow-x-auto">
+          <TableScroll>
             <table className="w-full min-w-[44rem] text-left text-sm">
-              <thead className="bg-[var(--background)] text-[var(--foreground)]">
+              <thead className={`${STICKY_TABLE_HEAD_CLASS} text-[var(--foreground)]`}>
                 <tr>
                   <th className="px-4 py-3 font-semibold">Task</th>
                   <th className="px-4 py-3 font-semibold">Status</th>
@@ -1423,7 +1431,7 @@ export function BodyworkJobDetail({ jobId }: Props) {
                 );
               })()}
             </table>
-          </div>
+          </TableScroll>
         )}
       </section>
 
@@ -1727,7 +1735,10 @@ export function BodyworkJobDetail({ jobId }: Props) {
                 </label>
                 <SearchableSelect
                   value={payAccountId}
-                  onChange={setPayAccountId}
+                  onChange={(v) => {
+                    setPayAccountId(v);
+                    setPayMethod(methodForAccount(v));
+                  }}
                   options={accountOptions}
                   searchPlaceholder="Search accounts…"
                   required

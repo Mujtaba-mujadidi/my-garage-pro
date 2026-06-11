@@ -2,8 +2,10 @@ import type {
   Customer,
   Invoice,
   JobPartUsage,
+  JobTyreUsage,
   PaymentAllocation,
   Part,
+  Tyre,
   RepairJob,
   RepairTask,
   RepairTaskPart,
@@ -21,6 +23,7 @@ import {
 } from "@mygaragepro/shared";
 import { customerDisplayName } from "../invoices/invoices.mapper";
 import { toJobPartUsageDto } from "../parts/job-parts.mapper";
+import { toJobTyreUsageDto } from "../tyres/job-tyres.mapper";
 
 function decimalToString(d: { toString(): string }) {
   return d.toString();
@@ -42,11 +45,17 @@ type UsageRow = JobPartUsage & {
   repairTask?: Pick<RepairTask, "title"> | null;
 };
 
+type TyreUsageRow = JobTyreUsage & {
+  tyre: Pick<Tyre, "skuCode" | "brand" | "model" | "size" | "loadIndex" | "speedRating">;
+  repairTask?: Pick<RepairTask, "title"> | null;
+};
+
 type JobRow = RepairJob & {
   customer: Customer;
   tasks: TaskRow[];
   invoice: JobInvoiceRow | null;
   partUsages?: UsageRow[];
+  tyreUsages?: TyreUsageRow[];
 };
 
 export type RepairMapOptions = {
@@ -166,6 +175,10 @@ export function toRepairJobDto(row: JobRow, opts: RepairMapOptions = {}): Repair
       opts.viewMode === "work" || !row.partUsages?.length
         ? undefined
         : row.partUsages.map(toJobPartUsageDto),
+    stockTyres:
+      opts.viewMode === "work" || !row.tyreUsages?.length
+        ? undefined
+        : row.tyreUsages.map(toJobTyreUsageDto),
     ...(opts.viewMode === "work" ? { viewMode: "work" as const } : {}),
   };
 }

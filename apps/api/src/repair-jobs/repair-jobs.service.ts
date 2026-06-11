@@ -10,12 +10,15 @@ import {
 import {
   BadRequestException,
   ForbiddenException,
+  Inject,
   Injectable,
   NotFoundException,
+  forwardRef,
 } from "@nestjs/common";
 import {
   InvoiceStatus,
   JobPartUsageStatus,
+  JobTyreUsageStatus,
   Prisma,
   RepairJobStatus,
   RepairTaskStatus,
@@ -34,6 +37,7 @@ import {
 } from "./repair-job-invoice-totals";
 import { toInvoiceDto } from "../invoices/invoices.mapper";
 import { PrismaService } from "../prisma/prisma.service";
+import { TyresService } from "../tyres/tyres.service";
 import {
   assertWorkshopStaffActor,
   isWorkshopStaffView,
@@ -41,6 +45,7 @@ import {
 } from "../workshop/workshop-access.util";
 import { CreateRepairJobDto } from "./dto/create-repair-job.dto";
 import { CreateRepairTaskDto } from "./dto/create-repair-task.dto";
+import type { CreateRepairTaskTyreDto } from "./dto/create-repair-task-tyre.dto";
 import { RepairTaskPartDto } from "./dto/repair-task-part.dto";
 import { UpdateRepairJobDto } from "./dto/update-repair-job.dto";
 import { UpdateRepairJobStatusDto } from "./dto/update-repair-job-status.dto";
@@ -58,6 +63,8 @@ export class RepairJobsService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly customers: CustomersService,
+    @Inject(forwardRef(() => TyresService))
+    private readonly tyres: TyresService,
   ) {}
 
   private jobInclude = {
@@ -83,6 +90,15 @@ export class RepairJobsService {
     partUsages: {
       include: {
         part: { select: { partNumber: true, description: true } },
+        repairTask: { select: { title: true } },
+      },
+      orderBy: { consumedAt: "desc" as const },
+    },
+    tyreUsages: {
+      include: {
+        tyre: {
+          select: { skuCode: true, brand: true, model: true, size: true, loadIndex: true, speedRating: true },
+        },
         repairTask: { select: { title: true } },
       },
       orderBy: { consumedAt: "desc" as const },
@@ -182,6 +198,29 @@ export class RepairJobsService {
     return roundMoney(input.amountNet ?? 0);
   }
 
+  private async resolveTyreSellPriceForTask(
+    garageAccountId: string,
+    tyreDto: CreateRepairTaskTyreDto,
+  ): Promise<number> {
+    const tyre = await this.prisma.tyre.findFirst({
+      where: { id: tyreDto.tyreId, garageAccountId, deletedAt: null },
+    });
+    if (!tyre) throw new NotFoundException("Tyre not found");
+
+    if (tyreDto.priceTier === "CUSTOM") {
+      if (!(tyreDto.sellPriceNet !== undefined && tyreDto.sellPriceNet > 0)) {
+        throw new BadRequestException("Enter an agreed unit price for this tyre task");
+      }
+      return Number(roundMoney(tyreDto.sellPriceNet));
+    }
+    if (tyreDto.priceTier === "TRADE") {
+      const trade = Number(tyre.tradeSellPriceNet);
+      if (trade > 0) return Number(roundMoney(trade));
+      throw new BadRequestException("This tyre has no trade price — use customer or agreed price");
+    }
+    return Number(roundMoney(Number(tyre.sellPriceNet)));
+  }
+
   private partCreateData(parts: RepairTaskPartDto[]) {
     return parts.map((part, index) => ({
       description: part.description.trim(),
@@ -218,6 +257,13 @@ export class RepairJobsService {
         sellPriceNet: Prisma.Decimal;
         part: { partNumber: string; description: string };
       }[];
+      tyreUsages: {
+        status: JobTyreUsageStatus;
+        quantity: Prisma.Decimal;
+        sellPriceNet: Prisma.Decimal;
+        fittingChargeNet: Prisma.Decimal;
+        tyre: { skuCode: string; brand: string | null; model: string | null; size: string; loadIndex: string | null; speedRating: string | null };
+      }[];
     },
     dto: RepairJobListDto,
     canChargeVat: boolean,
@@ -226,8 +272,9 @@ export class RepairJobsService {
       return { ...dto, tasksAmountNet: null, tasksAmountGross: null, invoiceInSync: null };
     }
 
-    const consumedStock = row.partUsages.filter((u) => u.status === JobPartUsageStatus.CONSUMED);
-    const computed = computeJobInvoiceTotals(row, row.tasks, canChargeVat, consumedStock);
+    const consumedParts = (row.partUsages ?? []).filter((u) => u.status === JobPartUsageStatus.CONSUMED);
+    const consumedTyres = (row.tyreUsages ?? []).filter((u) => u.status === JobTyreUsageStatus.CONSUMED);
+    const computed = computeJobInvoiceTotals(row, row.tasks, canChargeVat, consumedParts, consumedTyres);
     const refreshable =
       row.invoice.status === InvoiceStatus.SENT ||
       row.invoice.status === InvoiceStatus.PART_PAID;
@@ -763,18 +810,28 @@ export class RepairJobsService {
       status = RepairTaskStatus.ASSIGNED;
     }
 
-    const useBreakdown = dto.useBreakdown ?? false;
+    const hasTyre = Boolean(dto.tyre);
+    if (hasTyre && !user.enabledModules.includes("tyres")) {
+      throw new BadRequestException("Tyres module is not enabled");
+    }
+
+    const useBreakdown = hasTyre ? false : (dto.useBreakdown ?? false);
     const parts = useBreakdown ? (dto.parts ?? []).filter((p) => p.description?.trim()) : [];
-    if (useBreakdown && parts.length === 0 && !(dto.labourRateNet && dto.labourRateNet > 0)) {
+    if (!hasTyre && useBreakdown && parts.length === 0 && !(dto.labourRateNet && dto.labourRateNet > 0)) {
       throw new BadRequestException("Add labour or at least one part when using breakdown");
     }
-    const amountNet = this.computeTaskAmountNet({
-      useBreakdown,
-      amountNet: dto.amountNet,
-      labourHours: dto.labourHours,
-      labourRateNet: dto.labourRateNet,
-      parts,
-    });
+    if (!hasTyre && !useBreakdown && !(dto.amountNet && dto.amountNet > 0)) {
+      throw new BadRequestException("Enter the task total amount, or enable labour and parts breakdown");
+    }
+    const amountNet = hasTyre
+      ? roundMoney(0)
+      : this.computeTaskAmountNet({
+          useBreakdown,
+          amountNet: dto.amountNet,
+          labourHours: dto.labourHours,
+          labourRateNet: dto.labourRateNet,
+          parts,
+        });
 
     const maxSort = job.tasks.reduce((m, t) => Math.max(m, t.sortOrder), -1);
     const row = await this.prisma.repairTask.create({
@@ -805,6 +862,15 @@ export class RepairJobsService {
       entityId: row.id,
       metadata: { repairJobId: jobId },
     });
+
+    if (dto.tyre) {
+      const sellPriceNet = await this.resolveTyreSellPriceForTask(garageAccountId, dto.tyre);
+      await this.tyres.consumeForRepairTask(user, jobId, row.id, {
+        tyreId: dto.tyre.tyreId,
+        quantity: dto.tyre.quantity,
+        sellPriceNet,
+      });
+    }
 
     const full = await this.getOne(user, jobId);
     return full;
@@ -921,6 +987,14 @@ export class RepairJobsService {
 
       await this.syncJobStatusAfterTasks(jobId, tx);
     });
+
+    if (
+      status === RepairTaskStatus.CANCELLED &&
+      existing.status !== RepairTaskStatus.CANCELLED &&
+      user.enabledModules.includes("tyres")
+    ) {
+      await this.tyres.returnUsagesForTask(user, jobId, taskId);
+    }
 
     await this.audit.log({
       action: "repair.task.update",
@@ -1087,6 +1161,10 @@ export class RepairJobsService {
     });
     if (!existing) throw new NotFoundException("Task not found");
 
+    if (user.enabledModules.includes("tyres")) {
+      await this.tyres.returnUsagesForTask(user, jobId, taskId);
+    }
+
     await this.prisma.repairTask.delete({ where: { id: taskId } });
 
     await this.audit.log({
@@ -1117,6 +1195,14 @@ export class RepairJobsService {
           where: { status: JobPartUsageStatus.CONSUMED },
           include: { part: { select: { partNumber: true, description: true } } },
         },
+        tyreUsages: {
+          where: { status: JobTyreUsageStatus.CONSUMED },
+          include: {
+            tyre: {
+              select: { skuCode: true, brand: true, model: true, size: true, loadIndex: true, speedRating: true },
+            },
+          },
+        },
         invoice: true,
       },
     });
@@ -1141,6 +1227,7 @@ export class RepairJobsService {
       job.tasks,
       canChargeVat,
       job.partUsages,
+      job.tyreUsages,
     );
     if (!computed) {
       throw new BadRequestException("Tasks need labour rate or parts pricing before invoicing");
@@ -1210,6 +1297,14 @@ export class RepairJobsService {
           where: { status: JobPartUsageStatus.CONSUMED },
           include: { part: { select: { partNumber: true, description: true } } },
         },
+        tyreUsages: {
+          where: { status: JobTyreUsageStatus.CONSUMED },
+          include: {
+            tyre: {
+              select: { skuCode: true, brand: true, model: true, size: true, loadIndex: true, speedRating: true },
+            },
+          },
+        },
         invoice: { include: { allocations: true } },
       },
     });
@@ -1223,7 +1318,13 @@ export class RepairJobsService {
     }
 
     const canChargeVat = await this.garageCanChargeVat(garageAccountId);
-    const computed = computeJobInvoiceTotals(job, job.tasks, canChargeVat, job.partUsages);
+    const computed = computeJobInvoiceTotals(
+      job,
+      job.tasks,
+      canChargeVat,
+      job.partUsages,
+      job.tyreUsages,
+    );
     if (!computed) {
       throw new BadRequestException("Tasks need labour rate or parts pricing before updating the invoice");
     }

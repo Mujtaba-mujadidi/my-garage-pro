@@ -395,6 +395,113 @@ async function main() {
     "  Parts: OIL-5W30-5L (universal), FLT-OIL-STD, BRK-PAD-FRT, SK-PRIUS-10-15, SK-PRIUS-16-19",
   );
 
+  // Tyres (Phase 8)
+  type DemoTyreSeed = {
+    skuCode: string;
+    brand: string;
+    model?: string;
+    size: string;
+    loadIndex?: string;
+    speedRating?: string;
+    condition: "NEW" | "PART_WORN";
+    quantityOnHand: number;
+    minQuantity: number;
+    costPriceNet: number;
+    sellPriceNet: number;
+    tradeSellPriceNet: number;
+    fittingChargeNet: number;
+    location: string;
+  };
+
+  const demoTyres: DemoTyreSeed[] = [
+    {
+      skuCode: "20555R16MICHELIN",
+      brand: "Michelin",
+      model: "Primacy 4",
+      size: "205/55R16",
+      loadIndex: "91",
+      speedRating: "V",
+      condition: "NEW",
+      quantityOnHand: 8,
+      minQuantity: 4,
+      costPriceNet: 52,
+      sellPriceNet: 89,
+      tradeSellPriceNet: 72,
+      fittingChargeNet: 12,
+      location: "Tyre rack A",
+    },
+    {
+      skuCode: "19565R15CONTINENTAL",
+      brand: "Continental",
+      model: "PremiumContact 6",
+      size: "195/65R15",
+      loadIndex: "91",
+      speedRating: "H",
+      condition: "NEW",
+      quantityOnHand: 6,
+      minQuantity: 2,
+      costPriceNet: 45,
+      sellPriceNet: 75,
+      tradeSellPriceNet: 62,
+      fittingChargeNet: 12,
+      location: "Tyre rack A",
+    },
+    {
+      skuCode: "175/65R14-BUDGET",
+      brand: "Budget",
+      size: "175/65R14",
+      loadIndex: "82",
+      speedRating: "T",
+      condition: "NEW",
+      quantityOnHand: 12,
+      minQuantity: 4,
+      costPriceNet: 28,
+      sellPriceNet: 49,
+      tradeSellPriceNet: 39,
+      fittingChargeNet: 10,
+      location: "Tyre rack B",
+    },
+  ];
+
+  for (const t of demoTyres) {
+    const existing = await prisma.tyre.findFirst({
+      where: { garageAccountId: demoGarage.id, skuCode: t.skuCode, deletedAt: null },
+      select: { id: true },
+    });
+
+    const tyreData = {
+      brand: t.brand,
+      model: t.model ?? null,
+      size: t.size,
+      loadIndex: t.loadIndex ?? null,
+      speedRating: t.speedRating ?? null,
+      condition: t.condition,
+      quantityOnHand: t.quantityOnHand,
+      minQuantity: t.minQuantity,
+      costPriceNet: t.costPriceNet,
+      sellPriceNet: t.sellPriceNet,
+      tradeSellPriceNet: t.tradeSellPriceNet,
+      fittingChargeNet: t.fittingChargeNet,
+      location: t.location,
+      supplierId: euroSupplier?.id ?? null,
+      status: "ACTIVE" as const,
+    };
+
+    if (!existing) {
+      await prisma.tyre.create({
+        data: {
+          garageAccountId: demoGarage.id,
+          skuCode: t.skuCode,
+          ...tyreData,
+        },
+      });
+    } else {
+      await prisma.tyre.update({ where: { id: existing.id }, data: tyreData });
+    }
+  }
+
+  console.log("  Tyres: 20555R16MICHELIN, 19565R15CONTINENTAL, 17565R14BUDGET");
+
   // Ledger (Phase 4) — bank & cash accounts
   const demoAccounts = [
     { name: "Main business account", type: "BANK" as const, openingBalance: 12500 },

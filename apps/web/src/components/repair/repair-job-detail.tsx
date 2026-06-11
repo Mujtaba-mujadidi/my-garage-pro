@@ -12,7 +12,9 @@ import type {
   InvoiceDto,
   InvoiceStatus,
   JobPartUsageDto,
+  JobTyreUsageDto,
   PartDto,
+  TyreDto,
   PaymentAccountDto,
   PaymentMethod,
   RepairAssigneeDto,
@@ -20,9 +22,11 @@ import type {
   RepairJobStatus,
   RepairTaskDto,
   RepairTaskStatus,
+  TyreTaskPriceTier,
 } from "@mygaragepro/shared";
 import {
   allRepairTasksComplete,
+  defaultPaymentMethodForAccount,
   filterJobStatusOptionsWithoutTasks,
   isRepairJobApprovedForWork,
   jobStatusRequiresTasks,
@@ -39,8 +43,10 @@ import {
   isWorkshopStaffView,
   isWorkshopTaskClaimable,
   workshopTaskAssigneeLabel,
+  tyreIsLowStock,
 } from "@mygaragepro/shared";
 import { GateLoading } from "@/components/layout/gate-loading";
+import { STICKY_TABLE_HEAD_CLASS, TableScroll } from "@/components/ui/table-scroll";
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 
@@ -83,6 +89,11 @@ type TaskDraft = {
   labourRateNet: string;
   parts: TaskPartDraft[];
   status: RepairTaskStatus;
+  isTyreTask: boolean;
+  tyreId: string;
+  tyreQty: string;
+  tyrePriceTier: TyreTaskPriceTier;
+  tyreCustomPrice: string;
 };
 
 function emptyTaskPart(): TaskPartDraft {
@@ -100,10 +111,17 @@ function emptyTaskDraft(): TaskDraft {
     labourRateNet: "",
     parts: [emptyTaskPart()],
     status: "AVAILABLE",
+    isTyreTask: false,
+    tyreId: "",
+    tyreQty: "1",
+    tyrePriceTier: "CUSTOMER",
+    tyreCustomPrice: "",
   };
 }
 
-function taskToDraft(t: RepairTaskDto): TaskDraft {
+function taskToDraft(t: RepairTaskDto, stockTyres?: JobTyreUsageDto[]): TaskDraft {
+  const linked =
+    stockTyres?.filter((u) => u.repairTaskId === t.id && u.status === "CONSUMED") ?? [];
   return {
     title: t.title,
     description: t.description ?? "",
@@ -121,6 +139,11 @@ function taskToDraft(t: RepairTaskDto): TaskDraft {
           }))
         : [emptyTaskPart()],
     status: t.status,
+    isTyreTask: linked.length > 0,
+    tyreId: linked[0]?.tyreId ?? "",
+    tyreQty: linked[0]?.quantity ?? "1",
+    tyrePriceTier: "CUSTOMER",
+    tyreCustomPrice: "",
   };
 }
 
@@ -216,6 +239,8 @@ export function RepairJobDetail({ jobId }: Props) {
   const canInvoice = hasPermission("invoices.write");
   const partsModuleEnabled = session?.enabledModules.includes("parts") ?? false;
   const canPartsWrite = partsModuleEnabled && hasPermission("parts.write");
+  const tyresModuleEnabled = session?.enabledModules.includes("tyres") ?? false;
+  const canTyresWrite = tyresModuleEnabled && hasPermission("tyres.write");
   const userId = session?.user.id;
 
   const [job, setJob] = useState<RepairJobDto | null>(null);
@@ -252,6 +277,12 @@ export function RepairJobDetail({ jobId }: Props) {
   const [consumeQty, setConsumeQty] = useState("1");
   const [consumeTaskId, setConsumeTaskId] = useState("");
   const [usageToReturn, setUsageToReturn] = useState<JobPartUsageDto | null>(null);
+  const [stockTyresCatalog, setStockTyresCatalog] = useState<TyreDto[]>([]);
+  const [consumeTyreModal, setConsumeTyreModal] = useState(false);
+  const [consumeTyreId, setConsumeTyreId] = useState("");
+  const [consumeTyreQty, setConsumeTyreQty] = useState("1");
+  const [consumeTyreTaskId, setConsumeTyreTaskId] = useState("");
+  const [tyreUsageToReturn, setTyreUsageToReturn] = useState<JobTyreUsageDto | null>(null);
 
   const isWorkView = isWorkshopStaffView(session?.permissions ?? [], "repair");
 
@@ -282,6 +313,13 @@ export function RepairJobDetail({ jobId }: Props) {
       .catch(() => setStockPartsCatalog([]));
   }, [canPartsWrite, job?.id, job?.vehicleMake, job?.vehicleModel]);
 
+  useEffect(() => {
+    if (!canTyresWrite || !job) return;
+    void apiFetch<TyreDto[]>("/tyres")
+      .then(setStockTyresCatalog)
+      .catch(() => setStockTyresCatalog([]));
+  }, [canTyresWrite, job?.id]);
+
   const accountOptions = useMemo(
     () => paymentAccounts.map((a) => ({ value: a.id, label: a.name })),
     [paymentAccounts],
@@ -303,6 +341,68 @@ export function RepairJobDetail({ jobId }: Props) {
       })),
     [stockPartsCatalog],
   );
+
+  const stockTyreOptions = useMemo(
+    () =>
+      stockTyresCatalog.map((t) => ({
+        value: t.id,
+        label: `${t.skuCode} — ${t.displayLabel} (${t.quantityOnHand} on hand)`,
+      })),
+    [stockTyresCatalog],
+  );
+
+  const tyreStockOptions = useMemo(
+    () =>
+      stockTyresCatalog
+        .filter((t) => t.status === "ACTIVE" && Number(t.quantityOnHand) > 0)
+        .map((t) => ({
+          value: t.id,
+          label: `${t.size} — ${t.brand || "No brand"} · ${t.skuCode} (${t.quantityOnHand} on hand)`,
+        })),
+    [stockTyresCatalog],
+  );
+
+  const selectedTaskTyre = useMemo(
+    () => stockTyresCatalog.find((t) => t.id === taskDraft.tyreId),
+    [stockTyresCatalog, taskDraft.tyreId],
+  );
+
+  const taskTyreStockIssue = useMemo(() => {
+    if (!taskDraft.isTyreTask || !selectedTaskTyre) return null;
+    const qty = Number(taskDraft.tyreQty) || 0;
+    const onHand = Number(selectedTaskTyre.quantityOnHand);
+    if (qty <= 0) return { type: "error" as const, message: "Enter tyre quantity." };
+    if (qty > onHand) {
+      return {
+        type: "error" as const,
+        message: `Out of stock — only ${onHand} available for ${selectedTaskTyre.size}.`,
+      };
+    }
+    const remaining = onHand - qty;
+    if (
+      selectedTaskTyre.isLowStock ||
+      tyreIsLowStock(remaining, selectedTaskTyre.minQuantity)
+    ) {
+      return { type: "warning" as const, message: "Low stock — reorder level will be reached." };
+    }
+    return null;
+  }, [taskDraft.isTyreTask, taskDraft.tyreQty, selectedTaskTyre]);
+
+  const taskTyreUnitSell = useMemo(() => {
+    if (!selectedTaskTyre) return 0;
+    if (taskDraft.tyrePriceTier === "TRADE") {
+      return Number(selectedTaskTyre.tradeSellPriceNet) || 0;
+    }
+    if (taskDraft.tyrePriceTier === "CUSTOM") {
+      return Number(taskDraft.tyreCustomPrice) || 0;
+    }
+    return Number(selectedTaskTyre.sellPriceNet);
+  }, [selectedTaskTyre, taskDraft.tyrePriceTier, taskDraft.tyreCustomPrice]);
+
+  const taskTyreLineTotal = useMemo(() => {
+    const qty = Number(taskDraft.tyreQty) || 1;
+    return taskTyreUnitSell * qty;
+  }, [taskDraft.tyreQty, taskTyreUnitSell]);
 
   const consumeTaskOptions = useMemo(
     () => [
@@ -465,7 +565,7 @@ export function RepairJobDetail({ jobId }: Props) {
 
   function openEditTask(task: RepairTaskDto) {
     setEditingTaskId(task.id);
-    setTaskDraft(taskToDraft(task));
+    setTaskDraft(taskToDraft(task, job?.stockTyres));
     setTaskModal(true);
   }
 
@@ -475,11 +575,29 @@ export function RepairJobDetail({ jobId }: Props) {
       setError("Task title is required.");
       return;
     }
-    if (!taskDraft.useBreakdown && !(Number(taskDraft.amountNet) > 0)) {
+    const addingTyreTask = taskDraft.isTyreTask && !editingTaskId;
+    if (addingTyreTask) {
+      if (!taskDraft.tyreId) {
+        setError("Select a tyre from stock.");
+        return;
+      }
+      if (taskTyreStockIssue?.type === "error") {
+        setError(taskTyreStockIssue.message);
+        return;
+      }
+      if (taskDraft.tyrePriceTier === "TRADE" && !(Number(selectedTaskTyre?.tradeSellPriceNet) > 0)) {
+        setError("This tyre has no trade price — choose customer or agreed price.");
+        return;
+      }
+      if (taskDraft.tyrePriceTier === "CUSTOM" && !(Number(taskDraft.tyreCustomPrice) > 0)) {
+        setError("Enter the agreed unit price.");
+        return;
+      }
+    } else if (!taskDraft.useBreakdown && !(Number(taskDraft.amountNet) > 0)) {
       setError("Enter the task total amount, or enable labour and parts breakdown.");
       return;
     }
-    if (taskDraft.useBreakdown) {
+    if (taskDraft.useBreakdown && !addingTyreTask) {
       const hasLabour = Number(taskDraft.labourRateNet) > 0;
       const hasParts = taskDraft.parts.some(
         (p) => p.description.trim() && Number(p.unitPriceNet) > 0,
@@ -515,6 +633,18 @@ export function RepairJobDetail({ jobId }: Props) {
           }
         : { amountNet: Number(taskDraft.amountNet) || 0 }),
       ...(editingTaskId && approvedForAssignment ? { status: taskDraft.status } : {}),
+      ...(addingTyreTask
+        ? {
+            tyre: {
+              tyreId: taskDraft.tyreId,
+              quantity: Number(taskDraft.tyreQty) || 1,
+              priceTier: taskDraft.tyrePriceTier,
+              ...(taskDraft.tyrePriceTier === "CUSTOM"
+                ? { sellPriceNet: Number(taskDraft.tyreCustomPrice) }
+                : {}),
+            },
+          }
+        : {}),
     };
     try {
       const updated = await apiFetch<RepairJobDto>(
@@ -529,6 +659,9 @@ export function RepairJobDetail({ jobId }: Props) {
       setJob(updated);
       setTaskModal(false);
       setMessage(editingTaskId ? "Task updated." : "Task added.");
+      if (addingTyreTask && canTyresWrite) {
+        void apiFetch<TyreDto[]>("/tyres").then(setStockTyresCatalog).catch(() => undefined);
+      }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not save task");
     } finally {
@@ -697,6 +830,58 @@ export function RepairJobDetail({ jobId }: Props) {
     }
   }
 
+  function openConsumeTyreModal() {
+    setConsumeTyreId("");
+    setConsumeTyreQty("1");
+    setConsumeTyreTaskId("");
+    setConsumeTyreModal(true);
+  }
+
+  async function consumeStockTyre(e: FormEvent) {
+    e.preventDefault();
+    if (!consumeTyreId) return;
+    setSaving(true);
+    setError("");
+    try {
+      const updated = await apiFetch<RepairJobDto>(`/repair-jobs/${jobId}/stock-tyres`, {
+        method: "POST",
+        body: JSON.stringify({
+          tyreId: consumeTyreId,
+          quantity: Number(consumeTyreQty),
+          repairTaskId: consumeTyreTaskId || undefined,
+        }),
+      });
+      setJob(updated);
+      setConsumeTyreModal(false);
+      setMessage("Tyre fitted from stock.");
+      void apiFetch<TyreDto[]>("/tyres").then(setStockTyresCatalog).catch(() => undefined);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not fit tyre from stock");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function returnStockTyre() {
+    if (!tyreUsageToReturn) return;
+    setSaving(true);
+    setError("");
+    try {
+      const updated = await apiFetch<RepairJobDto>(
+        `/repair-jobs/${jobId}/stock-tyres/${tyreUsageToReturn.id}/return`,
+        { method: "POST" },
+      );
+      setJob(updated);
+      setTyreUsageToReturn(null);
+      setMessage("Tyre returned to stock.");
+      void apiFetch<TyreDto[]>("/tyres").then(setStockTyresCatalog).catch(() => undefined);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not return tyre");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function returnStockPart() {
     if (!usageToReturn) return;
     setSaving(true);
@@ -721,11 +906,17 @@ export function RepairJobDetail({ jobId }: Props) {
     }
   }
 
+  function methodForAccount(accountId: string): PaymentMethod {
+    const account = paymentAccounts.find((a) => a.id === accountId);
+    return account ? defaultPaymentMethodForAccount(account.type) : "BANK_TRANSFER";
+  }
+
   function openPaymentModal() {
     if (!job?.invoiceId || !job.invoiceBalanceDue) return;
     setPayAmount(job.invoiceBalanceDue);
-    setPayAccountId(paymentAccounts[0]?.id ?? "");
-    setPayMethod("BANK_TRANSFER");
+    const firstAccountId = paymentAccounts[0]?.id ?? "";
+    setPayAccountId(firstAccountId);
+    setPayMethod(methodForAccount(firstAccountId));
     setPayDate(todayIso());
     setPayReference(job.invoiceNumber ? `Payment — ${job.invoiceNumber}` : "");
     setPaymentModal(true);
@@ -820,6 +1011,16 @@ export function RepairJobDetail({ jobId }: Props) {
     !jobInvoicePaid;
   const showStockParts =
     partsModuleEnabled && hasPermission("parts.read") && !isWorkView;
+  const canConsumeTyres =
+    canTyresWrite &&
+    canWrite &&
+    !isWorkView &&
+    jobApprovedForWork &&
+    job.status !== "COMPLETED" &&
+    job.status !== "CANCELLED" &&
+    !jobInvoicePaid;
+  const showStockTyres =
+    tyresModuleEnabled && hasPermission("tyres.read") && !isWorkView;
 
   const allTasksDone = allRepairTasksComplete(job.tasks);
   const canEditJobStatus =
@@ -1179,9 +1380,9 @@ export function RepairJobDetail({ jobId }: Props) {
               : "No tasks yet. Add tasks with a total amount per line."}
           </p>
         ) : isWorkView ? (
-          <div className="overflow-x-auto">
+          <TableScroll>
             <table className="w-full min-w-[40rem] text-left text-sm">
-              <thead className="bg-[var(--background)] text-[var(--foreground)]">
+              <thead className={`${STICKY_TABLE_HEAD_CLASS} text-[var(--foreground)]`}>
                 <tr>
                   <th className="px-4 py-3 font-semibold">Task</th>
                   <th className="px-4 py-3 font-semibold">Status</th>
@@ -1243,11 +1444,11 @@ export function RepairJobDetail({ jobId }: Props) {
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableScroll>
         ) : (
-          <div className="overflow-x-auto">
+          <TableScroll>
             <table className="w-full min-w-[44rem] text-left text-sm">
-              <thead className="bg-[var(--background)] text-[var(--foreground)]">
+              <thead className={`${STICKY_TABLE_HEAD_CLASS} text-[var(--foreground)]`}>
                 <tr>
                   <th className="px-4 py-3 font-semibold">Task</th>
                   <th className="px-4 py-3 font-semibold">Status</th>
@@ -1352,7 +1553,7 @@ export function RepairJobDetail({ jobId }: Props) {
                 );
               })()}
             </table>
-          </div>
+          </TableScroll>
         )}
       </section>
 
@@ -1387,9 +1588,9 @@ export function RepairJobDetail({ jobId }: Props) {
           {(job.stockParts?.length ?? 0) === 0 ? (
             <p className="px-4 py-6 text-sm text-[var(--muted)]">No stock parts used on this job yet.</p>
           ) : (
-            <div className="overflow-x-auto">
+            <TableScroll>
               <table className="w-full min-w-[640px] text-sm">
-                <thead>
+                <thead className={STICKY_TABLE_HEAD_CLASS}>
                   <tr className="border-b border-[var(--border)] text-left text-xs text-[var(--muted)]">
                     <th className="px-4 py-2 font-medium">Part</th>
                     <th className="px-4 py-2 font-medium">Task</th>
@@ -1438,7 +1639,94 @@ export function RepairJobDetail({ jobId }: Props) {
                   ))}
                 </tbody>
               </table>
+            </TableScroll>
+          )}
+        </section>
+      )}
+
+      {showStockTyres && (
+        <section className="mt-6 rounded-xl border border-[var(--border)] bg-[var(--surface)]">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] px-4 py-3">
+            <div>
+              <h2 className="text-sm font-semibold">Stock tyres</h2>
+              <p className="mt-0.5 text-xs text-[var(--muted)]">
+                Tyres fitted from inventory — sell prices include fitting.
+              </p>
             </div>
+            {canConsumeTyres && (
+              <button
+                type="button"
+                onClick={openConsumeTyreModal}
+                className="text-sm font-medium text-accent"
+              >
+                + Fit from stock
+              </button>
+            )}
+          </div>
+          {!jobApprovedForWork &&
+            canTyresWrite &&
+            job.status !== "COMPLETED" &&
+            job.status !== "CANCELLED" &&
+            !jobInvoicePaid && (
+              <p className="px-4 py-3 text-xs text-[var(--muted)]">
+                Approve the repair before fitting stock tyres on this job.
+              </p>
+            )}
+          {(job.stockTyres?.length ?? 0) === 0 ? (
+            <p className="px-4 py-6 text-sm text-[var(--muted)]">No stock tyres fitted on this job yet.</p>
+          ) : (
+            <TableScroll>
+              <table className="w-full min-w-[640px] text-sm">
+                <thead className={STICKY_TABLE_HEAD_CLASS}>
+                  <tr className="border-b border-[var(--border)] text-left text-xs text-[var(--muted)]">
+                    <th className="px-4 py-2 font-medium">Tyre</th>
+                    <th className="px-4 py-2 font-medium">Task</th>
+                    <th className="px-4 py-2 text-right font-medium">Qty</th>
+                    <th className="px-4 py-2 text-right font-medium">Sell (ex VAT)</th>
+                    <th className="px-4 py-2 text-right font-medium">Status</th>
+                    {canConsumeTyres && <th className="px-4 py-2" />}
+                  </tr>
+                </thead>
+                <tbody>
+                  {job.stockTyres?.map((usage) => (
+                    <tr key={usage.id} className="border-b border-[var(--border)] last:border-0">
+                      <td className="px-4 py-3">
+                        <div className="font-medium">{usage.skuCode}</div>
+                        <div className="text-xs text-[var(--muted)]">{usage.tyreLabel}</div>
+                      </td>
+                      <td className="px-4 py-3 text-[var(--muted)]">
+                        {usage.repairTaskTitle ?? "—"}
+                      </td>
+                      <td className="px-4 py-3 text-right tabular-nums">{usage.quantity}</td>
+                      <td className="px-4 py-3 text-right tabular-nums">
+                        {formatGbp(Number(usage.lineSellTotalNet))}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        {usage.status === "RETURNED" ? (
+                          <span className="text-xs text-[var(--muted)]">Returned</span>
+                        ) : (
+                          <span className="text-xs text-green-700 dark:text-green-400">On job</span>
+                        )}
+                      </td>
+                      {canConsumeTyres && (
+                        <td className="px-4 py-3 text-right">
+                          {usage.status === "CONSUMED" && (
+                            <button
+                              type="button"
+                              disabled={saving}
+                              onClick={() => setTyreUsageToReturn(usage)}
+                              className="text-xs font-medium text-accent hover:underline disabled:opacity-50"
+                            >
+                              Return to stock
+                            </button>
+                          )}
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </TableScroll>
           )}
         </section>
       )}
@@ -1489,7 +1777,144 @@ export function RepairJobDetail({ jobId }: Props) {
               </p>
             )}
 
-            {!taskDraft.useBreakdown && (
+            {canTyresWrite && tyresModuleEnabled && (
+              <div className="space-y-3 rounded-lg border border-[var(--border)] p-3">
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={taskDraft.isTyreTask}
+                    disabled={Boolean(editingTaskId)}
+                    onChange={(e) =>
+                      setTaskDraft((d) => ({
+                        ...d,
+                        isTyreTask: e.target.checked,
+                        useBreakdown: false,
+                        amountNet: "",
+                        tyreId: "",
+                        tyreQty: "1",
+                        tyrePriceTier: "CUSTOMER",
+                        tyreCustomPrice: "",
+                      }))
+                    }
+                    className="h-4 w-4 rounded border border-[var(--border)]"
+                  />
+                  Tyre task — fit from stock
+                </label>
+
+                {taskDraft.isTyreTask && !editingTaskId && (
+                  <>
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
+                        Tyre size (search stock)
+                      </label>
+                      <SearchableSelect
+                        value={taskDraft.tyreId}
+                        onChange={(v) => setTaskDraft((d) => ({ ...d, tyreId: v }))}
+                        options={tyreStockOptions}
+                        searchPlaceholder="Search by size, brand, or code…"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
+                        Quantity
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        step="1"
+                        value={taskDraft.tyreQty}
+                        onChange={(e) => setTaskDraft((d) => ({ ...d, tyreQty: e.target.value }))}
+                        required
+                        className={inputClass}
+                      />
+                    </div>
+                    {taskTyreStockIssue && (
+                      <p
+                        className={`text-xs ${
+                          taskTyreStockIssue.type === "error"
+                            ? "text-red-600 dark:text-red-400"
+                            : "text-amber-700 dark:text-amber-400"
+                        }`}
+                      >
+                        {taskTyreStockIssue.message}
+                      </p>
+                    )}
+                    {selectedTaskTyre && (
+                      <fieldset className="space-y-2">
+                        <legend className="text-xs font-medium text-[var(--muted)]">
+                          Sell price per tyre, incl. fitting (ex VAT)
+                        </legend>
+                        <label className="flex items-center gap-2 text-sm">
+                          <input
+                            type="radio"
+                            name="tyrePriceTier"
+                            checked={taskDraft.tyrePriceTier === "CUSTOMER"}
+                            onChange={() =>
+                              setTaskDraft((d) => ({ ...d, tyrePriceTier: "CUSTOMER" }))
+                            }
+                          />
+                          Customer — {formatGbp(Number(selectedTaskTyre.sellPriceNet))}
+                        </label>
+                        <label className="flex items-center gap-2 text-sm">
+                          <input
+                            type="radio"
+                            name="tyrePriceTier"
+                            checked={taskDraft.tyrePriceTier === "TRADE"}
+                            onChange={() =>
+                              setTaskDraft((d) => ({ ...d, tyrePriceTier: "TRADE" }))
+                            }
+                          />
+                          Trade —{" "}
+                          {Number(selectedTaskTyre.tradeSellPriceNet) > 0
+                            ? formatGbp(Number(selectedTaskTyre.tradeSellPriceNet))
+                            : "not set"}
+                        </label>
+                        <label className="flex items-center gap-2 text-sm">
+                          <input
+                            type="radio"
+                            name="tyrePriceTier"
+                            checked={taskDraft.tyrePriceTier === "CUSTOM"}
+                            onChange={() =>
+                              setTaskDraft((d) => ({ ...d, tyrePriceTier: "CUSTOM" }))
+                            }
+                          />
+                          Agreed price
+                        </label>
+                        {taskDraft.tyrePriceTier === "CUSTOM" && (
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={taskDraft.tyreCustomPrice}
+                            onChange={(e) =>
+                              setTaskDraft((d) => ({ ...d, tyreCustomPrice: e.target.value }))
+                            }
+                            placeholder="Unit price ex VAT"
+                            className={inputClass}
+                          />
+                        )}
+                        <p className="text-xs text-[var(--muted)]">
+                          Invoice line:{" "}
+                          <span className="font-medium text-[var(--foreground)]">
+                            {formatGbp(taskTyreLineTotal)} ex VAT ({taskDraft.tyreQty || 1} tyre
+                            {(Number(taskDraft.tyreQty) || 1) !== 1 ? "s" : ""})
+                          </span>
+                        </p>
+                      </fieldset>
+                    )}
+                  </>
+                )}
+
+                {taskDraft.isTyreTask && editingTaskId && selectedTaskTyre && (
+                  <p className="text-xs text-[var(--muted)]">
+                    Stock tyre: {selectedTaskTyre.size} — {selectedTaskTyre.brand || "No brand"} ×{" "}
+                    {taskDraft.tyreQty}. Cancel the task to return tyres to stock.
+                  </p>
+                )}
+              </div>
+            )}
+
+            {!taskDraft.isTyreTask && !taskDraft.useBreakdown && (
               <div>
                 <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
                   Total amount (ex VAT, £)
@@ -1507,23 +1932,25 @@ export function RepairJobDetail({ jobId }: Props) {
               </div>
             )}
 
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={taskDraft.useBreakdown}
-                onChange={(e) =>
-                  setTaskDraft((d) => ({
-                    ...d,
-                    useBreakdown: e.target.checked,
-                    parts: d.parts.length ? d.parts : [emptyTaskPart()],
-                  }))
-                }
-                className="h-4 w-4 rounded border border-[var(--border)]"
-              />
-              Split into labour and parts
-            </label>
+            {!taskDraft.isTyreTask && (
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={taskDraft.useBreakdown}
+                  onChange={(e) =>
+                    setTaskDraft((d) => ({
+                      ...d,
+                      useBreakdown: e.target.checked,
+                      parts: d.parts.length ? d.parts : [emptyTaskPart()],
+                    }))
+                  }
+                  className="h-4 w-4 rounded border border-[var(--border)]"
+                />
+                Split into labour and parts
+              </label>
+            )}
 
-            {taskDraft.useBreakdown && (
+            {!taskDraft.isTyreTask && taskDraft.useBreakdown && (
               <div className="space-y-3 rounded-lg border border-[var(--border)] p-3">
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div>
@@ -1717,7 +2144,10 @@ export function RepairJobDetail({ jobId }: Props) {
                 </label>
                 <SearchableSelect
                   value={payAccountId}
-                  onChange={setPayAccountId}
+                  onChange={(v) => {
+                    setPayAccountId(v);
+                    setPayMethod(methodForAccount(v));
+                  }}
                   options={accountOptions}
                   searchPlaceholder="Search accounts…"
                   required
@@ -2089,6 +2519,87 @@ export function RepairJobDetail({ jobId }: Props) {
           if (!saving) setUsageToReturn(null);
         }}
         onConfirm={() => void returnStockPart()}
+      />
+
+      <Modal
+        title="Fit tyre from stock"
+        open={consumeTyreModal}
+        onClose={() => {
+          if (!saving) setConsumeTyreModal(false);
+        }}
+      >
+        <form onSubmit={(e) => void consumeStockTyre(e)} className="space-y-4">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Tyre</label>
+            <SearchableSelect
+              value={consumeTyreId}
+              onChange={setConsumeTyreId}
+              options={stockTyreOptions}
+              searchPlaceholder="Search tyres…"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Quantity</label>
+            <input
+              type="number"
+              min="1"
+              step="1"
+              value={consumeTyreQty}
+              onChange={(e) => setConsumeTyreQty(e.target.value)}
+              required
+              className={inputClass}
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
+              Link to task (optional)
+            </label>
+            <SearchableSelect
+              value={consumeTyreTaskId}
+              onChange={setConsumeTyreTaskId}
+              options={consumeTaskOptions}
+              searchPlaceholder="Search tasks…"
+            />
+          </div>
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              disabled={saving}
+              onClick={() => setConsumeTyreModal(false)}
+              className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={saving || !consumeTyreId}
+              className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+            >
+              {saving ? "Saving…" : "Fit on job"}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      <ConfirmDialog
+        open={tyreUsageToReturn !== null}
+        title="Return tyre to stock?"
+        description={
+          tyreUsageToReturn ? (
+            <span>
+              Return <strong className="text-[var(--foreground)]">{tyreUsageToReturn.skuCode}</strong>{" "}
+              (qty {tyreUsageToReturn.quantity}) to inventory? The invoice will update if one exists.
+            </span>
+          ) : (
+            "Return this tyre to inventory?"
+          )
+        }
+        confirmLabel="Return to stock"
+        loading={saving}
+        onCancel={() => {
+          if (!saving) setTyreUsageToReturn(null);
+        }}
+        onConfirm={() => void returnStockTyre()}
       />
 
       <ConfirmDialog

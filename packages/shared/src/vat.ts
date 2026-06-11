@@ -20,6 +20,17 @@ export function netFromInclusiveGross(gross: number, ratePercent: number): numbe
   return Math.round((gross - vatFromInclusiveGross(gross, ratePercent)) * 100) / 100;
 }
 
+/** Add VAT to a net amount. Example: £100 at 20% → £120 gross. */
+export function grossFromNet(net: number, ratePercent: number): number {
+  if (ratePercent <= 0 || net <= 0) return net;
+  return Math.round(net * (1 + ratePercent / 100) * 100) / 100;
+}
+
+export function vatOnNet(net: number, ratePercent: number): number {
+  if (ratePercent <= 0 || net <= 0) return 0;
+  return Math.round(net * (ratePercent / 100) * 100) / 100;
+}
+
 /** Guess configured rate when editing an entry that already has VAT. */
 export function inferVatRatePercent(gross: number, vat: number): string {
   if (vat <= 0 || gross <= vat) return String(UK_STANDARD_VAT_PERCENT);

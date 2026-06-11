@@ -26,3 +26,4 @@ export * from "./repair-types";
 export * from "./bodywork-types";
 export * from "./part-fitment";
 export * from "./part-types";
+export * from "./tyre-types";

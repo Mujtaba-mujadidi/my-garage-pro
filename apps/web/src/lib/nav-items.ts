@@ -73,5 +73,5 @@ export const FOOTER_NAV: NavItem[] = [
 /** Module keys that use the shared `[module]` placeholder route (not a dedicated page). */
 export const PLACEHOLDER_MODULE_KEYS = SIDEBAR_MODULE_ORDER.filter(
   (key) =>
-    !["customers", "suppliers", "ledger", "invoices", "repair", "bodywork", "partners", "parts"].includes(key),
+    !["customers", "suppliers", "ledger", "invoices", "repair", "bodywork", "partners", "parts", "tyres"].includes(key),
 );
