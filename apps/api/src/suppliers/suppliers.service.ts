@@ -103,15 +103,35 @@ export class SuppliersService {
     const rows = await this.prisma.ledgerEntry.findMany({
       where: {
         garageAccountId,
-        supplierId: id,
         direction: LedgerEntryDirection.EXPENSE,
         status: { not: LedgerEntryStatus.VOID },
+        OR: [
+          { supplierId: id },
+          { jobPartUsage: { supplierId: id } },
+          { partMovement: { part: { supplierId: id } } },
+          { tyreMovement: { tyre: { supplierId: id } } },
+        ],
       },
       include: {
+        repairJob: { select: { id: true, jobNumber: true } },
+        bodyworkJob: { select: { id: true, jobNumber: true } },
         jobPartUsage: {
           select: {
             repairJob: { select: { id: true, jobNumber: true } },
             bodyworkJob: { select: { id: true, jobNumber: true } },
+            part: { select: { partNumber: true, description: true } },
+          },
+        },
+        partMovement: {
+          select: {
+            repairJob: { select: { id: true, jobNumber: true } },
+            bodyworkJob: { select: { id: true, jobNumber: true } },
+            part: { select: { partNumber: true, description: true } },
+          },
+        },
+        tyreMovement: {
+          select: {
+            tyre: { select: { skuCode: true, size: true, brand: true } },
           },
         },
       },

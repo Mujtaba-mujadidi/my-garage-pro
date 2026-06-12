@@ -10,6 +10,8 @@ type ModalProps = {
   size?: "md" | "lg" | "xl" | "2xl";
   /** Fixed-height body; tab panels scroll inside instead of resizing the modal. */
   fixedHeight?: boolean;
+  /** Max height in px when `fixedHeight` is set (default 640). */
+  fixedHeightPx?: number;
   /** Panel height follows content (up to 90vh), then scrolls — for forms that expand. */
   autoHeight?: boolean;
   /** Show expand / restore control for near full-screen editing. */
@@ -23,10 +25,12 @@ export function Modal({
   children,
   size = "md",
   fixedHeight = false,
+  fixedHeightPx = 640,
   autoHeight = false,
   allowFullscreen = false,
 }: ModalProps) {
   const [fullscreen, setFullscreen] = useState(false);
+  const fixedPanelHeight = `min(90vh, ${fixedHeightPx}px)`;
 
   useEffect(() => {
     if (!open) setFullscreen(false);
@@ -46,7 +50,7 @@ export function Modal({
   const overflowClass = fixedHeight
     ? fullscreen
       ? "flex min-h-0 flex-1 flex-col overflow-hidden"
-      : "flex h-[min(90vh,640px)] max-h-[min(90vh,640px)] flex-col overflow-hidden"
+      : "flex min-h-0 flex-col overflow-hidden"
     : autoHeight
       ? "max-h-[90vh] overflow-y-auto"
       : "max-h-[90vh] overflow-y-auto";
@@ -77,7 +81,14 @@ export function Modal({
         if (!fullscreen && e.target === e.currentTarget) onClose();
       }}
     >
-      <div className={`${panelClass} ${paddingClass}`}>
+      <div
+        className={`${panelClass} ${paddingClass}`}
+        style={
+          fixedHeight && !fullscreen
+            ? { height: fixedPanelHeight, maxHeight: fixedPanelHeight }
+            : undefined
+        }
+      >
         <div className={`mb-4 flex shrink-0 items-start justify-between gap-3 ${fullscreen ? "border-b border-[var(--border)] pb-3" : ""}`}>
           <h2 id="modal-title" className="text-lg font-semibold text-[var(--foreground)]">
             {title}

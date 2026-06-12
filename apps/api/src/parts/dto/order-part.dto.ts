@@ -12,6 +12,10 @@ export class OrderPartDto {
   supplierRef?: string;
 
   @IsOptional()
+  @IsUUID("4")
+  supplierId?: string;
+
+  @IsOptional()
   @IsString()
   @MaxLength(80)
   partNumber?: string;

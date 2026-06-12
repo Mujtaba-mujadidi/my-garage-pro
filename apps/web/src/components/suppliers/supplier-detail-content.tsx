@@ -305,9 +305,12 @@ export function SupplierDetailContent({ supplierId }: Props) {
       </div>
 
       <section className="mb-6 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
-        <h2 className="mb-3 text-sm font-semibold">Part orders</h2>
+        <h2 className="mb-3 text-sm font-semibold">Job part orders</h2>
         {partOrders.length === 0 ? (
-          <p className="text-sm text-[var(--muted)]">No part orders with this supplier yet.</p>
+          <p className="text-sm text-[var(--muted)]">
+            No job part orders linked to this supplier yet. Select the supplier when ordering parts on
+            a repair job.
+          </p>
         ) : (
           <TableScroll maxHeightClass={TABLE_SCROLL_COMPACT_MAX_HEIGHT}>
             <table className="w-full min-w-[720px] text-left text-sm">
@@ -365,7 +368,7 @@ export function SupplierDetailContent({ supplierId }: Props) {
               <thead className={STICKY_TABLE_HEAD_CLASS}>
                 <tr>
                   <th className="px-3 py-2 font-medium">Date</th>
-                  <th className="px-3 py-2 font-medium">Category</th>
+                  <th className="px-3 py-2 font-medium">Item</th>
                   <th className="px-3 py-2 font-medium">Job</th>
                   <th className="px-3 py-2 font-medium">Status</th>
                   <th className="px-3 py-2 text-right font-medium">Amount</th>
@@ -378,9 +381,9 @@ export function SupplierDetailContent({ supplierId }: Props) {
                       {formatDateGb(purchase.valueDate)}
                     </td>
                     <td className="px-3 py-2">
-                      <div>{purchase.category ?? "—"}</div>
-                      {purchase.notes && (
-                        <div className="text-xs text-[var(--muted)]">{purchase.notes}</div>
+                      <div className="font-medium">{purchase.notes ?? purchase.category ?? "—"}</div>
+                      {purchase.category && purchase.notes && purchase.notes !== purchase.category && (
+                        <div className="text-xs text-[var(--muted)]">{purchase.category}</div>
                       )}
                     </td>
                     <td className="px-3 py-2">

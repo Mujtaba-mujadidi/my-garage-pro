@@ -785,6 +785,13 @@ export class PartsService {
       if (!task) throw new BadRequestException("Task does not belong to this job");
     }
 
+    if (dto.supplierId) {
+      const supplier = await this.prisma.supplier.findFirst({
+        where: { id: dto.supplierId, garageAccountId, deletedAt: null },
+      });
+      if (!supplier) throw new BadRequestException("Supplier not found");
+    }
+
     const description = dto.description.trim();
     const partNumber =
       dto.partNumber?.trim().toUpperCase().slice(0, 80) ||
@@ -815,6 +822,7 @@ export class PartsService {
         costPriceNet: 0,
         sellPriceNet: 0,
         source: JobPartSource.ORDERED,
+        supplierId: dto.supplierId ?? null,
         supplierRef: dto.supplierRef?.trim() || null,
         status: JobPartUsageStatus.ORDERED,
         createdById: user.id,

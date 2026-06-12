@@ -601,35 +601,6 @@ export function TyresPageContent() {
             </p>
           )}
 
-          <FormSection title="Sell">
-            <div>
-              <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
-                Est. customer price, incl. fitting (ex VAT)
-              </label>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={draft.sellPriceNet}
-                onChange={(e) => setDraft((d) => ({ ...d, sellPriceNet: e.target.value }))}
-                className={inputClass}
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
-                Est. trade price, incl. fitting (ex VAT)
-              </label>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={draft.tradeSellPriceNet}
-                onChange={(e) => setDraft((d) => ({ ...d, tradeSellPriceNet: e.target.value }))}
-                className={inputClass}
-              />
-            </div>
-          </FormSection>
-
           <FormSection title="Stock">
             <div>
               <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Reorder level</label>
@@ -657,7 +628,7 @@ export function TyresPageContent() {
             )}
           </FormSection>
 
-          {!draft.id && (
+          {!draft.id ? (
             <TyreStockPurchaseFields
               unitBuyPrice={draft.costPriceNet}
               onUnitBuyPriceChange={(value) =>
@@ -670,9 +641,7 @@ export function TyresPageContent() {
               onPaymentChange={setCreatePayment}
               accounts={accounts}
             />
-          )}
-
-          {draft.id && (
+          ) : (
             <FormSection title="Cost">
               <div>
                 <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
@@ -704,6 +673,35 @@ export function TyresPageContent() {
               </div>
             </FormSection>
           )}
+
+          <FormSection title="Sell">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
+                Est. customer price, incl. fitting (ex VAT)
+              </label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={draft.sellPriceNet}
+                onChange={(e) => setDraft((d) => ({ ...d, sellPriceNet: e.target.value }))}
+                className={inputClass}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
+                Est. trade price, incl. fitting (ex VAT)
+              </label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={draft.tradeSellPriceNet}
+                onChange={(e) => setDraft((d) => ({ ...d, tradeSellPriceNet: e.target.value }))}
+                className={inputClass}
+              />
+            </div>
+          </FormSection>
 
           <div className="flex justify-end gap-2 border-t border-[var(--border)] pt-4">
             <button

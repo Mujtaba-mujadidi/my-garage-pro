@@ -116,6 +116,7 @@ type TaskModalTab = "general" | "tyre";
 type OrderPartBlock = {
   clientId: string;
   description: string;
+  supplierId: string;
   supplierRef: string;
   quantity: string;
   taskId: string;
@@ -128,6 +129,7 @@ function newOrderPartBlock(): OrderPartBlock {
   return {
     clientId: `order-part-${nextOrderPartBlockId}`,
     description: "",
+    supplierId: "",
     supplierRef: "",
     quantity: "1",
     taskId: "",
@@ -1042,6 +1044,7 @@ export function RepairJobDetail({ jobId }: Props) {
           method: "POST",
           body: JSON.stringify({
             description: block.description.trim(),
+            supplierId: block.supplierId || undefined,
             supplierRef: block.supplierRef.trim() || undefined,
             partNumber,
             quantity: Number(block.quantity) || 1,
@@ -1076,7 +1079,10 @@ export function RepairJobDetail({ jobId }: Props) {
 
   function openReceiveOrdered(usage: JobPartUsageDto) {
     setUsageToReceive(usage);
-    setReceivePurchase(emptyStockPurchaseDraft(paymentAccounts));
+    setReceivePurchase({
+      ...emptyStockPurchaseDraft(paymentAccounts),
+      supplierId: usage.supplierId ?? "",
+    });
   }
 
   async function submitReceiveOrdered(e: FormEvent) {
@@ -2901,6 +2907,26 @@ export function RepairJobDetail({ jobId }: Props) {
                         className={inputClass}
                         placeholder="e.g. Front brake pads — Bosch"
                         required={index === 0}
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
+                        Supplier
+                      </label>
+                      <SearchableSelect
+                        value={block.supplierId}
+                        onChange={(supplierId) =>
+                          setOrderPartBlocks((rows) =>
+                            rows.map((r) =>
+                              r.clientId === block.clientId ? { ...r, supplierId } : r,
+                            ),
+                          )
+                        }
+                        options={[
+                          { value: "", label: "Select supplier…" },
+                          ...partSuppliers.map((s) => ({ value: s.id, label: s.name })),
+                        ]}
+                        searchPlaceholder="Search suppliers…"
                       />
                     </div>
                     <div className="grid gap-4 sm:grid-cols-2">

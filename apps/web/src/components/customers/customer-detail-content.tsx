@@ -1,5 +1,6 @@
 "use client";
 
+import { RecordPaymentModal } from "@/components/invoices/record-payment-modal";
 import { useSession } from "@/components/providers/session-provider";
 import { Modal } from "@/components/ui/modal";
 import {
@@ -79,6 +80,7 @@ export function CustomerDetailContent({ customerId }: Props) {
     (session?.enabledModules.includes("repair") ?? false) && hasPermission("repair.read");
   const hasInvoices =
     (session?.enabledModules.includes("invoices") ?? false) && hasPermission("invoices.read");
+  const canRecordPayment = hasInvoices && hasPermission("invoices.write");
 
   const [customer, setCustomer] = useState<CustomerDto | null>(null);
   const [jobs, setJobs] = useState<RepairJobListDto[]>([]);
@@ -90,6 +92,8 @@ export function CustomerDetailContent({ customerId }: Props) {
   const [newModel, setNewModel] = useState("");
   const [addingVehicle, setAddingVehicle] = useState(false);
   const [viewInvoice, setViewInvoice] = useState<InvoiceDto | null>(null);
+  const [paymentModalOpen, setPaymentModalOpen] = useState(false);
+  const [message, setMessage] = useState("");
 
   const loadCustomer = useCallback(async () => {
     const data = await apiFetch<CustomerDto>(`/customers/${customerId}`);
@@ -137,6 +141,10 @@ export function CustomerDetailContent({ customerId }: Props) {
   const unpaidInvoices = useMemo(
     () => invoices.filter((i) => i.status === "SENT" || i.status === "PART_PAID"),
     [invoices],
+  );
+  const hasBalanceDue = useMemo(
+    () => balance !== null && Number(balance.balanceDue) > 0.009,
+    [balance],
   );
 
   async function handleDelete() {
@@ -229,6 +237,7 @@ export function CustomerDetailContent({ customerId }: Props) {
         </div>
       </div>
 
+      {message && <p className="mb-4 text-sm text-green-700 dark:text-green-400">{message}</p>}
       {error && <p className="mb-4 text-sm text-red-600">{error}</p>}
       {customer.deletedAt && (
         <p className="mb-4 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-950 dark:text-amber-100">
@@ -397,9 +406,17 @@ export function CustomerDetailContent({ customerId }: Props) {
         <section className="mt-6 rounded-xl border border-[var(--border)] bg-[var(--surface)]">
           <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3">
             <h2 className="text-sm font-semibold">Invoices</h2>
-            <Link href="/invoices" className="text-xs font-medium text-accent hover:underline">
-              Record payment →
-            </Link>
+            {canRecordPayment && (
+              <button
+                type="button"
+                onClick={() => setPaymentModalOpen(true)}
+                disabled={!hasBalanceDue}
+                title={!hasBalanceDue ? "No balance due" : undefined}
+                className="rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Record payment
+              </button>
+            )}
           </div>
           {invoices.length === 0 ? (
             <p className="px-4 py-6 text-sm text-[var(--muted)]">No invoices yet.</p>
@@ -558,6 +575,20 @@ export function CustomerDetailContent({ customerId }: Props) {
           </div>
         )}
       </Modal>
+
+      {canRecordPayment && customer && (
+        <RecordPaymentModal
+          open={paymentModalOpen}
+          onClose={() => setPaymentModalOpen(false)}
+          fixedCustomerId={customerId}
+          fixedCustomerName={customer.displayName}
+          onSuccess={(msg) => {
+            setMessage(msg);
+            setError("");
+            void loadRelated();
+          }}
+        />
+      )}
     </>
   );
 }

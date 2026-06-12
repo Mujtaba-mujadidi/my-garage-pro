@@ -3,7 +3,10 @@ import type {
   JobPartUsage,
   LedgerEntry,
   Part,
+  PartMovement,
   RepairJob,
+  Tyre,
+  TyreMovement,
 } from "@prisma/client";
 import type { SupplierPartOrderDto, SupplierPurchaseDto } from "@mygaragepro/shared";
 
@@ -14,9 +17,20 @@ type PartOrderRow = JobPartUsage & {
 };
 
 type PurchaseRow = LedgerEntry & {
+  repairJob: Pick<RepairJob, "id" | "jobNumber"> | null;
+  bodyworkJob: Pick<BodyworkJob, "id" | "jobNumber"> | null;
   jobPartUsage: {
     repairJob: Pick<RepairJob, "id" | "jobNumber"> | null;
     bodyworkJob: Pick<BodyworkJob, "id" | "jobNumber"> | null;
+    part: Pick<Part, "partNumber" | "description">;
+  } | null;
+  partMovement: {
+    repairJob: Pick<RepairJob, "id" | "jobNumber"> | null;
+    bodyworkJob: Pick<BodyworkJob, "id" | "jobNumber"> | null;
+    part: Pick<Part, "partNumber" | "description">;
+  } | null;
+  tyreMovement: {
+    tyre: Pick<Tyre, "skuCode" | "size" | "brand">;
   } | null;
 };
 
@@ -41,9 +55,34 @@ export function toSupplierPartOrderDto(row: PartOrderRow): SupplierPartOrderDto 
   };
 }
 
+function purchaseDescription(row: PurchaseRow): string | null {
+  if (row.jobPartUsage?.part) {
+    const p = row.jobPartUsage.part;
+    return `${p.partNumber} — ${p.description}`;
+  }
+  if (row.partMovement?.part) {
+    const p = row.partMovement.part;
+    return `${p.partNumber} — ${p.description}`;
+  }
+  if (row.tyreMovement?.tyre) {
+    const t = row.tyreMovement.tyre;
+    const label = [t.skuCode, t.size, t.brand].filter(Boolean).join(" · ");
+    return label || null;
+  }
+  return row.notes;
+}
+
 export function toSupplierPurchaseDto(row: PurchaseRow): SupplierPurchaseDto {
-  const repairJob = row.jobPartUsage?.repairJob ?? null;
-  const bodyworkJob = row.jobPartUsage?.bodyworkJob ?? null;
+  const repairJob =
+    row.repairJob ??
+    row.jobPartUsage?.repairJob ??
+    row.partMovement?.repairJob ??
+    null;
+  const bodyworkJob =
+    row.bodyworkJob ??
+    row.jobPartUsage?.bodyworkJob ??
+    row.partMovement?.bodyworkJob ??
+    null;
 
   return {
     id: row.id,
@@ -53,7 +92,7 @@ export function toSupplierPurchaseDto(row: PurchaseRow): SupplierPurchaseDto {
     valueDate: row.valueDate.toISOString().slice(0, 10),
     status: row.status,
     category: row.category,
-    notes: row.notes,
+    notes: purchaseDescription(row) ?? row.notes,
     repairJobId: repairJob?.id ?? null,
     repairJobNumber: repairJob?.jobNumber ?? null,
     bodyworkJobId: bodyworkJob?.id ?? null,
