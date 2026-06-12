@@ -13,6 +13,7 @@ export function toSupplierDto(row: Supplier): SupplierDto {
     postcode: row.postcode,
     vatNumber: row.vatNumber,
     notes: row.notes,
+    creditBalance: row.creditBalance.toString(),
     status: row.status,
     deletedAt: row.deletedAt ? row.deletedAt.toISOString() : null,
     createdAt: row.createdAt.toISOString(),

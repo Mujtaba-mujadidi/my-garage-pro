@@ -12,7 +12,16 @@ export type PartStatus = "ACTIVE" | "INACTIVE";
 
 export type PartMovementType = "RECEIPT" | "CONSUMPTION" | "RETURN" | "ADJUSTMENT";
 
-export type JobPartUsageStatus = "CONSUMED" | "RETURNED";
+export type JobPartUsageStatus = "ORDERED" | "CONSUMED" | "RETURNED" | "CANCELLED";
+
+export const JOB_PART_USAGE_STATUS_LABEL: Record<JobPartUsageStatus, string> = {
+  ORDERED: "Ordered",
+  CONSUMED: "Received",
+  RETURNED: "Returned",
+  CANCELLED: "Cancelled",
+};
+
+export type JobPartSource = "STOCK" | "ORDERED";
 
 export type PartDto = {
   id: string;
@@ -37,16 +46,25 @@ export type PartDto = {
 
 export type JobPartUsageDto = {
   id: string;
-  repairJobId: string;
+  repairJobId: string | null;
+  bodyworkJobId: string | null;
   repairTaskId: string | null;
+  bodyworkTaskId: string | null;
   repairTaskTitle: string | null;
+  bodyworkTaskTitle: string | null;
   partId: string;
   partNumber: string;
   partDescription: string;
   quantity: string;
   costPriceNet: string;
+  costVatAmount: string;
+  costAmountGross: string;
+  lineCostTotalNet: string;
   sellPriceNet: string;
   lineSellTotalNet: string;
+  source: JobPartSource;
+  supplierId: string | null;
+  supplierRef: string | null;
   status: JobPartUsageStatus;
   consumedAt: string;
   returnedAt: string | null;

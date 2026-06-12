@@ -1,4 +1,4 @@
-import { Module } from "@nestjs/common";
+import { Module, forwardRef } from "@nestjs/common";
 import { AuditModule } from "../audit/audit.module";
 import { CustomersModule } from "../customers/customers.module";
 import { BodyworkJobsController } from "./bodywork-jobs.controller";

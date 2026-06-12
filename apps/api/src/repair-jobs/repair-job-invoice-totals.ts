@@ -138,16 +138,23 @@ export function buildStockTyreLineInputs(
   return lines;
 }
 
+export type RepairInvoiceOptions = {
+  /** Repair jobs bill via tasks (+ tyres); stock parts are tracked only. */
+  includeStockParts?: boolean;
+};
+
 export function computeJobInvoiceTotals(
   job: JobVatRow,
   tasks: JobTaskRow[],
   canChargeVat: boolean,
   partUsages: JobStockPartRow[] = [],
   tyreUsages: JobStockTyreRow[] = [],
+  options?: RepairInvoiceOptions,
 ): { lineInputs: LineCalcInput[]; lineCalcs: LineCalcResult[]; amountNet: string; amountGross: string } | null {
+  const stockParts = options?.includeStockParts === true ? partUsages : [];
   const lineInputs = [
     ...buildTaskLineInputs(job, tasks, canChargeVat),
-    ...buildStockLineInputs(job, partUsages, canChargeVat),
+    ...buildStockLineInputs(job, stockParts, canChargeVat),
     ...buildStockTyreLineInputs(job, tyreUsages, canChargeVat),
   ];
   if (lineInputs.length === 0) return null;

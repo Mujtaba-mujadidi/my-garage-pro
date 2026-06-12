@@ -21,11 +21,12 @@ export class SellTyreDto {
   @Min(0.001)
   quantity!: number;
 
+  /** Override unit sell price ex VAT per tyre; defaults to catalog sell price. */
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
   @Min(0)
-  fittingChargeNet?: number;
+  sellPriceNet?: number;
 
   @IsOptional()
   @IsString()

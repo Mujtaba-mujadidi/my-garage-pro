@@ -13,8 +13,23 @@ import {
   emptyFitmentRow,
   type DraftFitmentRow,
 } from "@/components/parts/part-fitment-fields";
-import type { PartDto, PartFitmentType, SupplierDto } from "@mygaragepro/shared";
-import { summarizePartFitments } from "@mygaragepro/shared";
+import {
+  StockPurchaseFields,
+  emptyStockPurchaseDraft,
+  stockPurchaseApiPayload,
+  type StockPurchaseDraft,
+} from "@/components/finance/stock-purchase-fields";
+import type {
+  CustomerDto,
+  PartDto,
+  PartFitmentType,
+  PaymentAccountDto,
+  SupplierDto,
+} from "@mygaragepro/shared";
+import {
+  defaultPaymentMethodForAccount,
+  summarizePartFitments,
+} from "@mygaragepro/shared";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 
 type DraftPart = {
@@ -82,9 +97,12 @@ function formatGbp(amount: number) {
 export default function PartsPage() {
   const { hasPermission } = useSession();
   const canWrite = hasPermission("parts.write");
+  const canSell = hasPermission("parts.write") && hasPermission("invoices.write");
 
   const [rows, setRows] = useState<PartDto[]>([]);
   const [suppliers, setSuppliers] = useState<SupplierDto[]>([]);
+  const [accounts, setAccounts] = useState<PaymentAccountDto[]>([]);
+  const [customers, setCustomers] = useState<CustomerDto[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [lowStockOnly, setLowStockOnly] = useState(false);
@@ -97,6 +115,20 @@ export default function PartsPage() {
   const [receiveTarget, setReceiveTarget] = useState<PartDto | null>(null);
   const [receiveQty, setReceiveQty] = useState("1");
   const [receiveNotes, setReceiveNotes] = useState("");
+  const [receivePurchase, setReceivePurchase] = useState<StockPurchaseDraft>(
+    emptyStockPurchaseDraft([]),
+  );
+  const [createPurchase, setCreatePurchase] = useState<StockPurchaseDraft>(
+    emptyStockPurchaseDraft([]),
+  );
+
+  const [saleOpen, setSaleOpen] = useState(false);
+  const [salePart, setSalePart] = useState<PartDto | null>(null);
+  const [saleCustomerId, setSaleCustomerId] = useState("");
+  const [saleQty, setSaleQty] = useState("1");
+  const [salePrice, setSalePrice] = useState("");
+  const [salePayNow, setSalePayNow] = useState(false);
+  const [saleAccountId, setSaleAccountId] = useState("");
 
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmTarget, setConfirmTarget] = useState<PartDto | null>(null);
@@ -124,7 +156,27 @@ export default function PartsPage() {
     void apiFetch<SupplierDto[]>("/suppliers")
       .then(setSuppliers)
       .catch(() => setSuppliers([]));
+    void apiFetch<PaymentAccountDto[]>("/ledger/accounts")
+      .then((list) => {
+        setAccounts(list);
+        setCreatePurchase(emptyStockPurchaseDraft(list));
+        setReceivePurchase(emptyStockPurchaseDraft(list));
+        setSaleAccountId(list[0]?.id ?? "");
+      })
+      .catch(() => undefined);
   }, [canWrite]);
+
+  useEffect(() => {
+    if (!canSell) return;
+    void apiFetch<CustomerDto[]>("/customers")
+      .then(setCustomers)
+      .catch(() => setCustomers([]));
+  }, [canSell]);
+
+  const customerOptions = useMemo(
+    () => customers.map((c) => ({ value: c.id, label: c.displayName })),
+    [customers],
+  );
 
   const supplierOptions = useMemo(
     () => [
@@ -189,7 +241,7 @@ export default function PartsPage() {
       },
     ];
 
-    if (canWrite) {
+    if (canWrite || canSell) {
       cols.push({
         id: "actions",
         header: "Actions",
@@ -198,12 +250,30 @@ export default function PartsPage() {
           <TableRowActionsMenu
             triggerLabel={`Actions for ${p.partNumber}`}
             actions={[
+              ...(canSell
+                ? [
+                    {
+                      label: "Sell to customer",
+                      onClick: () => {
+                        setSalePart(p);
+                        setSaleCustomerId("");
+                        setSaleQty("1");
+                        setSalePrice(p.sellPriceNet);
+                        setSalePayNow(false);
+                        setSaleOpen(true);
+                      },
+                    },
+                  ]
+                : []),
+              ...(canWrite
+                ? [
               {
                 label: "Receive stock",
                 onClick: () => {
                   setReceiveTarget(p);
                   setReceiveQty("1");
                   setReceiveNotes("");
+                  setReceivePurchase(emptyStockPurchaseDraft(accounts));
                   setReceiveOpen(true);
                 },
               },
@@ -216,12 +286,16 @@ export default function PartsPage() {
               },
               {
                 label: p.status === "INACTIVE" ? "Activate" : "Deactivate",
-                variant: p.status === "INACTIVE" ? "default" : "danger",
+                variant: (p.status === "INACTIVE" ? "default" : "danger") as
+                  | "default"
+                  | "danger",
                 onClick: () => {
                   setConfirmTarget(p);
                   setConfirmOpen(true);
                 },
               },
+                ]
+                : []),
             ]}
           />
         ),
@@ -229,7 +303,7 @@ export default function PartsPage() {
     }
 
     return cols;
-  }, [canWrite]);
+  }, [canWrite, canSell, accounts]);
 
   async function savePart(e: FormEvent) {
     e.preventDefault();
@@ -255,8 +329,8 @@ export default function PartsPage() {
             ? draft.fitments.map((r) => ({
                 make: r.make.trim(),
                 model: r.model.trim(),
-                yearFrom: r.yearFrom,
-                yearTo: r.yearTo ?? undefined,
+                yearFrom: Math.trunc(r.yearFrom),
+                yearTo: r.yearTo != null ? Math.trunc(r.yearTo) : undefined,
                 notes: r.notes?.trim() || undefined,
               }))
             : [],
@@ -267,6 +341,12 @@ export default function PartsPage() {
         supplierId: draft.supplierId || undefined,
         location: draft.location || undefined,
         notes: draft.notes || undefined,
+        ...(!draft.id && Number(draft.quantityOnHand) > 0
+          ? stockPurchaseApiPayload({
+              ...createPurchase,
+              supplierId: createPurchase.supplierId || draft.supplierId,
+            })
+          : {}),
       };
 
       if (draft.id) {
@@ -300,6 +380,7 @@ export default function PartsPage() {
         body: JSON.stringify({
           quantity: Number(receiveQty),
           notes: receiveNotes || undefined,
+          ...stockPurchaseApiPayload(receivePurchase),
         }),
       });
       setReceiveOpen(false);
@@ -307,6 +388,33 @@ export default function PartsPage() {
       await load();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Receive failed");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function confirmSale(e: FormEvent) {
+    e.preventDefault();
+    if (!salePart || !saleCustomerId) return;
+    setSaving(true);
+    setError("");
+    try {
+      const account = accounts.find((a) => a.id === saleAccountId);
+      await apiFetch("/parts/sale", {
+        method: "POST",
+        body: JSON.stringify({
+          customerId: saleCustomerId,
+          partId: salePart.id,
+          quantity: Number(saleQty),
+          sellPriceNet: Number(salePrice) || undefined,
+          paymentAccountId: salePayNow && saleAccountId ? saleAccountId : undefined,
+          method: account ? defaultPaymentMethodForAccount(account.type) : undefined,
+        }),
+      });
+      setSaleOpen(false);
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Sale failed");
     } finally {
       setSaving(false);
     }
@@ -433,7 +541,7 @@ export default function PartsPage() {
                 <input
                   type="number"
                   min="0"
-                  step="0.001"
+                  step="any"
                   value={draft.quantityOnHand}
                   onChange={(e) => setDraft((d) => ({ ...d, quantityOnHand: e.target.value }))}
                   className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
@@ -445,7 +553,7 @@ export default function PartsPage() {
               <input
                 type="number"
                 min="0"
-                step="0.001"
+                step="any"
                 value={draft.minQuantity}
                 onChange={(e) => setDraft((d) => ({ ...d, minQuantity: e.target.value }))}
                 className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
@@ -502,6 +610,15 @@ export default function PartsPage() {
             </div>
           </div>
 
+          {!draft.id && Number(draft.quantityOnHand) > 0 && (
+            <StockPurchaseFields
+              draft={createPurchase}
+              onChange={setCreatePurchase}
+              accounts={accounts}
+              suppliers={suppliers}
+            />
+          )}
+
           <PartFitmentFields
             fitmentType={draft.fitmentType}
             fitments={draft.fitments}
@@ -556,7 +673,7 @@ export default function PartsPage() {
             <input
               type="number"
               min="0.001"
-              step="0.001"
+              step="any"
               value={receiveQty}
               onChange={(e) => setReceiveQty(e.target.value)}
               required
@@ -569,9 +686,15 @@ export default function PartsPage() {
               value={receiveNotes}
               onChange={(e) => setReceiveNotes(e.target.value)}
               className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
-              placeholder="Delivery ref, supplier invoice…"
+              placeholder="Delivery note…"
             />
           </div>
+          <StockPurchaseFields
+            draft={receivePurchase}
+            onChange={setReceivePurchase}
+            accounts={accounts}
+            suppliers={suppliers}
+          />
           <div className="flex justify-end gap-2">
             <button
               type="button"
@@ -587,6 +710,90 @@ export default function PartsPage() {
               className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
             >
               {saving ? "Receiving…" : "Receive"}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal
+        title={salePart ? `Sell — ${salePart.partNumber}` : "Sell part"}
+        open={saleOpen}
+        onClose={() => {
+          if (!saving) setSaleOpen(false);
+        }}
+      >
+        <form onSubmit={(e) => void confirmSale(e)} className="space-y-4">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Customer</label>
+            <SearchableSelect
+              value={saleCustomerId}
+              onChange={setSaleCustomerId}
+              options={customerOptions}
+              searchPlaceholder="Search customers…"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Quantity</label>
+            <input
+              type="number"
+              min="0.001"
+              step="any"
+              value={saleQty}
+              onChange={(e) => setSaleQty(e.target.value)}
+              required
+              className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
+              Sell price per unit (ex VAT)
+            </label>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={salePrice}
+              onChange={(e) => setSalePrice(e.target.value)}
+              className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+            />
+            {salePart && (
+              <p className="mt-1 text-xs text-[var(--muted)]">
+                Cost: {formatGbp(Number(salePart.costPriceNet))} — catalog sell:{" "}
+                {formatGbp(Number(salePart.sellPriceNet))}
+              </p>
+            )}
+          </div>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={salePayNow}
+              onChange={(e) => setSalePayNow(e.target.checked)}
+            />
+            Record payment now
+          </label>
+          {salePayNow && accounts.length > 0 && (
+            <SearchableSelect
+              value={saleAccountId}
+              onChange={setSaleAccountId}
+              options={accounts.map((a) => ({ value: a.id, label: a.name }))}
+              searchPlaceholder="Payment account…"
+            />
+          )}
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              disabled={saving}
+              onClick={() => setSaleOpen(false)}
+              className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={saving || !saleCustomerId}
+              className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+            >
+              {saving ? "Saving…" : "Create invoice"}
             </button>
           </div>
         </form>

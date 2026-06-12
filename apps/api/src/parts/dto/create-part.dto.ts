@@ -1,5 +1,5 @@
 import { PartFitmentType } from "@prisma/client";
-import { Type } from "class-transformer";
+import { Transform, Type } from "class-transformer";
 import {
   IsEnum,
   IsNumber,
@@ -10,9 +10,11 @@ import {
   Min,
   ValidateNested,
 } from "class-validator";
+import { coerceToNumber } from "../../common/transforms/coerce-number";
+import { StockPurchaseFieldsDto } from "../../common/dto/stock-purchase-fields.dto";
 import { PartFitmentRowDto } from "./part-fitment.dto";
 
-export class CreatePartDto {
+export class CreatePartDto extends StockPurchaseFieldsDto {
   @IsString()
   @MaxLength(80)
   partNumber!: string;
@@ -36,32 +38,28 @@ export class CreatePartDto {
   fitments?: PartFitmentRowDto[];
 
   @IsOptional()
-  @Type(() => Number)
-  @IsNumber()
+  @Transform(({ value }) => coerceToNumber(value))
+  @IsNumber({ maxDecimalPlaces: 3 })
   @Min(0)
   quantityOnHand?: number;
 
   @IsOptional()
-  @Type(() => Number)
-  @IsNumber()
+  @Transform(({ value }) => coerceToNumber(value))
+  @IsNumber({ maxDecimalPlaces: 3 })
   @Min(0)
   minQuantity?: number;
 
   @IsOptional()
-  @Type(() => Number)
-  @IsNumber()
+  @Transform(({ value }) => coerceToNumber(value))
+  @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
   costPriceNet?: number;
 
   @IsOptional()
-  @Type(() => Number)
-  @IsNumber()
+  @Transform(({ value }) => coerceToNumber(value))
+  @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
   sellPriceNet?: number;
-
-  @IsOptional()
-  @IsUUID("4")
-  supplierId?: string;
 
   @IsOptional()
   @IsString()

@@ -1,5 +1,6 @@
-import { Type } from "class-transformer";
+import { Transform } from "class-transformer";
 import { IsNumber, IsOptional, IsString, MaxLength, Min } from "class-validator";
+import { coerceToNumber } from "../../common/transforms/coerce-number";
 
 export class RepairTaskPartDto {
   @IsString()
@@ -7,13 +8,13 @@ export class RepairTaskPartDto {
   description!: string;
 
   @IsOptional()
-  @Type(() => Number)
-  @IsNumber()
+  @Transform(({ value }) => coerceToNumber(value))
+  @IsNumber({ maxDecimalPlaces: 3 })
   @Min(0.001)
   quantity?: number;
 
-  @Type(() => Number)
-  @IsNumber()
+  @Transform(({ value }) => coerceToNumber(value))
+  @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
   unitPriceNet!: number;
 }

@@ -9,8 +9,9 @@ import {
   MaxLength,
   Min,
 } from "class-validator";
+import { StockPurchaseFieldsDto } from "../../common/dto/stock-purchase-fields.dto";
 
-export class CreateTyreDto {
+export class CreateTyreDto extends StockPurchaseFieldsDto {
   @IsOptional()
   @IsString()
   @MaxLength(80)
@@ -79,10 +80,6 @@ export class CreateTyreDto {
   @IsNumber()
   @Min(0)
   fittingChargeNet?: number;
-
-  @IsOptional()
-  @IsUUID("4")
-  supplierId?: string;
 
   @IsOptional()
   @IsString()

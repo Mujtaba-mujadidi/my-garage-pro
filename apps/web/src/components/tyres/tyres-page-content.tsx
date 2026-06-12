@@ -7,6 +7,12 @@ import { SearchableSelect } from "@/components/ui/searchable-select";
 import { SearchableTable, type TableColumn } from "@/components/ui/searchable-table";
 import { TableRowActionsMenu } from "@/components/ui/table-row-actions-menu";
 import { apiFetch, ApiError } from "@/lib/api-client";
+import {
+  emptyStockPaymentDraft,
+  stockPurchaseApiPayloadFromBuyPrice,
+  type StockPaymentDraft,
+} from "@/components/finance/stock-purchase-fields";
+import { TyreStockPurchaseFields } from "@/components/tyres/tyre-stock-purchase-fields";
 import type { CustomerDto, PaymentAccountDto, SupplierDto, TyreDto } from "@mygaragepro/shared";
 import {
   UK_STANDARD_VAT_PERCENT,
@@ -119,11 +125,21 @@ export function TyresPageContent() {
   const [receiveOpen, setReceiveOpen] = useState(false);
   const [receiveTarget, setReceiveTarget] = useState<TyreDto | null>(null);
   const [receiveQty, setReceiveQty] = useState("1");
+  const [receiveBuyPrice, setReceiveBuyPrice] = useState("");
+  const [receiveIncludeVat, setReceiveIncludeVat] = useState(false);
+  const [receivePayment, setReceivePayment] = useState<StockPaymentDraft>(
+    emptyStockPaymentDraft([]),
+  );
+  const [createPayment, setCreatePayment] = useState<StockPaymentDraft>(
+    emptyStockPaymentDraft([]),
+  );
+  const [buyPriceIncludesVat, setBuyPriceIncludesVat] = useState(false);
 
   const [saleOpen, setSaleOpen] = useState(false);
   const [saleTyre, setSaleTyre] = useState<TyreDto | null>(null);
   const [saleCustomerId, setSaleCustomerId] = useState("");
   const [saleQty, setSaleQty] = useState("1");
+  const [salePrice, setSalePrice] = useState("");
   const [salePayNow, setSalePayNow] = useState(false);
   const [saleAccountId, setSaleAccountId] = useState("");
 
@@ -136,11 +152,8 @@ export function TyresPageContent() {
     return previewTyreCode(draft.size, draft.brand || null);
   }, [draft.id, draft.skuCode, draft.size, draft.brand]);
 
-  const costGross = useMemo(() => {
-    const net = Number(draft.costPriceNet);
-    if (!net || net <= 0) return null;
-    return grossFromNet(net, UK_STANDARD_VAT_PERCENT);
-  }, [draft.costPriceNet]);
+  const unitBuyPrice = Number(draft.costPriceNet) || 0;
+  const openingQty = Number(draft.quantityOnHand) || 0;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -174,6 +187,8 @@ export function TyresPageContent() {
     ]).then(([c, a]) => {
       setCustomers(c);
       setAccounts(a);
+      setCreatePayment(emptyStockPaymentDraft(a));
+      setReceivePayment(emptyStockPaymentDraft(a));
     });
   }, [canWrite, loadSuppliers]);
 
@@ -261,6 +276,7 @@ export function TyresPageContent() {
                         setSaleTyre(t);
                         setSaleCustomerId("");
                         setSaleQty("1");
+                        setSalePrice(t.sellPriceNet);
                         setSalePayNow(false);
                         setSaleAccountId(accounts[0]?.id ?? "");
                         setSaleOpen(true);
@@ -273,6 +289,9 @@ export function TyresPageContent() {
                 onClick: () => {
                   setReceiveTarget(t);
                   setReceiveQty("1");
+                  setReceiveBuyPrice(t.costPriceNet);
+                  setReceiveIncludeVat(false);
+                  setReceivePayment(emptyStockPaymentDraft(accounts));
                   setReceiveOpen(true);
                 },
               },
@@ -338,15 +357,33 @@ export function TyresPageContent() {
     setSaving(true);
     setError("");
     try {
+      const isCreate = !draft.id;
+      const qty = Number(draft.quantityOnHand) || 0;
+      const purchaseFromBuyPrice =
+        isCreate && qty > 0
+          ? stockPurchaseApiPayloadFromBuyPrice({
+              unitBuyPrice,
+              includesVat: buyPriceIncludesVat,
+              quantity: qty,
+              supplierId: draft.supplierId,
+              payment: createPayment,
+            })
+          : null;
+
       const payload = {
         size: draft.size.trim(),
         brand: draft.brand.trim() || undefined,
         supplierId: draft.supplierId || undefined,
-        costPriceNet: Number(draft.costPriceNet) || 0,
+        costPriceNet: purchaseFromBuyPrice
+          ? purchaseFromBuyPrice.costPriceNet
+          : Number(draft.costPriceNet) || 0,
         sellPriceNet: Number(draft.sellPriceNet) || 0,
         tradeSellPriceNet: Number(draft.tradeSellPriceNet) || 0,
         minQuantity: Number(draft.minQuantity) || 0,
-        quantityOnHand: Number(draft.quantityOnHand) || 0,
+        quantityOnHand: qty,
+        ...(purchaseFromBuyPrice
+          ? (({ costPriceNet: _c, ...purchase }) => purchase)(purchaseFromBuyPrice)
+          : {}),
       };
 
       if (draft.id) {
@@ -358,6 +395,8 @@ export function TyresPageContent() {
 
       setModalOpen(false);
       setDraft(emptyDraft());
+      setBuyPriceIncludesVat(false);
+      setCreatePayment(emptyStockPaymentDraft(accounts));
       await load();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Save failed");
@@ -371,9 +410,22 @@ export function TyresPageContent() {
     if (!receiveTarget) return;
     setSaving(true);
     try {
+      const qty = Number(receiveQty) || 0;
+      const unitPrice = Number(receiveBuyPrice) || 0;
+      const purchase = stockPurchaseApiPayloadFromBuyPrice({
+        unitBuyPrice: unitPrice,
+        includesVat: receiveIncludeVat,
+        quantity: qty,
+        supplierId: receiveTarget.supplierId ?? "",
+        payment: receivePayment,
+      });
+      const { costPriceNet: _c, ...purchasePayload } = purchase;
       await apiFetch(`/tyres/${receiveTarget.id}/receive`, {
         method: "POST",
-        body: JSON.stringify({ quantity: Number(receiveQty) }),
+        body: JSON.stringify({
+          quantity: qty,
+          ...purchasePayload,
+        }),
       });
       setReceiveOpen(false);
       await load();
@@ -396,6 +448,7 @@ export function TyresPageContent() {
           customerId: saleCustomerId,
           tyreId: saleTyre.id,
           quantity: Number(saleQty),
+          sellPriceNet: Number(salePrice) || undefined,
           paymentAccountId: salePayNow && saleAccountId ? saleAccountId : undefined,
           method: account ? defaultPaymentMethodForAccount(account.type) : undefined,
         }),
@@ -456,6 +509,8 @@ export function TyresPageContent() {
               type="button"
               onClick={() => {
                 setDraft(emptyDraft());
+                setBuyPriceIncludesVat(false);
+                setCreatePayment(emptyStockPaymentDraft(accounts));
                 setModalOpen(true);
               }}
               className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:opacity-90"
@@ -546,31 +601,6 @@ export function TyresPageContent() {
             </p>
           )}
 
-          <FormSection title="Cost">
-            <div>
-              <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Unit cost (ex VAT)</label>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={draft.costPriceNet}
-                onChange={(e) => setDraft((d) => ({ ...d, costPriceNet: e.target.value }))}
-                className={inputClass}
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
-                Unit cost inc VAT ({UK_STANDARD_VAT_PERCENT}%)
-              </label>
-              <input
-                value={costGross != null ? formatGbp(costGross) : ""}
-                readOnly
-                placeholder="—"
-                className={readOnlyClass}
-              />
-            </div>
-          </FormSection>
-
           <FormSection title="Sell">
             <div>
               <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
@@ -626,6 +656,54 @@ export function TyresPageContent() {
               </div>
             )}
           </FormSection>
+
+          {!draft.id && (
+            <TyreStockPurchaseFields
+              unitBuyPrice={draft.costPriceNet}
+              onUnitBuyPriceChange={(value) =>
+                setDraft((d) => ({ ...d, costPriceNet: value }))
+              }
+              includeVat={buyPriceIncludesVat}
+              onIncludeVatChange={setBuyPriceIncludesVat}
+              quantity={openingQty}
+              payment={createPayment}
+              onPaymentChange={setCreatePayment}
+              accounts={accounts}
+            />
+          )}
+
+          {draft.id && (
+            <FormSection title="Cost">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
+                  Unit cost (ex VAT)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={draft.costPriceNet}
+                  onChange={(e) => setDraft((d) => ({ ...d, costPriceNet: e.target.value }))}
+                  className={inputClass}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
+                  Unit cost (inc VAT)
+                </label>
+                <input
+                  value={
+                    unitBuyPrice > 0
+                      ? formatGbp(grossFromNet(unitBuyPrice, UK_STANDARD_VAT_PERCENT))
+                      : ""
+                  }
+                  readOnly
+                  placeholder="—"
+                  className={readOnlyClass}
+                />
+              </div>
+            </FormSection>
+          )}
 
           <div className="flex justify-end gap-2 border-t border-[var(--border)] pt-4">
             <button
@@ -702,25 +780,60 @@ export function TyresPageContent() {
         </Modal>
       )}
 
-      <Modal title="Receive stock" open={receiveOpen} onClose={() => setReceiveOpen(false)}>
-        <form onSubmit={(e) => void confirmReceive(e)} className="space-y-3">
-          <p className="text-sm">{receiveTarget?.displayLabel}</p>
-          <input
-            type="number"
-            min="0.001"
-            step="1"
-            value={receiveQty}
-            onChange={(e) => setReceiveQty(e.target.value)}
-            required
-            className={inputClass}
+      <Modal
+        title={receiveTarget ? `Receive stock — ${receiveTarget.skuCode}` : "Receive stock"}
+        open={receiveOpen}
+        onClose={() => {
+          if (!saving) setReceiveOpen(false);
+        }}
+        size="lg"
+      >
+        <form onSubmit={(e) => void confirmReceive(e)} className="space-y-1">
+          <p className="mb-2 text-sm text-[var(--muted)]">{receiveTarget?.displayLabel}</p>
+
+          <FormSection title="Stock">
+            <div className="sm:col-span-2">
+              <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Quantity</label>
+              <input
+                type="number"
+                min="0.001"
+                step="1"
+                value={receiveQty}
+                onChange={(e) => setReceiveQty(e.target.value)}
+                required
+                className={inputClass}
+              />
+            </div>
+          </FormSection>
+
+          <TyreStockPurchaseFields
+            unitBuyPrice={receiveBuyPrice}
+            onUnitBuyPriceChange={setReceiveBuyPrice}
+            includeVat={receiveIncludeVat}
+            onIncludeVatChange={setReceiveIncludeVat}
+            quantity={Number(receiveQty) || 0}
+            payment={receivePayment}
+            onPaymentChange={setReceivePayment}
+            accounts={accounts}
           />
-          <button
-            type="submit"
-            disabled={saving}
-            className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white"
-          >
-            Receive
-          </button>
+
+          <div className="flex justify-end gap-2 border-t border-[var(--border)] pt-4">
+            <button
+              type="button"
+              disabled={saving}
+              onClick={() => setReceiveOpen(false)}
+              className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={saving}
+              className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+            >
+              {saving ? "Receiving…" : "Receive"}
+            </button>
+          </div>
         </form>
       </Modal>
 
@@ -744,6 +857,19 @@ export function TyresPageContent() {
             required
             className={inputClass}
           />
+          <div>
+            <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
+              Sell price per tyre (ex VAT)
+            </label>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={salePrice}
+              onChange={(e) => setSalePrice(e.target.value)}
+              className={inputClass}
+            />
+          </div>
           <label className="flex items-center gap-2 text-sm">
             <input
               type="checkbox"

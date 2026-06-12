@@ -37,6 +37,7 @@ import {
 } from "./repair-job-invoice-totals";
 import { toInvoiceDto } from "../invoices/invoices.mapper";
 import { PrismaService } from "../prisma/prisma.service";
+import { PartsService } from "../parts/parts.service";
 import { TyresService } from "../tyres/tyres.service";
 import {
   assertWorkshopStaffActor,
@@ -63,6 +64,8 @@ export class RepairJobsService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly customers: CustomersService,
+    @Inject(forwardRef(() => PartsService))
+    private readonly parts: PartsService,
     @Inject(forwardRef(() => TyresService))
     private readonly tyres: TyresService,
   ) {}
@@ -764,6 +767,25 @@ export class RepairJobsService {
 
     if (!row) throw new NotFoundException("Repair job not found");
 
+    if (
+      dto.status === RepairJobStatus.COMPLETED &&
+      existing.status !== RepairJobStatus.COMPLETED
+    ) {
+      await this.parts.postPendingJobExpensesOnRepairComplete(user, id);
+    }
+
+    if (
+      dto.status === RepairJobStatus.CANCELLED &&
+      existing.status !== RepairJobStatus.CANCELLED
+    ) {
+      if (user.enabledModules.includes("parts")) {
+        await this.parts.returnUsagesForJob(user, id);
+      }
+      if (user.enabledModules.includes("tyres")) {
+        await this.tyres.returnUsagesForJob(user, id);
+      }
+    }
+
     await this.audit.log({
       action: sendBackToWorkshop ? "repair.job.qc.reject" : "repair.job.status",
       userId: user.id,
@@ -864,6 +886,19 @@ export class RepairJobsService {
     });
 
     if (dto.tyre) {
+      const existingTyreTask = await this.prisma.jobTyreUsage.findFirst({
+        where: {
+          repairJobId: jobId,
+          garageAccountId,
+          status: JobTyreUsageStatus.CONSUMED,
+          repairTaskId: { not: null },
+        },
+      });
+      if (existingTyreTask) {
+        throw new BadRequestException(
+          "This job already has a tyre task — edit that task or remove it before adding another",
+        );
+      }
       const sellPriceNet = await this.resolveTyreSellPriceForTask(garageAccountId, dto.tyre);
       await this.tyres.consumeForRepairTask(user, jobId, row.id, {
         tyreId: dto.tyre.tyreId,
@@ -897,6 +932,20 @@ export class RepairJobsService {
       return this.updateTaskAsMechanic(user, job, existing, dto);
     }
 
+    if (dto.tyre) {
+      if (!user.enabledModules.includes("tyres")) {
+        throw new BadRequestException("Tyres module is not enabled");
+      }
+      const existingTyres = await this.prisma.jobTyreUsage.count({
+        where: { repairTaskId: taskId, status: JobTyreUsageStatus.CONSUMED },
+      });
+      if (existingTyres > 0) {
+        throw new BadRequestException(
+          "This task already has tyres fitted — cancel the task to change tyres",
+        );
+      }
+    }
+
     let assigneeId = existing.assigneeId;
     if (dto.assigneeId !== undefined) {
       if (dto.assigneeId) {
@@ -909,8 +958,10 @@ export class RepairJobsService {
     let status = dto.status ?? existing.status;
     status = this.taskStatusForAssignee(assigneeId, status);
 
-    const useBreakdown = dto.useBreakdown ?? existing.useBreakdown;
+    const hasTyre = Boolean(dto.tyre);
+    const useBreakdown = hasTyre ? false : (dto.useBreakdown ?? existing.useBreakdown);
     const pricingTouched =
+      hasTyre ||
       dto.amountNet !== undefined ||
       dto.useBreakdown !== undefined ||
       dto.labourHours !== undefined ||
@@ -945,17 +996,19 @@ export class RepairJobsService {
         }
       }
 
-      amountNet = this.computeTaskAmountNet({
-        useBreakdown,
-        amountNet: dto.amountNet ?? Number(existing.amountNet),
-        labourHours:
-          dto.labourHours !== undefined ? dto.labourHours : Number(existing.labourHours),
-        labourRateNet:
-          dto.labourRateNet !== undefined
-            ? dto.labourRateNet
-            : Number(existing.labourRateNet),
-        parts,
-      });
+      amountNet = hasTyre
+        ? roundMoney(0)
+        : this.computeTaskAmountNet({
+            useBreakdown,
+            amountNet: dto.amountNet ?? Number(existing.amountNet),
+            labourHours:
+              dto.labourHours !== undefined ? dto.labourHours : Number(existing.labourHours),
+            labourRateNet:
+              dto.labourRateNet !== undefined
+                ? dto.labourRateNet
+                : Number(existing.labourRateNet),
+            parts,
+          });
     }
 
     await this.prisma.$transaction(async (tx) => {
@@ -988,12 +1041,22 @@ export class RepairJobsService {
       await this.syncJobStatusAfterTasks(jobId, tx);
     });
 
-    if (
-      status === RepairTaskStatus.CANCELLED &&
-      existing.status !== RepairTaskStatus.CANCELLED &&
-      user.enabledModules.includes("tyres")
-    ) {
-      await this.tyres.returnUsagesForTask(user, jobId, taskId);
+    if (status === RepairTaskStatus.CANCELLED && existing.status !== RepairTaskStatus.CANCELLED) {
+      if (user.enabledModules.includes("parts")) {
+        await this.parts.returnUsagesForTask(user, jobId, taskId);
+      }
+      if (user.enabledModules.includes("tyres")) {
+        await this.tyres.returnUsagesForTask(user, jobId, taskId);
+      }
+    }
+
+    if (dto.tyre) {
+      const sellPriceNet = await this.resolveTyreSellPriceForTask(garageAccountId, dto.tyre);
+      await this.tyres.consumeForRepairTask(user, jobId, taskId, {
+        tyreId: dto.tyre.tyreId,
+        quantity: dto.tyre.quantity,
+        sellPriceNet,
+      });
     }
 
     await this.audit.log({
@@ -1002,7 +1065,7 @@ export class RepairJobsService {
       garageAccountId,
       entityType: "repair_task",
       entityId: taskId,
-      metadata: { repairJobId: jobId },
+      metadata: { repairJobId: jobId, ...(dto.tyre ? { tyreAdded: true } : {}) },
     });
 
     return this.getOne(user, jobId);
@@ -1029,6 +1092,7 @@ export class RepairJobsService {
       "labourHours",
       "labourRateNet",
       "parts",
+      "tyre",
     ];
     if (restrictedFields.some((field) => dto[field] !== undefined)) {
       throw new ForbiddenException("Mechanics cannot edit task pricing or descriptions");
@@ -1161,6 +1225,9 @@ export class RepairJobsService {
     });
     if (!existing) throw new NotFoundException("Task not found");
 
+    if (user.enabledModules.includes("parts")) {
+      await this.parts.returnUsagesForTask(user, jobId, taskId);
+    }
     if (user.enabledModules.includes("tyres")) {
       await this.tyres.returnUsagesForTask(user, jobId, taskId);
     }

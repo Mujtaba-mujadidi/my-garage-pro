@@ -1,5 +1,5 @@
 import { IsEnum, IsNumber, IsOptional, IsString, IsUUID, MaxLength, MinLength } from "class-validator";
-import { LedgerEntryDirection } from "@prisma/client";
+import { LedgerEntryDirection, PaymentMethod } from "@prisma/client";
 
 export class CreateLedgerEntryDto {
   @IsEnum(LedgerEntryDirection)
@@ -32,4 +32,8 @@ export class CreateLedgerEntryDto {
   @IsString()
   @MaxLength(2000)
   notes?: string;
+
+  @IsOptional()
+  @IsEnum(PaymentMethod)
+  paymentMethod?: PaymentMethod;
 }

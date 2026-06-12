@@ -1,55 +1,20 @@
 "use client";
 
+import {
+  SupplierForm,
+  emptyDraftSupplier,
+  toDraftSupplier,
+} from "@/components/suppliers/supplier-form";
 import { ModuleGate } from "@/components/layout/module-gate";
 import { useSession } from "@/components/providers/session-provider";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Modal } from "@/components/ui/modal";
 import { SearchableTable, type TableColumn } from "@/components/ui/searchable-table";
+import { TableRowActionsMenu } from "@/components/ui/table-row-actions-menu";
 import { apiFetch, ApiError } from "@/lib/api-client";
 import type { SupplierDto } from "@mygaragepro/shared";
+import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-
-type DraftSupplier = {
-  id?: string;
-  name: string;
-  email: string;
-  phone: string;
-  addressLine1: string;
-  addressLine2: string;
-  city: string;
-  postcode: string;
-  vatNumber: string;
-  notes: string;
-};
-
-function toDraft(s: SupplierDto): DraftSupplier {
-  return {
-    id: s.id,
-    name: s.name ?? "",
-    email: s.email ?? "",
-    phone: s.phone ?? "",
-    addressLine1: s.addressLine1 ?? "",
-    addressLine2: s.addressLine2 ?? "",
-    city: s.city ?? "",
-    postcode: s.postcode ?? "",
-    vatNumber: s.vatNumber ?? "",
-    notes: s.notes ?? "",
-  };
-}
-
-function emptyDraft(): DraftSupplier {
-  return {
-    name: "",
-    email: "",
-    phone: "",
-    addressLine1: "",
-    addressLine2: "",
-    city: "",
-    postcode: "",
-    vatNumber: "",
-    notes: "",
-  };
-}
 
 export default function SuppliersPage() {
   const { hasPermission } = useSession();
@@ -61,7 +26,7 @@ export default function SuppliersPage() {
   const [includeInactive, setIncludeInactive] = useState(false);
 
   const [modalOpen, setModalOpen] = useState(false);
-  const [draft, setDraft] = useState<DraftSupplier>(emptyDraft());
+  const [draft, setDraft] = useState(emptyDraftSupplier());
   const [saving, setSaving] = useState(false);
 
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -93,7 +58,9 @@ export default function SuppliersPage() {
         searchText: (s) => s.name,
         cell: (s) => (
           <div className="flex items-center gap-2">
-            <span className="font-medium text-[var(--foreground)]">{s.name}</span>
+            <Link href={`/suppliers/${s.id}`} className="font-medium text-accent hover:underline">
+              {s.name}
+            </Link>
             {s.status === "INACTIVE" && (
               <span className="rounded-full bg-[var(--background)] px-2 py-0.5 text-[10px] text-[var(--muted)]">
                 Inactive
@@ -115,9 +82,18 @@ export default function SuppliersPage() {
       },
       {
         id: "vat",
-        header: "VAT",
+        header: "VAT no.",
         searchText: (s) => s.vatNumber ?? "",
         cell: (s) => s.vatNumber ?? "—",
+      },
+      {
+        id: "credit",
+        header: "Credit",
+        cell: (s) => (
+          <span className="tabular-nums font-medium">
+            £{Number(s.creditBalance).toFixed(2)}
+          </span>
+        ),
       },
     ];
 
@@ -127,28 +103,27 @@ export default function SuppliersPage() {
         header: "Actions",
         align: "right",
         cell: (s) => (
-          <div className="flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                setDraft(toDraft(s));
-                setModalOpen(true);
-              }}
-              className="rounded-lg border border-[var(--border)] px-3 py-1 text-xs font-medium hover:bg-[var(--background)]"
-            >
-              Edit
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setConfirmTarget(s);
-                setConfirmOpen(true);
-              }}
-              className="rounded-lg border border-[var(--border)] px-3 py-1 text-xs font-medium hover:bg-[var(--background)]"
-            >
-              {s.status === "INACTIVE" ? "Activate" : "Deactivate"}
-            </button>
-          </div>
+          <TableRowActionsMenu
+            triggerLabel={`Actions for ${s.name}`}
+            actions={[
+              { label: "View", href: `/suppliers/${s.id}` },
+              {
+                label: "Edit",
+                onClick: () => {
+                  setDraft(toDraftSupplier(s));
+                  setModalOpen(true);
+                },
+              },
+              {
+                label: s.status === "INACTIVE" ? "Activate" : "Deactivate",
+                variant: s.status === "INACTIVE" ? "default" : "danger",
+                onClick: () => {
+                  setConfirmTarget(s);
+                  setConfirmOpen(true);
+                },
+              },
+            ]}
+          />
         ),
       });
     }
@@ -180,7 +155,7 @@ export default function SuppliersPage() {
       }
 
       setModalOpen(false);
-      setDraft(emptyDraft());
+      setDraft(emptyDraftSupplier());
       await load();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Save failed");
@@ -235,7 +210,7 @@ export default function SuppliersPage() {
             <button
               type="button"
               onClick={() => {
-                setDraft(emptyDraft());
+                setDraft(emptyDraftSupplier());
                 setModalOpen(true);
               }}
               className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:opacity-90"
@@ -270,110 +245,13 @@ export default function SuppliersPage() {
         }}
         size="lg"
       >
-        <form onSubmit={saveSupplier} className="space-y-4">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="sm:col-span-2">
-              <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Supplier name</label>
-              <input
-                value={draft.name}
-                onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
-                className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
-                placeholder="e.g. Euro Car Parts"
-                required
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Email</label>
-              <input
-                value={draft.email}
-                onChange={(e) => setDraft((d) => ({ ...d, email: e.target.value }))}
-                className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
-                placeholder="accounts@supplier.com"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Phone</label>
-              <input
-                value={draft.phone}
-                onChange={(e) => setDraft((d) => ({ ...d, phone: e.target.value }))}
-                className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
-                placeholder="020 7946 0123"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-[var(--muted)]">VAT number</label>
-              <input
-                value={draft.vatNumber}
-                onChange={(e) => setDraft((d) => ({ ...d, vatNumber: e.target.value }))}
-                className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
-                placeholder="GB123456789"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Postcode</label>
-              <input
-                value={draft.postcode}
-                onChange={(e) => setDraft((d) => ({ ...d, postcode: e.target.value }))}
-                className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
-                placeholder="SW1A 1AA"
-              />
-            </div>
-            <div className="sm:col-span-2">
-              <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Address line 1</label>
-              <input
-                value={draft.addressLine1}
-                onChange={(e) => setDraft((d) => ({ ...d, addressLine1: e.target.value }))}
-                className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
-                placeholder="1 Supplier Street"
-              />
-            </div>
-            <div className="sm:col-span-2">
-              <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Address line 2</label>
-              <input
-                value={draft.addressLine2}
-                onChange={(e) => setDraft((d) => ({ ...d, addressLine2: e.target.value }))}
-                className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
-                placeholder="Optional"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-[var(--muted)]">City</label>
-              <input
-                value={draft.city}
-                onChange={(e) => setDraft((d) => ({ ...d, city: e.target.value }))}
-                className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
-                placeholder="London"
-              />
-            </div>
-            <div className="sm:col-span-2">
-              <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Notes</label>
-              <textarea
-                value={draft.notes}
-                onChange={(e) => setDraft((d) => ({ ...d, notes: e.target.value }))}
-                className="min-h-[90px] w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
-                placeholder="Account number, preferred contact, delivery instructions…"
-              />
-            </div>
-          </div>
-
-          <div className="flex flex-wrap justify-end gap-2 pt-1">
-            <button
-              type="button"
-              disabled={saving}
-              onClick={() => setModalOpen(false)}
-              className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm font-medium hover:bg-[var(--background)] disabled:opacity-50"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={saving}
-              className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50"
-            >
-              {saving ? "Saving…" : "Save"}
-            </button>
-          </div>
-        </form>
+        <SupplierForm
+          draft={draft}
+          setDraft={setDraft}
+          onSubmit={saveSupplier}
+          saving={saving}
+          onCancel={() => setModalOpen(false)}
+        />
       </Modal>
 
       <ConfirmDialog
@@ -399,4 +277,3 @@ export default function SuppliersPage() {
     </ModuleGate>
   );
 }
-

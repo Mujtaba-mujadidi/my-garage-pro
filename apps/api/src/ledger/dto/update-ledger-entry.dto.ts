@@ -1,4 +1,5 @@
-import { IsNumber, IsOptional, IsString, IsUUID, MaxLength } from "class-validator";
+import { PaymentMethod } from "@prisma/client";
+import { IsEnum, IsNumber, IsOptional, IsString, IsUUID, MaxLength } from "class-validator";
 
 export class UpdateLedgerEntryDto {
   @IsOptional()
@@ -30,4 +31,8 @@ export class UpdateLedgerEntryDto {
   @IsString()
   @MaxLength(2000)
   notes?: string;
+
+  @IsOptional()
+  @IsEnum(PaymentMethod)
+  paymentMethod?: PaymentMethod;
 }

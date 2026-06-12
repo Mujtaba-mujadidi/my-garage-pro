@@ -174,7 +174,9 @@ export function toRepairJobDto(row: JobRow, opts: RepairMapOptions = {}): Repair
     stockParts:
       opts.viewMode === "work" || !row.partUsages?.length
         ? undefined
-        : row.partUsages.map(toJobPartUsageDto),
+        : row.partUsages
+            .filter((u) => u.status !== "CANCELLED")
+            .map(toJobPartUsageDto),
     stockTyres:
       opts.viewMode === "work" || !row.tyreUsages?.length
         ? undefined

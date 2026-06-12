@@ -43,6 +43,17 @@ enum SupplierStatus {
   INACTIVE
 }
 
+enum SupplierRefundType {
+  CREDIT
+  PAYMENT
+}
+
+enum SupplierCreditTransactionType {
+  REFUND_CREDIT
+  APPLIED_PAYMENT
+  ADJUSTMENT
+}
+
 enum PaymentAccountType {
   BANK
   CASH
@@ -84,14 +95,22 @@ enum PartFitmentType {
 
 enum PartMovementType {
   RECEIPT
+  SALE
   CONSUMPTION
   RETURN
   ADJUSTMENT
 }
 
 enum JobPartUsageStatus {
+  ORDERED
   CONSUMED
   RETURNED
+  CANCELLED
+}
+
+enum JobPartSource {
+  STOCK
+  ORDERED
 }
 
 enum TyreStatus {
@@ -244,7 +263,8 @@ model GarageAccount {
   jobPartUsages    JobPartUsage[]
   tyres            Tyre[]
   tyreMovements    TyreMovement[]
-  jobTyreUsages    JobTyreUsage[]
+  jobTyreUsages            JobTyreUsage[]
+  supplierCreditTransactions SupplierCreditTransaction[]
 
   @@map("garage_account")
 }
@@ -290,7 +310,8 @@ model User {
   partMovementsCreated PartMovement[] @relation("PartMovementCreatedBy")
   jobPartUsagesCreated JobPartUsage[] @relation("JobPartUsageCreatedBy")
   tyreMovementsCreated TyreMovement[] @relation("TyreMovementCreatedBy")
-  jobTyreUsagesCreated JobTyreUsage[] @relation("JobTyreUsageCreatedBy")
+  jobTyreUsagesCreated       JobTyreUsage[]              @relation("JobTyreUsageCreatedBy")
+  supplierCreditsCreated     SupplierCreditTransaction[] @relation("SupplierCreditCreatedBy")
 
   @@map("users")
 }
@@ -414,20 +435,47 @@ model Supplier {
   postcode        String?
   vatNumber       String?        @map("vat_number")
   notes           String?
+  creditBalance   Decimal        @default(0) @map("credit_balance") @db.Decimal(14, 2)
   status          SupplierStatus @default(ACTIVE)
   createdAt       DateTime       @default(now()) @map("created_at")
   updatedAt       DateTime       @updatedAt @map("updated_at")
   deletedAt       DateTime?      @map("deleted_at")
   deletedBy       String?        @map("deleted_by") @db.Uuid
 
-  garageAccount GarageAccount @relation(fields: [garageAccountId], references: [id], onDelete: Cascade)
-  parts         Part[]
-  tyres         Tyre[]
+  garageAccount        GarageAccount              @relation(fields: [garageAccountId], references: [id], onDelete: Cascade)
+  parts                Part[]
+  tyres                Tyre[]
+  jobPartUsages        JobPartUsage[]
+  creditTransactions   SupplierCreditTransaction[]
 
   @@index([garageAccountId, name])
   @@index([garageAccountId, status])
   @@index([garageAccountId, deletedAt])
   @@map("supplier")
+}
+
+model SupplierCreditTransaction {
+  id              String                        @id @default(uuid()) @db.Uuid
+  garageAccountId String                        @map("garage_account_id") @db.Uuid
+  supplierId      String                        @map("supplier_id") @db.Uuid
+  type            SupplierCreditTransactionType
+  amount          Decimal                       @db.Decimal(14, 2)
+  balanceAfter    Decimal                       @map("balance_after") @db.Decimal(14, 2)
+  jobPartUsageId  String?                       @map("job_part_usage_id") @db.Uuid
+  ledgerEntryId   String?                       @map("ledger_entry_id") @db.Uuid
+  notes           String?
+  createdById     String                        @map("created_by_id") @db.Uuid
+  createdAt       DateTime                      @default(now()) @map("created_at")
+
+  garageAccount GarageAccount @relation(fields: [garageAccountId], references: [id], onDelete: Cascade)
+  supplier      Supplier      @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  jobPartUsage  JobPartUsage? @relation(fields: [jobPartUsageId], references: [id], onDelete: SetNull)
+  ledgerEntry   LedgerEntry?  @relation(fields: [ledgerEntryId], references: [id], onDelete: SetNull)
+  createdBy     User          @relation("SupplierCreditCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([supplierId, createdAt])
+  @@index([garageAccountId])
+  @@map("supplier_credit_transaction")
 }
 
 model PaymentAccount {
@@ -443,9 +491,10 @@ model PaymentAccount {
   deletedAt       DateTime?          @map("deleted_at")
   deletedBy       String?            @map("deleted_by") @db.Uuid
 
-  garageAccount     GarageAccount     @relation(fields: [garageAccountId], references: [id], onDelete: Cascade)
-  ledgerEntries     LedgerEntry[]
-  customerPayments  CustomerPayment[]
+  garageAccount        GarageAccount  @relation(fields: [garageAccountId], references: [id], onDelete: Cascade)
+  ledgerEntries        LedgerEntry[]
+  customerPayments     CustomerPayment[]
+  jobPartReturnPayments JobPartUsage[] @relation("JobPartReturnPaymentAccount")
 
   @@index([garageAccountId, deletedAt])
   @@map("payment_account")
@@ -486,9 +535,19 @@ model LedgerEntry {
   repairJob         RepairJob?         @relation(fields: [repairJobId], references: [id], onDelete: SetNull)
   bodyworkJobId     String?            @map("bodywork_job_id") @db.Uuid
   bodyworkJob       BodyworkJob?       @relation(fields: [bodyworkJobId], references: [id], onDelete: SetNull)
+  jobPartUsageId    String?            @unique @map("job_part_usage_id") @db.Uuid
+  jobPartUsage      JobPartUsage?      @relation(fields: [jobPartUsageId], references: [id], onDelete: SetNull)
+  jobTyreUsageId    String?            @unique @map("job_tyre_usage_id") @db.Uuid
+  jobTyreUsage      JobTyreUsage?      @relation(fields: [jobTyreUsageId], references: [id], onDelete: SetNull)
+  partMovementId    String?            @unique @map("part_movement_id") @db.Uuid
+  partMovement      PartMovement?      @relation(fields: [partMovementId], references: [id], onDelete: SetNull)
+  tyreMovementId    String?            @unique @map("tyre_movement_id") @db.Uuid
+  tyreMovement      TyreMovement?      @relation(fields: [tyreMovementId], references: [id], onDelete: SetNull)
+  paymentMethod     PaymentMethod?     @map("payment_method")
   createdBy         User               @relation("LedgerEntryCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
-  reversesEntry   LedgerEntry?   @relation("LedgerReversal", fields: [reversesEntryId], references: [id], onDelete: SetNull)
-  reversedBy      LedgerEntry?   @relation("LedgerReversal")
+  reversesEntry            LedgerEntry?                @relation("LedgerReversal", fields: [reversesEntryId], references: [id], onDelete: SetNull)
+  reversedBy               LedgerEntry?                @relation("LedgerReversal")
+  supplierCreditTransactions SupplierCreditTransaction[]
 
   @@index([garageAccountId, status])
   @@index([garageAccountId, valueDate])
@@ -556,6 +615,7 @@ model Invoice {
   bodyworkJob   BodyworkJob?         @relation(fields: [bodyworkJobId], references: [id], onDelete: SetNull)
   lines         InvoiceLine[]
   allocations   PaymentAllocation[]
+  partMovements PartMovement[]
   tyreMovements TyreMovement[]
 
   @@unique([garageAccountId, invoiceNumber])
@@ -730,6 +790,8 @@ model BodyworkJob {
   tasks         BodyworkTask[]
   invoice       Invoice?
   ledgerEntries LedgerEntry[]
+  partUsages    JobPartUsage[]
+  partMovements PartMovement[]
 
   @@unique([garageAccountId, jobNumber])
   @@index([garageAccountId, status])
@@ -756,6 +818,7 @@ model BodyworkTask {
   bodyworkJob BodyworkJob        @relation(fields: [bodyworkJobId], references: [id], onDelete: Cascade)
   assignee    User?              @relation("BodyworkTaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
   parts       BodyworkTaskPart[]
+  stockParts  JobPartUsage[]
 
   @@index([bodyworkJobId])
   @@index([assigneeId])
@@ -837,7 +900,9 @@ model PartMovement {
   quantityBefore  Decimal          @map("quantity_before") @db.Decimal(12, 3)
   quantityAfter   Decimal          @map("quantity_after") @db.Decimal(12, 3)
   repairJobId     String?          @map("repair_job_id") @db.Uuid
+  bodyworkJobId   String?          @map("bodywork_job_id") @db.Uuid
   jobPartUsageId  String?          @map("job_part_usage_id") @db.Uuid
+  invoiceId       String?          @map("invoice_id") @db.Uuid
   notes           String?
   createdById     String           @map("created_by_id") @db.Uuid
   createdAt       DateTime         @default(now()) @map("created_at")
@@ -845,40 +910,62 @@ model PartMovement {
   garageAccount GarageAccount @relation(fields: [garageAccountId], references: [id], onDelete: Cascade)
   part          Part          @relation(fields: [partId], references: [id], onDelete: Cascade)
   repairJob     RepairJob?    @relation(fields: [repairJobId], references: [id], onDelete: SetNull)
+  bodyworkJob   BodyworkJob?  @relation(fields: [bodyworkJobId], references: [id], onDelete: SetNull)
   jobPartUsage  JobPartUsage? @relation(fields: [jobPartUsageId], references: [id], onDelete: SetNull)
+  invoice       Invoice?      @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
   createdBy     User          @relation("PartMovementCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  ledgerEntry   LedgerEntry?
 
   @@index([partId])
   @@index([garageAccountId, createdAt])
   @@index([repairJobId])
+  @@index([bodyworkJobId])
   @@map("part_movement")
 }
 
 model JobPartUsage {
   id              String             @id @default(uuid()) @db.Uuid
   garageAccountId String             @map("garage_account_id") @db.Uuid
-  repairJobId     String             @map("repair_job_id") @db.Uuid
+  repairJobId     String?            @map("repair_job_id") @db.Uuid
+  bodyworkJobId   String?            @map("bodywork_job_id") @db.Uuid
   repairTaskId    String?            @map("repair_task_id") @db.Uuid
+  bodyworkTaskId  String?            @map("bodywork_task_id") @db.Uuid
   partId          String             @map("part_id") @db.Uuid
-  quantity        Decimal            @db.Decimal(12, 3)
-  costPriceNet    Decimal            @map("cost_price_net") @db.Decimal(14, 2)
-  sellPriceNet    Decimal            @map("sell_price_net") @db.Decimal(14, 2)
-  status          JobPartUsageStatus @default(CONSUMED)
-  invoiceLineId   String?            @unique @map("invoice_line_id") @db.Uuid
-  consumedAt      DateTime           @default(now()) @map("consumed_at")
-  returnedAt      DateTime?          @map("returned_at")
-  createdById     String             @map("created_by_id") @db.Uuid
-  createdAt       DateTime           @default(now()) @map("created_at")
-  updatedAt       DateTime           @updatedAt @map("updated_at")
+  quantity                 Decimal             @db.Decimal(12, 3)
+  costPriceNet             Decimal             @map("cost_price_net") @db.Decimal(14, 2)
+  costVatAmount            Decimal             @default(0) @map("cost_vat_amount") @db.Decimal(14, 2)
+  costAmountGross          Decimal             @default(0) @map("cost_amount_gross") @db.Decimal(14, 2)
+  sellPriceNet             Decimal             @map("sell_price_net") @db.Decimal(14, 2)
+  source                   JobPartSource       @default(STOCK)
+  supplierId               String?             @map("supplier_id") @db.Uuid
+  supplierRef              String?             @map("supplier_ref")
+  status                   JobPartUsageStatus  @default(CONSUMED)
+  returnRefundType         SupplierRefundType? @map("return_refund_type")
+  returnPaymentMethod      PaymentMethod?      @map("return_payment_method")
+  returnPaymentAccountId   String?             @map("return_payment_account_id") @db.Uuid
+  returnNotes              String?             @map("return_notes")
+  invoiceLineId            String?             @unique @map("invoice_line_id") @db.Uuid
+  consumedAt               DateTime            @default(now()) @map("consumed_at")
+  returnedAt               DateTime?           @map("returned_at")
+  createdById              String              @map("created_by_id") @db.Uuid
+  createdAt                DateTime            @default(now()) @map("created_at")
+  updatedAt                DateTime            @updatedAt @map("updated_at")
 
-  garageAccount GarageAccount @relation(fields: [garageAccountId], references: [id], onDelete: Cascade)
-  repairJob     RepairJob     @relation(fields: [repairJobId], references: [id], onDelete: Cascade)
-  repairTask    RepairTask?   @relation(fields: [repairTaskId], references: [id], onDelete: SetNull)
-  part          Part          @relation(fields: [partId], references: [id], onDelete: Restrict)
-  createdBy     User          @relation("JobPartUsageCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
-  movements     PartMovement[]
+  garageAccount          GarageAccount               @relation(fields: [garageAccountId], references: [id], onDelete: Cascade)
+  repairJob              RepairJob?                  @relation(fields: [repairJobId], references: [id], onDelete: Cascade)
+  bodyworkJob            BodyworkJob?                @relation(fields: [bodyworkJobId], references: [id], onDelete: Cascade)
+  repairTask             RepairTask?                 @relation(fields: [repairTaskId], references: [id], onDelete: SetNull)
+  bodyworkTask           BodyworkTask?               @relation(fields: [bodyworkTaskId], references: [id], onDelete: SetNull)
+  part                   Part                        @relation(fields: [partId], references: [id], onDelete: Restrict)
+  supplier               Supplier?                   @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  returnPaymentAccount   PaymentAccount?             @relation("JobPartReturnPaymentAccount", fields: [returnPaymentAccountId], references: [id], onDelete: SetNull)
+  createdBy              User                        @relation("JobPartUsageCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  movements              PartMovement[]
+  ledgerEntry            LedgerEntry?
+  creditTransactions     SupplierCreditTransaction[]
 
   @@index([repairJobId])
+  @@index([bodyworkJobId])
   @@index([partId])
   @@index([garageAccountId, status])
   @@map("job_part_usage")
@@ -940,6 +1027,7 @@ model TyreMovement {
   jobTyreUsage  JobTyreUsage? @relation(fields: [jobTyreUsageId], references: [id], onDelete: SetNull)
   invoice       Invoice?      @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
   createdBy     User          @relation("TyreMovementCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  ledgerEntry   LedgerEntry?
 
   @@index([tyreId])
   @@index([garageAccountId, createdAt])
@@ -971,6 +1059,7 @@ model JobTyreUsage {
   tyre          Tyre          @relation(fields: [tyreId], references: [id], onDelete: Restrict)
   createdBy     User          @relation("JobTyreUsageCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
   movements     TyreMovement[]
+  ledgerEntry   LedgerEntry?
 
   @@index([repairJobId])
   @@index([tyreId])

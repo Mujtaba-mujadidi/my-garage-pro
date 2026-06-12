@@ -5,12 +5,16 @@ import type { RequestUser } from "../auth/auth.types";
 import { PermissionsGuard } from "../auth/guards/permissions.guard";
 import { CreateSupplierDto } from "./dto/create-supplier.dto";
 import { UpdateSupplierDto } from "./dto/update-supplier.dto";
+import { SupplierCreditService } from "./supplier-credit.service";
 import { SuppliersService } from "./suppliers.service";
 
 @Controller("suppliers")
 @UseGuards(PermissionsGuard)
 export class SuppliersController {
-  constructor(private readonly suppliers: SuppliersService) {}
+  constructor(
+    private readonly suppliers: SuppliersService,
+    private readonly supplierCredit: SupplierCreditService,
+  ) {}
 
   @Get()
   @RequirePermissions("suppliers.read")
@@ -26,6 +30,24 @@ export class SuppliersController {
   @RequirePermissions("suppliers.read")
   getOne(@CurrentUser() user: RequestUser, @Param("id") id: string) {
     return this.suppliers.getOne(user, id);
+  }
+
+  @Get(":id/credit-transactions")
+  @RequirePermissions("suppliers.read")
+  listCreditTransactions(@CurrentUser() user: RequestUser, @Param("id") id: string) {
+    return this.supplierCredit.listTransactions(user, id);
+  }
+
+  @Get(":id/part-orders")
+  @RequirePermissions("suppliers.read")
+  listPartOrders(@CurrentUser() user: RequestUser, @Param("id") id: string) {
+    return this.suppliers.listPartOrders(user, id);
+  }
+
+  @Get(":id/purchases")
+  @RequirePermissions("suppliers.read")
+  listPurchases(@CurrentUser() user: RequestUser, @Param("id") id: string) {
+    return this.suppliers.listPurchases(user, id);
   }
 
   @Post()

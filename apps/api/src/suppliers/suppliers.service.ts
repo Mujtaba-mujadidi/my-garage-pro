@@ -1,8 +1,18 @@
 import { ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
-import { Prisma, SupplierStatus } from "@prisma/client";
+import {
+  JobPartUsageStatus,
+  LedgerEntryDirection,
+  LedgerEntryStatus,
+  Prisma,
+  SupplierStatus,
+} from "@prisma/client";
 import { AuditService } from "../audit/audit.service";
 import type { RequestUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
+import {
+  toSupplierPartOrderDto,
+  toSupplierPurchaseDto,
+} from "./supplier-activity.mapper";
 import { toSupplierDto } from "./suppliers.mapper";
 import { CreateSupplierDto } from "./dto/create-supplier.dto";
 import { UpdateSupplierDto } from "./dto/update-supplier.dto";
@@ -50,13 +60,66 @@ export class SuppliersService {
     return rows.map(toSupplierDto);
   }
 
-  async getOne(user: RequestUser, id: string) {
-    const garageAccountId = this.garageId(user);
+  private async assertSupplier(garageAccountId: string, id: string) {
     const row = await this.prisma.supplier.findFirst({
       where: { id, garageAccountId, deletedAt: null },
     });
     if (!row) throw new NotFoundException();
+    return row;
+  }
+
+  async getOne(user: RequestUser, id: string) {
+    const garageAccountId = this.garageId(user);
+    const row = await this.assertSupplier(garageAccountId, id);
     return toSupplierDto(row);
+  }
+
+  async listPartOrders(user: RequestUser, id: string) {
+    const garageAccountId = this.garageId(user);
+    await this.assertSupplier(garageAccountId, id);
+
+    const rows = await this.prisma.jobPartUsage.findMany({
+      where: {
+        garageAccountId,
+        supplierId: id,
+        status: { not: JobPartUsageStatus.CANCELLED },
+      },
+      include: {
+        part: { select: { partNumber: true, description: true } },
+        repairJob: { select: { id: true, jobNumber: true } },
+        bodyworkJob: { select: { id: true, jobNumber: true } },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 100,
+    });
+
+    return rows.map(toSupplierPartOrderDto);
+  }
+
+  async listPurchases(user: RequestUser, id: string) {
+    const garageAccountId = this.garageId(user);
+    await this.assertSupplier(garageAccountId, id);
+
+    const rows = await this.prisma.ledgerEntry.findMany({
+      where: {
+        garageAccountId,
+        supplierId: id,
+        direction: LedgerEntryDirection.EXPENSE,
+        status: { not: LedgerEntryStatus.VOID },
+      },
+      include: {
+        jobPartUsage: {
+          select: {
+            repairJob: { select: { id: true, jobNumber: true } },
+            bodyworkJob: { select: { id: true, jobNumber: true } },
+          },
+        },
+      },
+      orderBy: [{ valueDate: "desc" }, { createdAt: "desc" }],
+      take: 100,
+    });
+
+    return rows.map(toSupplierPurchaseDto);
   }
 
   async create(user: RequestUser, dto: CreateSupplierDto) {

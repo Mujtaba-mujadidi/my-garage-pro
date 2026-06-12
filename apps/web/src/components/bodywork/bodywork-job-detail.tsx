@@ -6,12 +6,19 @@ import { Modal } from "@/components/ui/modal";
 import { Select } from "@/components/ui/select";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { TableRowActionsMenu } from "@/components/ui/table-row-actions-menu";
+import {
+  StockPurchaseFields,
+  emptyStockPurchaseDraft,
+  stockPurchaseApiPayload,
+  type StockPurchaseDraft,
+} from "@/components/finance/stock-purchase-fields";
 import { apiFetch, ApiError, downloadAuthenticatedPdf } from "@/lib/api-client";
 import type {
   InvoiceDto,
   InvoiceStatus,
   JobPartUsageDto,
   PartDto,
+  SupplierDto,
   PaymentAccountDto,
   PaymentMethod,
   BodyworkAssigneeDto,
@@ -252,7 +259,13 @@ export function BodyworkJobDetail({ jobId }: Props) {
   const [payReference, setPayReference] = useState("");
   const [stockPartsCatalog, setStockPartsCatalog] = useState<PartDto[]>([]);
   const [consumeModal, setConsumeModal] = useState(false);
+  const [consumePartMode, setConsumePartMode] = useState<"stock" | "order">("stock");
   const [consumePartId, setConsumePartId] = useState("");
+  const [consumeSellPrice, setConsumeSellPrice] = useState("");
+  const [orderPurchase, setOrderPurchase] = useState<StockPurchaseDraft>(
+    emptyStockPurchaseDraft([]),
+  );
+  const [partSuppliers, setPartSuppliers] = useState<SupplierDto[]>([]);
   const [consumeQty, setConsumeQty] = useState("1");
   const [consumeTaskId, setConsumeTaskId] = useState("");
   const [usageToReturn, setUsageToReturn] = useState<JobPartUsageDto | null>(null);
@@ -277,15 +290,21 @@ export function BodyworkJobDetail({ jobId }: Props) {
         .then(setAssignees)
         .catch(() => setAssignees([]));
     }
-    if (canInvoice) {
+    if (canInvoice || canPartsWrite) {
       void apiFetch<PaymentAccountDto[]>("/ledger/accounts")
-        .then(setPaymentAccounts)
+        .then((accounts) => {
+          setPaymentAccounts(accounts);
+          setOrderPurchase(emptyStockPurchaseDraft(accounts));
+        })
         .catch(() => setPaymentAccounts([]));
     }
     if (canPartsWrite) {
       void apiFetch<PartDto[]>("/parts")
         .then(setStockPartsCatalog)
         .catch(() => setStockPartsCatalog([]));
+      void apiFetch<SupplierDto[]>("/suppliers")
+        .then(setPartSuppliers)
+        .catch(() => setPartSuppliers([]));
     }
   }, [load, canWrite, canInvoice, canPartsWrite]);
 
@@ -698,9 +717,12 @@ export function BodyworkJobDetail({ jobId }: Props) {
   }
 
   function openConsumeModal() {
+    setConsumePartMode("stock");
     setConsumePartId("");
     setConsumeQty("1");
     setConsumeTaskId("");
+    setConsumeSellPrice("");
+    setOrderPurchase(emptyStockPurchaseDraft(paymentAccounts));
     setConsumeModal(true);
   }
 
@@ -710,14 +732,25 @@ export function BodyworkJobDetail({ jobId }: Props) {
     setSaving(true);
     setError("");
     try {
-      const updated = await apiFetch<BodyworkJobDto>(`/bodywork-jobs/${jobId}/stock-parts`, {
-        method: "POST",
-        body: JSON.stringify({
-          partId: consumePartId,
-          quantity: Number(consumeQty),
-          bodyworkTaskId: consumeTaskId || undefined,
-        }),
-      });
+      const sellBody =
+        consumeSellPrice.trim() && Number(consumeSellPrice) >= 0
+          ? { sellPriceNet: Number(consumeSellPrice) }
+          : {};
+      const updated = await apiFetch<BodyworkJobDto>(
+        consumePartMode === "order"
+          ? `/bodywork-jobs/${jobId}/stock-parts/receive-and-consume`
+          : `/bodywork-jobs/${jobId}/stock-parts`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            partId: consumePartId,
+            quantity: Number(consumeQty),
+            bodyworkTaskId: consumeTaskId || undefined,
+            ...sellBody,
+            ...(consumePartMode === "order" ? stockPurchaseApiPayload(orderPurchase) : {}),
+          }),
+        },
+      );
       setJob(updated);
       setConsumeModal(false);
       setMessage("Part consumed from stock.");
@@ -2027,22 +2060,59 @@ export function BodyworkJobDetail({ jobId }: Props) {
       </Modal>
 
       <Modal
-        title="Use part from stock"
+        title={consumePartMode === "order" ? "Order part for job" : "Use part from stock"}
         open={consumeModal}
         onClose={() => {
           if (!saving) setConsumeModal(false);
         }}
       >
         <form onSubmit={(e) => void consumeStockPart(e)} className="space-y-4">
+          <div className="flex gap-2">
+            <button
+              type="button"
+              className={`rounded-lg px-3 py-1.5 text-xs font-medium ${
+                consumePartMode === "stock"
+                  ? "bg-accent text-white"
+                  : "border border-[var(--border)]"
+              }`}
+              onClick={() => setConsumePartMode("stock")}
+            >
+              From stock
+            </button>
+            <button
+              type="button"
+              className={`rounded-lg px-3 py-1.5 text-xs font-medium ${
+                consumePartMode === "order"
+                  ? "bg-accent text-white"
+                  : "border border-[var(--border)]"
+              }`}
+              onClick={() => setConsumePartMode("order")}
+            >
+              Order for job
+            </button>
+          </div>
           <div>
             <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Part</label>
             <SearchableSelect
               value={consumePartId}
-              onChange={setConsumePartId}
+              onChange={(id) => {
+                setConsumePartId(id);
+                const p = stockPartsCatalog.find((x) => x.id === id);
+                if (p && !consumeSellPrice) setConsumeSellPrice(p.sellPriceNet);
+              }}
               options={stockPartOptions}
               searchPlaceholder="Search parts…"
             />
           </div>
+          {consumePartMode === "order" && (
+            <StockPurchaseFields
+              draft={orderPurchase}
+              onChange={setOrderPurchase}
+              accounts={paymentAccounts}
+              suppliers={partSuppliers}
+              title="Supplier payment"
+            />
+          )}
           <div>
             <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Quantity</label>
             <input
@@ -2066,6 +2136,20 @@ export function BodyworkJobDetail({ jobId }: Props) {
               searchPlaceholder="Search tasks…"
             />
           </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
+              Customer invoice price per unit (ex VAT)
+            </label>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={consumeSellPrice}
+              onChange={(e) => setConsumeSellPrice(e.target.value)}
+              placeholder="Catalog sell price"
+              className={inputClass}
+            />
+          </div>
           <div className="flex justify-end gap-2">
             <button
               type="button"
@@ -2080,7 +2164,7 @@ export function BodyworkJobDetail({ jobId }: Props) {
               disabled={saving || !consumePartId}
               className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
             >
-              {saving ? "Saving…" : "Use on job"}
+              {saving ? "Saving…" : consumePartMode === "order" ? "Order & fit" : "Use on job"}
             </button>
           </div>
         </form>

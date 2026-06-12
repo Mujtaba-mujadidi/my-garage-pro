@@ -18,6 +18,7 @@ import {
   type BodyworkTaskPartDto,
 } from "@mygaragepro/shared";
 import { customerDisplayName } from "../invoices/invoices.mapper";
+import { toJobPartUsageDto } from "../parts/job-parts.mapper";
 
 function decimalToString(d: { toString(): string }) {
   return d.toString();
@@ -38,6 +39,7 @@ type JobRow = BodyworkJob & {
   customer: Customer;
   tasks: TaskRow[];
   invoice: JobInvoiceRow | null;
+  partUsages?: Parameters<typeof toJobPartUsageDto>[0][];
 };
 
 export type BodyworkMapOptions = {
@@ -158,6 +160,10 @@ export function toBodyworkJobDto(row: JobRow, opts: BodyworkMapOptions = {}): Bo
     vatEnabled: hidePricing ? true : row.vatEnabled,
     vatRatePercent: hidePricing ? "0" : decimalToString(row.vatRatePercent),
     tasks: tasks.map((t) => toBodyworkTaskDto(t, row.status, opts)),
+    stockParts:
+      opts.viewMode === "work" || !row.partUsages?.length
+        ? undefined
+        : row.partUsages.map(toJobPartUsageDto),
     ...(opts.viewMode === "work" ? { viewMode: "work" as const } : {}),
   };
 }

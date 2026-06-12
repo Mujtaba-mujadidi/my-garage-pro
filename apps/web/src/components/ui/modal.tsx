@@ -7,7 +7,7 @@ type ModalProps = {
   open: boolean;
   onClose: () => void;
   children: ReactNode;
-  size?: "md" | "lg";
+  size?: "md" | "lg" | "xl" | "2xl";
   /** Fixed-height body; tab panels scroll inside instead of resizing the modal. */
   fixedHeight?: boolean;
   /** Panel height follows content (up to 90vh), then scrolls — for forms that expand. */
@@ -53,9 +53,13 @@ export function Modal({
 
   const panelClass = fullscreen
     ? `flex h-full w-full max-w-none flex-col overflow-hidden rounded-none border-0 bg-[var(--surface)] shadow-none ${overflowClass}`
-    : size === "lg"
-      ? `w-full max-w-2xl rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-xl ${overflowClass}`
-      : `w-full max-w-md rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-xl ${overflowClass}`;
+    : size === "2xl"
+      ? `w-full max-w-5xl rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6 shadow-xl ${overflowClass}`
+      : size === "xl"
+        ? `w-full max-w-4xl rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6 shadow-xl ${overflowClass}`
+        : size === "lg"
+        ? `w-full max-w-2xl rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-xl ${overflowClass}`
+        : `w-full max-w-md rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-xl ${overflowClass}`;
 
   const backdropClass = fullscreen
     ? "fixed inset-0 z-50 flex flex-col bg-[var(--surface)]"

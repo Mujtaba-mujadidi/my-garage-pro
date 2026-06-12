@@ -19,10 +19,11 @@ import type {
 import {
   DEFAULT_VAT_RATE_OPTIONS,
   inferVatRatePercent,
+  LEDGER_SOURCE_MODULE_LABEL,
   UK_STANDARD_VAT_PERCENT,
   vatFromInclusiveGross,
 } from "@mygaragepro/shared";
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 
 type Tab = "accounts" | "entries";
 
@@ -112,6 +113,39 @@ function formatMoney(value: string) {
   return new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP" }).format(n);
 }
 
+function formatDateTime(iso: string | null) {
+  if (!iso) return "—";
+  return iso.slice(0, 16).replace("T", " ");
+}
+
+function DetailRow({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex justify-between gap-4 border-b border-[var(--border)] py-2.5 last:border-0">
+      <dt className="shrink-0 text-sm text-[var(--muted)]">{label}</dt>
+      <dd className="min-w-0 text-right text-sm font-medium text-[var(--foreground)]">{children}</dd>
+    </div>
+  );
+}
+
+function ExternalJobLink({
+  href,
+  label,
+}: {
+  href: string;
+  label: string;
+}) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="font-medium text-accent hover:underline"
+    >
+      {label}
+    </a>
+  );
+}
+
 export function LedgerPageContent() {
   const { session, hasPermission } = useSession();
   const canWrite = hasPermission("ledger.write");
@@ -140,6 +174,7 @@ export function LedgerPageContent() {
     | { kind: "check" | "approve" | "void" | "reverse"; entry: LedgerEntryDto }
     | null
   >(null);
+  const [viewEntry, setViewEntry] = useState<LedgerEntryDto | null>(null);
 
   const accountSelectOptions = useMemo(
     () =>
@@ -445,15 +480,30 @@ export function LedgerPageContent() {
         searchText: (e) => e.category ?? "",
         cell: (e) => e.category ?? "—",
       },
+      {
+        id: "reference",
+        header: "Reference",
+        searchText: (e) => e.notes ?? "",
+        cell: (e) =>
+          e.notes ? (
+            <span className="block max-w-[16rem] truncate text-[var(--muted)]" title={e.notes}>
+              {e.notes}
+            </span>
+          ) : (
+            "—"
+          ),
+      },
     ];
 
-    if (canWrite) {
-      cols.push({
-        id: "actions",
-        header: "",
-        align: "right",
-        cell: (e) => {
-          const actions: { label: string; onClick: () => void; variant?: "danger" }[] = [];
+    cols.push({
+      id: "actions",
+      header: "",
+      align: "right",
+      cell: (e) => {
+        const actions: { label: string; onClick: () => void; variant?: "danger" }[] = [
+          { label: "View", onClick: () => setViewEntry(e) },
+        ];
+        if (canWrite) {
           if (e.status === "PENDING") {
             actions.push({
               label: "Edit",
@@ -490,16 +540,15 @@ export function LedgerPageContent() {
               onClick: () => setConfirmAction({ kind: "reverse", entry: e }),
             });
           }
-          if (actions.length === 0) return null;
-          return (
-            <TableRowActionsMenu
-              triggerLabel={`Actions for ${e.valueDate} ${e.amountGross}`}
-              actions={actions}
-            />
-          );
-        },
-      });
-    }
+        }
+        return (
+          <TableRowActionsMenu
+            triggerLabel={`Actions for ${e.valueDate} ${e.amountGross}`}
+            actions={actions}
+          />
+        );
+      },
+    });
     return cols;
   }, [canWrite, isOwner]);
 
@@ -614,6 +663,7 @@ export function LedgerPageContent() {
           getRowId={(e) => e.id}
           searchPlaceholder="Category, notes, account…"
           emptyLabel="No ledger entries yet"
+          minWidth="72rem"
         />
       )}
 
@@ -882,6 +932,98 @@ export function LedgerPageContent() {
             </button>
           </div>
         </form>
+      </Modal>
+
+      <Modal
+        title={viewEntry ? `${viewEntry.direction === "INCOME" ? "Income" : "Expense"} details` : "Entry details"}
+        open={viewEntry !== null}
+        onClose={() => setViewEntry(null)}
+        size="xl"
+      >
+        {viewEntry && (
+          <dl className="grid gap-x-8 sm:grid-cols-2">
+            <DetailRow label="Date">{viewEntry.valueDate}</DetailRow>
+            <DetailRow label="Type">
+              <span className={viewEntry.direction === "INCOME" ? "text-green-700 dark:text-green-400" : ""}>
+                {viewEntry.direction === "INCOME" ? "Income" : "Expense"}
+              </span>
+            </DetailRow>
+            <DetailRow label="Status">{STATUS_LABEL[viewEntry.status]}</DetailRow>
+            <DetailRow label="Account">{viewEntry.paymentAccountName}</DetailRow>
+            <DetailRow label="Category">{viewEntry.category ?? "—"}</DetailRow>
+            <DetailRow label="Source">
+              {LEDGER_SOURCE_MODULE_LABEL[viewEntry.sourceModule] ?? viewEntry.sourceModule}
+            </DetailRow>
+            <DetailRow label="Net (ex VAT)">
+              <span className="font-mono tabular-nums">{formatMoney(viewEntry.amountNet)}</span>
+            </DetailRow>
+            <DetailRow label="VAT">
+              <span className="font-mono tabular-nums">{formatMoney(viewEntry.vatAmount)}</span>
+            </DetailRow>
+            <DetailRow label="Total (inc VAT)">
+              <span className="font-mono tabular-nums">{formatMoney(viewEntry.amountGross)}</span>
+            </DetailRow>
+            {viewEntry.customerName && viewEntry.customerId && (
+              <DetailRow label="Customer">
+                <ExternalJobLink
+                  href={`/customers/${viewEntry.customerId}`}
+                  label={viewEntry.customerName}
+                />
+              </DetailRow>
+            )}
+            {viewEntry.repairJobId && (
+              <DetailRow label="Repair job">
+                <ExternalJobLink
+                  href={`/repair/${viewEntry.repairJobId}`}
+                  label={viewEntry.repairJobNumber ?? "Open job"}
+                />
+              </DetailRow>
+            )}
+            {viewEntry.bodyworkJobId && (
+              <DetailRow label="Bodywork job">
+                <ExternalJobLink
+                  href={`/bodywork/${viewEntry.bodyworkJobId}`}
+                  label={viewEntry.bodyworkJobNumber ?? "Open job"}
+                />
+              </DetailRow>
+            )}
+            {viewEntry.notes ? (
+              <div className="border-b border-[var(--border)] py-2.5 last:border-0 sm:col-span-2">
+                <dt className="text-sm text-[var(--muted)]">Reference</dt>
+                <dd className="mt-1 whitespace-pre-wrap break-words text-sm text-[var(--foreground)]">
+                  {viewEntry.notes}
+                </dd>
+              </div>
+            ) : (
+              <DetailRow label="Reference">—</DetailRow>
+            )}
+            <DetailRow label="Created by">{viewEntry.createdByName ?? "—"}</DetailRow>
+            <DetailRow label="Created at">{formatDateTime(viewEntry.createdAt)}</DetailRow>
+            {viewEntry.postedAt && (
+              <DetailRow label="Posted at">{formatDateTime(viewEntry.postedAt)}</DetailRow>
+            )}
+            {viewEntry.checkedAt && (
+              <DetailRow label="Checked at">{formatDateTime(viewEntry.checkedAt)}</DetailRow>
+            )}
+            {viewEntry.voidedAt && (
+              <DetailRow label="Voided at">{formatDateTime(viewEntry.voidedAt)}</DetailRow>
+            )}
+            {viewEntry.reversesEntryId && (
+              <DetailRow label="Reverses entry">
+                <span className="font-mono text-xs">{viewEntry.reversesEntryId.slice(0, 8)}…</span>
+              </DetailRow>
+            )}
+          </dl>
+        )}
+        <div className="mt-4 flex justify-end">
+          <button
+            type="button"
+            onClick={() => setViewEntry(null)}
+            className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm"
+          >
+            Close
+          </button>
+        </div>
       </Modal>
 
       <ConfirmDialog

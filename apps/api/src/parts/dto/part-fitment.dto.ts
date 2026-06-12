@@ -1,4 +1,4 @@
-import { Type } from "class-transformer";
+import { Transform, Type } from "class-transformer";
 import {
   IsInt,
   IsOptional,
@@ -8,6 +8,7 @@ import {
   Min,
   ValidateNested,
 } from "class-validator";
+import { coerceToInt } from "../../common/transforms/coerce-number";
 
 /** One vehicle fitment row submitted with create/update part. */
 export class PartFitmentRowDto {
@@ -19,14 +20,14 @@ export class PartFitmentRowDto {
   @MaxLength(80)
   model!: string;
 
-  @Type(() => Number)
+  @Transform(({ value }) => coerceToInt(value))
   @IsInt()
   @Min(1900)
   @Max(2100)
   yearFrom!: number;
 
   @IsOptional()
-  @Type(() => Number)
+  @Transform(({ value }) => coerceToInt(value))
   @IsInt()
   @Min(1900)
   @Max(2100)

@@ -1,4 +1,5 @@
 import type { InvoiceStatus } from "./invoice-types";
+import type { JobPartUsageDto } from "./part-types";
 
 export type BodyworkJobStatus =
   | "NEW"
@@ -317,6 +318,7 @@ export type BodyworkJobDto = BodyworkJobListDto & {
   vatEnabled: boolean;
   vatRatePercent: string;
   tasks: BodyworkTaskDto[];
+  stockParts?: JobPartUsageDto[];
   /** `work` hides pricing and scopes tasks for mechanics. */
   viewMode?: "full" | "work";
 };

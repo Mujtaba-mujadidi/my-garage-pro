@@ -128,9 +128,12 @@ export function PartFitmentFields({
                     type="number"
                     min={1900}
                     max={2100}
+                    step={1}
                     value={row.yearFrom}
                     onChange={(e) =>
-                      updateRow(row.clientId, { yearFrom: Number(e.target.value) || row.yearFrom })
+                      updateRow(row.clientId, {
+                        yearFrom: Math.trunc(Number(e.target.value)) || row.yearFrom,
+                      })
                     }
                     className={inputClass}
                     required
@@ -142,10 +145,11 @@ export function PartFitmentFields({
                     type="number"
                     min={1900}
                     max={2100}
+                    step={1}
                     value={row.yearTo ?? ""}
                     onChange={(e) =>
                       updateRow(row.clientId, {
-                        yearTo: e.target.value ? Number(e.target.value) : null,
+                        yearTo: e.target.value ? Math.trunc(Number(e.target.value)) : null,
                       })
                     }
                     className={inputClass}

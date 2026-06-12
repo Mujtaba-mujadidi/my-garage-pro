@@ -16,6 +16,7 @@ import {
 import {
   InvoiceStatus,
   JobTyreUsageStatus,
+  LedgerSourceModule,
   PaymentMethod,
   Prisma,
   RepairJobStatus,
@@ -30,6 +31,14 @@ import {
   sumLines,
 } from "../invoices/invoice-calculations";
 import { toInvoiceDto } from "../invoices/invoices.mapper";
+import {
+  normalizeStockPurchase,
+  type StockPurchaseInput,
+} from "../common/dto/stock-purchase-fields.dto";
+import {
+  assertStockPurchaseForLedger,
+  unitCostNetFromPurchase,
+} from "../common/stock-purchase.util";
 import { LedgerService } from "../ledger/ledger.service";
 import { JobPartsInvoiceSync } from "../parts/job-parts-invoice-sync";
 import { PrismaService } from "../prisma/prisma.service";
@@ -174,6 +183,15 @@ export class TyresService {
       if (!supplier) throw new BadRequestException("Supplier not found");
     }
 
+    const initialQty = roundMoney(dto.quantityOnHand ?? 0);
+    const purchase = normalizeStockPurchase(dto, `Initial stock — ${skuCode}`);
+    assertStockPurchaseForLedger(purchase, this.ledgerEnabled(user));
+    const unitCost =
+      purchase.amountGross > 0
+        ? unitCostNetFromPurchase(purchase, initialQty)
+        : roundMoney(dto.costPriceNet ?? 0);
+
+    let movementId: string | undefined;
     const row = await this.prisma.tyre.create({
       data: {
         garageAccountId,
@@ -184,18 +202,35 @@ export class TyresService {
         loadIndex: dto.loadIndex?.trim() || null,
         speedRating: dto.speedRating?.trim().toUpperCase() || null,
         condition: dto.condition,
-        quantityOnHand: roundMoney(dto.quantityOnHand ?? 0),
+        quantityOnHand: initialQty,
         minQuantity: roundMoney(dto.minQuantity ?? 0),
-        costPriceNet: roundMoney(dto.costPriceNet ?? 0),
+        costPriceNet: unitCost,
         sellPriceNet: roundMoney(dto.sellPriceNet ?? 0),
         tradeSellPriceNet: roundMoney(dto.tradeSellPriceNet ?? 0),
         fittingChargeNet: roundMoney(dto.fittingChargeNet ?? 0),
-        supplierId: dto.supplierId ?? null,
+        supplierId: dto.supplierId ?? purchase.supplierId ?? null,
         location: dto.location?.trim() || null,
         notes: dto.notes?.trim() || null,
       },
       include: this.tyreInclude,
     });
+
+    if (Number(initialQty) > 0) {
+      const movement = await this.prisma.tyreMovement.create({
+        data: {
+          garageAccountId,
+          tyreId: row.id,
+          type: TyreMovementType.RECEIPT,
+          quantity: initialQty,
+          quantityBefore: new Prisma.Decimal(0),
+          quantityAfter: initialQty,
+          notes: dto.notes?.trim() || null,
+          createdById: user.id,
+        },
+      });
+      movementId = movement.id;
+      await this.postTyreStockPurchase(user, purchase, skuCode, movementId);
+    }
 
     await this.audit.log({
       action: "tyres.create",
@@ -302,10 +337,21 @@ export class TyresService {
     const qty = roundMoney(dto.quantity);
     const before = tyre.quantityOnHand;
     const after = before.add(qty);
+    const purchase = normalizeStockPurchase(dto, `Stock receipt — ${tyre.skuCode}`);
+    assertStockPurchaseForLedger(purchase, this.ledgerEnabled(user));
+    const unitCost =
+      purchase.amountGross > 0 ? unitCostNetFromPurchase(purchase, qty) : tyre.costPriceNet;
 
+    let movementId!: string;
     await this.prisma.$transaction(async (tx) => {
-      await tx.tyre.update({ where: { id }, data: { quantityOnHand: after } });
-      await tx.tyreMovement.create({
+      await tx.tyre.update({
+        where: { id },
+        data: {
+          quantityOnHand: after,
+          ...(purchase.amountGross > 0 ? { costPriceNet: unitCost } : {}),
+        },
+      });
+      const movement = await tx.tyreMovement.create({
         data: {
           garageAccountId,
           tyreId: id,
@@ -317,7 +363,10 @@ export class TyresService {
           createdById: user.id,
         },
       });
+      movementId = movement.id;
     });
+
+    await this.postTyreStockPurchase(user, purchase, tyre.skuCode, movementId);
 
     return this.getOne(user, id);
   }
@@ -346,18 +395,32 @@ export class TyresService {
     return roundMoney(Number(tyre.fittingChargeNet) * Number(qty));
   }
 
-  private async postTyreCogs(
+  private ledgerEnabled(user: RequestUser) {
+    return user.enabledModules.includes("ledger");
+  }
+
+  private async postTyreStockPurchase(
     user: RequestUser,
-    params: {
-      costTotalNet: number;
-      reference: string;
-      valueDate: Date;
-      repairJobId?: string;
-    },
+    purchase: StockPurchaseInput,
+    skuCode: string,
+    movementId: string,
+    opts?: { repairJobId?: string },
   ) {
-    if (!user.enabledModules.includes("ledger")) return;
-    if (params.costTotalNet <= 0) return;
-    await this.ledger.createPostedTyreCogs(user, params);
+    assertStockPurchaseForLedger(purchase, this.ledgerEnabled(user));
+    if (!this.ledgerEnabled(user) || purchase.amountGross <= 0) return;
+    await this.ledger.createPostedStockPurchase(user, {
+      sourceModule: LedgerSourceModule.TYRES,
+      category: "Tyre stock purchase",
+      amountGross: purchase.amountGross,
+      vatAmount: purchase.vatAmount,
+      paymentAccountId: purchase.paymentAccountId!,
+      paymentMethod: purchase.paymentMethod,
+      reference: purchase.reference ?? `Tyre purchase — ${skuCode}`,
+      valueDate: purchase.valueDate ?? new Date(),
+      supplierId: purchase.supplierId,
+      tyreMovementId: movementId,
+      repairJobId: opts?.repairJobId,
+    });
   }
 
   private resolveUnitSellPrice(
@@ -396,12 +459,15 @@ export class TyresService {
     });
     if (!tyre) throw new NotFoundException("Tyre not found");
 
-    if (dto.repairTaskId) {
-      const task = await this.prisma.repairTask.findFirst({
-        where: { id: dto.repairTaskId, repairJobId },
-      });
-      if (!task) throw new BadRequestException("Task does not belong to this job");
+    if (!dto.repairTaskId) {
+      throw new BadRequestException(
+        "Tyres must be added via a tyre task — create or edit a task with tyres instead",
+      );
     }
+    const task = await this.prisma.repairTask.findFirst({
+      where: { id: dto.repairTaskId, repairJobId },
+    });
+    if (!task) throw new BadRequestException("Task does not belong to this job");
 
     const qty = new Prisma.Decimal(dto.quantity);
     if (tyre.quantityOnHand.lessThan(qty)) {
@@ -414,8 +480,6 @@ export class TyresService {
     const after = before.sub(qty);
     const fittingChargeNet = roundMoney(0);
     const unitSellPriceNet = this.resolveUnitSellPrice(tyre, dto.sellPriceNet);
-    const costTotalNet = Number(tyre.costPriceNet) * Number(qty);
-
     await this.prisma.$transaction(async (tx) => {
       const usage = await tx.jobTyreUsage.create({
         data: {
@@ -431,7 +495,6 @@ export class TyresService {
           createdById: user.id,
         },
       });
-
       await tx.tyre.update({ where: { id: tyre.id }, data: { quantityOnHand: after } });
 
       await tx.tyreMovement.create({
@@ -451,13 +514,6 @@ export class TyresService {
       if (job.invoice) {
         await this.invoiceSync.syncInvoiceLines(tx, job.id, garageAccountId, user.id);
       }
-    });
-
-    await this.postTyreCogs(user, {
-      costTotalNet,
-      reference: `Tyre COGS — ${tyre.skuCode} × ${qty} on ${job.jobNumber}`,
-      valueDate: new Date(),
-      repairJobId,
     });
 
     await this.audit.log({
@@ -537,6 +593,7 @@ export class TyresService {
         await this.invoiceSync.syncInvoiceLines(tx, repairJobId, garageAccountId, user.id);
       }
     });
+
   }
 
   async returnUsagesForTask(user: RequestUser, repairJobId: string, repairTaskId: string) {
@@ -561,6 +618,31 @@ export class TyresService {
         entityType: "repair_task",
         entityId: repairTaskId,
         metadata: { repairJobId, count: usages.length },
+      });
+    }
+  }
+
+  async returnUsagesForJob(user: RequestUser, repairJobId: string) {
+    const garageAccountId = this.garageId(user);
+    const usages = await this.prisma.jobTyreUsage.findMany({
+      where: {
+        repairJobId,
+        garageAccountId,
+        status: JobTyreUsageStatus.CONSUMED,
+      },
+      select: { id: true },
+    });
+    for (const usage of usages) {
+      await this.returnSingleUsage(user, garageAccountId, repairJobId, usage.id);
+    }
+    if (usages.length > 0) {
+      await this.audit.log({
+        action: "tyres.job.return",
+        userId: user.id,
+        garageAccountId,
+        entityType: "repair_job",
+        entityId: repairJobId,
+        metadata: { count: usages.length, reason: "job_cancelled" },
       });
     }
   }
@@ -610,9 +692,10 @@ export class TyresService {
       select: { vatNumber: true, invoiceNextSeq: true },
     });
     const canChargeVat = Boolean(garage?.vatNumber?.trim());
+    const unitSell = this.resolveUnitSellPrice(tyre, dto.sellPriceNet);
     const usageRow = {
       quantity: qty,
-      sellPriceNet: tyre.sellPriceNet,
+      sellPriceNet: unitSell,
       fittingChargeNet: new Prisma.Decimal(0),
       tyre: {
         skuCode: tyre.skuCode,
@@ -631,7 +714,6 @@ export class TyresService {
     );
     const lineCalcs = lineInputs.map((l) => calcLine(l));
     const totals = sumLines(lineCalcs);
-    const costTotalNet = Number(tyre.costPriceNet) * Number(qty);
 
     const before = tyre.quantityOnHand;
     const after = before.sub(qty);
@@ -708,12 +790,6 @@ export class TyresService {
       }
 
       return { invoice, payment };
-    });
-
-    await this.postTyreCogs(user, {
-      costTotalNet,
-      reference: `Tyre COGS — counter sale ${tyre.skuCode} × ${qty}`,
-      valueDate,
     });
 
     if (result.payment && dto.paymentAccountId) {

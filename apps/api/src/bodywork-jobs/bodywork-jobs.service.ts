@@ -15,6 +15,7 @@ import {
 } from "@nestjs/common";
 import {
   InvoiceStatus,
+  JobPartUsageStatus,
   Prisma,
   BodyworkJobStatus,
   BodyworkTaskStatus,
@@ -79,7 +80,15 @@ export class BodyworkJobsService {
         allocations: { where: { deletedAt: null }, select: { amount: true } },
       },
     },
-  };
+    partUsages: {
+      where: { status: JobPartUsageStatus.CONSUMED },
+      include: {
+        part: { select: { partNumber: true, description: true } },
+        bodyworkTask: { select: { title: true } },
+      },
+      orderBy: { consumedAt: "desc" as const },
+    },
+  } as const;
 
   private async garageCanChargeVat(garageAccountId: string): Promise<boolean> {
     const garage = await this.prisma.garageAccount.findUnique({
