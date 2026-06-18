@@ -934,6 +934,76 @@ async function main() {
       `  Bodywork jobs: ${jobNumber} (in progress), ${jobNumber2} (quote sent), ${jobNumber3} (approved, claimable)`,
     );
   }
+
+  // PCO — demo booking centre + sample active booking
+  if (ownerUser) {
+    let centre = await prisma.settingOption.findFirst({
+      where: {
+        garageAccountId: demoGarage.id,
+        optionType: "pco_booking_centre",
+        label: "Greenwich PCO Centre",
+        deletedAt: null,
+      },
+    });
+    if (!centre) {
+      centre = await prisma.settingOption.create({
+        data: {
+          garageAccountId: demoGarage.id,
+          optionType: "pco_booking_centre",
+          label: "Greenwich PCO Centre",
+          value: "greenwich-pco",
+          sortOrder: 0,
+        },
+      });
+    }
+
+    const existingPco = await prisma.pcoBooking.findFirst({
+      where: { garageAccountId: demoGarage.id },
+    });
+    if (!existingPco) {
+      const firstReg = new Date("2018-03-15T00:00:00.000Z");
+      const pcoExpiry = new Date("2026-07-15T00:00:00.000Z");
+      const logbookExpiry = new Date("2028-03-15T00:00:00.000Z");
+      const vehicle = await prisma.pcoVehicle.create({
+        data: {
+          garageAccountId: demoGarage.id,
+          vrm: "LF18ABC",
+          registeredKeeper: "Ahmed Khan",
+          email: "ahmed.khan@example.com",
+          phone: "07700900123",
+          addressLine1: "12 High Street",
+          city: "London",
+          postcode: "SE10 9NN",
+          firstRegistrationDate: firstReg,
+          pcoExpiryDate: pcoExpiry,
+          logbookExpiryDate: logbookExpiry,
+        },
+      });
+      await prisma.garageAccount.update({
+        where: { id: demoGarage.id },
+        data: { pcoNextSeq: { increment: 1 } },
+      });
+      const seq = (await prisma.garageAccount.findUnique({ where: { id: demoGarage.id } }))!
+        .pcoNextSeq;
+      await prisma.pcoBooking.create({
+        data: {
+          garageAccountId: demoGarage.id,
+          pcoVehicleId: vehicle.id,
+          bookingNumber: `PCO-${new Date().getFullYear()}-${String(seq).padStart(5, "0")}`,
+          jobType: "RENEWAL",
+          status: "ACTIVE",
+          priority: "MEDIUM",
+          chargeGross: 85,
+          bookingDate: new Date("2026-06-20T00:00:00.000Z"),
+          bookingTime: "10:30",
+          bookingCentreId: centre.id,
+          clientInformed: true,
+          createdById: ownerUser.id,
+        },
+      });
+      console.log("  PCO: Greenwich centre + sample renewal booking LF18 ABC");
+    }
+  }
 }
 
 main()

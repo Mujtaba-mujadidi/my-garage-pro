@@ -6,7 +6,7 @@ import { Modal } from "@/components/ui/modal";
 import { Select } from "@/components/ui/select";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { TableRowActionsMenu } from "@/components/ui/table-row-actions-menu";
-import { apiFetch, ApiError, downloadAuthenticatedPdf } from "@/lib/api-client";
+import { apiFetch, ApiError, downloadAuthenticatedPdf, openAuthenticatedPdf } from "@/lib/api-client";
 import {
   StockPurchaseFields,
   emptyStockPurchaseDraft,
@@ -54,6 +54,7 @@ import {
   tyreIsLowStock,
 } from "@mygaragepro/shared";
 import { GateLoading } from "@/components/layout/gate-loading";
+import { UkNumberPlate } from "@/components/jobs/uk-number-plate";
 import { STICKY_TABLE_HEAD_CLASS, TableScroll } from "@/components/ui/table-scroll";
 import { TabBar } from "@/components/ui/tab-bar";
 import Link from "next/link";
@@ -383,6 +384,7 @@ export function RepairJobDetail({ jobId }: Props) {
   const [confirmMarkJobNotComplete, setConfirmMarkJobNotComplete] = useState(false);
   const [completeJobOpen, setCompleteJobOpen] = useState(false);
   const [completeJobConfirmChecked, setCompleteJobConfirmChecked] = useState(false);
+  const [completeOpenTasksChecked, setCompleteOpenTasksChecked] = useState(false);
   const [confirmGenerateInvoice, setConfirmGenerateInvoice] = useState(false);
   const [confirmRefreshInvoice, setConfirmRefreshInvoice] = useState(false);
   const [qcSignOffOpen, setQcSignOffOpen] = useState(false);
@@ -608,9 +610,6 @@ export function RepairJobDetail({ jobId }: Props) {
       job.status === "TESTING" || job.status === "READY"
         ? managerQcJobStatusOptions(job.status)
         : managerJobStatusOptions(job.status);
-    if (!allRepairTasksComplete(job.tasks)) {
-      opts = opts.filter((s) => s !== "COMPLETED");
-    }
     return filterJobStatusOptionsWithoutTasks(opts, job.tasks.length);
   }, [job]);
 
@@ -639,6 +638,7 @@ export function RepairJobDetail({ jobId }: Props) {
 
   function openCompleteJobConfirm() {
     setCompleteJobConfirmChecked(false);
+    setCompleteOpenTasksChecked(false);
     setCompleteJobOpen(true);
   }
 
@@ -666,7 +666,11 @@ export function RepairJobDetail({ jobId }: Props) {
 
   async function changeStatus(
     status: RepairJobStatus,
-    options?: { comment?: string; failedTaskIds?: string[] },
+    options?: {
+      comment?: string;
+      failedTaskIds?: string[];
+      completeOpenTasks?: boolean;
+    },
   ) {
     if (!job || job.status === status) return;
     setSaving(true);
@@ -676,11 +680,15 @@ export function RepairJobDetail({ jobId }: Props) {
         status: RepairJobStatus;
         comment?: string;
         failedTaskIds?: string[];
+        completeOpenTasks?: boolean;
       } = { status };
       const trimmed = options?.comment?.trim();
       if (trimmed) payload.comment = trimmed;
       if (options?.failedTaskIds?.length) {
         payload.failedTaskIds = options.failedTaskIds;
+      }
+      if (options?.completeOpenTasks) {
+        payload.completeOpenTasks = true;
       }
 
       const updated = await apiFetch<RepairJobDto>(`/repair-jobs/${jobId}/status`, {
@@ -696,7 +704,11 @@ export function RepairJobDetail({ jobId }: Props) {
       ) {
         setMessage("Job marked as not complete — returned to the workshop.");
       } else if (status === "COMPLETED") {
-        setMessage("Job marked as completed.");
+        setMessage(
+          options?.completeOpenTasks
+            ? "Open tasks marked complete and job closed."
+            : "Job marked as completed.",
+        );
       } else {
         setMessage(`Status updated to ${REPAIR_JOB_STATUS_LABEL[status]}.`);
       }
@@ -731,8 +743,11 @@ export function RepairJobDetail({ jobId }: Props) {
   }
 
   async function confirmCompleteJob() {
-    if (!completeJobConfirmChecked || !job || !allRepairTasksComplete(job.tasks)) return;
-    await changeStatus("COMPLETED");
+    if (!completeJobConfirmChecked || !job) return;
+    if (!allTasksDone && !completeOpenTasksChecked) return;
+    await changeStatus("COMPLETED", {
+      completeOpenTasks: !allTasksDone ? true : undefined,
+    });
   }
 
   async function approveQcSignOff() {
@@ -1321,25 +1336,15 @@ export function RepairJobDetail({ jobId }: Props) {
     job.invoiceInSync === false;
 
   const chargesVat = jobChargesVat(canChargeVat, job);
-  const jobInvoicePaid = job.invoiceStatus === "PAID";
+  const jobClosed = job.status === "COMPLETED" || job.status === "CANCELLED";
   const jobApprovedForWork = isRepairJobApprovedForWork(job.status);
-  const canEditTasks =
-    canWrite &&
-    job.status !== "COMPLETED" &&
-    job.status !== "CANCELLED" &&
-    !jobInvoicePaid;
+  const canEditTasks = canWrite && !jobClosed;
   const canAssignTasks =
     canEditTasks && jobApprovedForWork && !isWorkView;
   const canEditVat =
     canWrite && !isWorkView && job.status !== "CANCELLED" && !job.invoiceId;
   const canConsumeStock =
-    canPartsWrite &&
-    canWrite &&
-    !isWorkView &&
-    jobApprovedForWork &&
-    job.status !== "COMPLETED" &&
-    job.status !== "CANCELLED" &&
-    !jobInvoicePaid;
+    canPartsWrite && canWrite && !isWorkView && jobApprovedForWork && !jobClosed;
   const showStockParts =
     partsModuleEnabled && hasPermission("parts.read") && !isWorkView;
   const showStockTyres =
@@ -1363,6 +1368,11 @@ export function RepairJobDetail({ jobId }: Props) {
     (job.stockParts?.length ?? 0) === 0 && (job.stockTyres?.length ?? 0) === 0;
 
   const allTasksDone = allRepairTasksComplete(job.tasks);
+  const openTasks = job.tasks.filter(
+    (t) => t.status !== "COMPLETED" && t.status !== "CANCELLED",
+  );
+  const canConfirmCompleteJob =
+    completeJobConfirmChecked && (allTasksDone || completeOpenTasksChecked);
   const canEditJobStatus =
     job.status !== "COMPLETED" && job.status !== "CANCELLED";
   const showManagerStatusSelect =
@@ -1388,6 +1398,9 @@ export function RepairJobDetail({ jobId }: Props) {
 
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div>
+          {job.vehicleRegistration && (
+            <UkNumberPlate registration={job.vehicleRegistration} className="mb-2" />
+          )}
           <h1 className="text-xl font-semibold">{job.jobNumber}</h1>
           <p className="text-sm text-[var(--muted)]">
             {job.customerName}
@@ -1662,6 +1675,18 @@ export function RepairJobDetail({ jobId }: Props) {
               <button
                 type="button"
                 onClick={() => {
+                  if (!job.invoiceId) return;
+                  void openAuthenticatedPdf(job.invoiceId).catch((err) =>
+                    setError(err instanceof ApiError ? err.message : "Could not open PDF"),
+                  );
+                }}
+                className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm font-medium hover:bg-[var(--background)]"
+              >
+                View PDF
+              </button>
+              <button
+                type="button"
+                onClick={() => {
                   if (!job.invoiceId || !job.invoiceNumber) return;
                   void downloadAuthenticatedPdf(job.invoiceId, `${job.invoiceNumber}.pdf`).catch(
                     (err) =>
@@ -1701,9 +1726,9 @@ export function RepairJobDetail({ jobId }: Props) {
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] px-4 py-3">
           <div>
             <h2 className="text-sm font-semibold">Tasks</h2>
-            {jobInvoicePaid && canWrite && !isWorkView && (
+            {jobClosed && canWrite && !isWorkView && (
               <p className="mt-0.5 text-xs text-[var(--muted)]">
-                Locked — invoice is paid; task amounts cannot be changed.
+                Locked — job is complete; tasks and parts cannot be changed.
               </p>
             )}
           </div>
@@ -1749,7 +1774,7 @@ export function RepairJobDetail({ jobId }: Props) {
                       {isWorkshopTaskClaimable(task, job.status, "repair") ? (
                         <button
                           type="button"
-                          disabled={saving || jobInvoicePaid}
+                          disabled={saving || jobClosed}
                           onClick={() => void claimTask(task.id)}
                           className="rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
                         >
@@ -1767,7 +1792,7 @@ export function RepairJobDetail({ jobId }: Props) {
                             value: s,
                             label: REPAIR_TASK_STATUS_LABEL[s],
                           }))}
-                          disabled={updatingTaskId === task.id || saving || jobInvoicePaid}
+                          disabled={updatingTaskId === task.id || saving || jobClosed}
                           aria-label={`Update status for ${task.title}`}
                           className="ml-auto min-w-[9rem]"
                           triggerClassName={compactSelectTriggerClass}
@@ -1918,11 +1943,7 @@ export function RepairJobDetail({ jobId }: Props) {
               </button>
             )}
           </div>
-          {!jobApprovedForWork &&
-            canAddJobMaterials &&
-            job.status !== "COMPLETED" &&
-            job.status !== "CANCELLED" &&
-            !jobInvoicePaid && (
+          {!jobApprovedForWork && canAddJobMaterials && !jobClosed && (
               <p className="px-4 py-3 text-xs text-[var(--muted)]">
                 Approve the repair before adding parts or tyres to this job.
               </p>
@@ -2720,34 +2741,47 @@ export function RepairJobDetail({ jobId }: Props) {
               Tasks still open
             </p>
             <p className="mt-1 text-sm text-amber-900 dark:text-amber-200/90">
-              Complete or cancel every task before closing this job.
+              Mechanics may not have updated task status. You can mark all open tasks complete below,
+              then close this job.
             </p>
             <ul className="mt-2 list-inside list-disc text-sm text-amber-900 dark:text-amber-200/90">
-              {job.tasks
-                .filter((t) => t.status !== "COMPLETED" && t.status !== "CANCELLED")
-                .map((t) => (
-                  <li key={t.id}>
-                    {t.title} ({REPAIR_TASK_STATUS_LABEL[t.status]})
-                  </li>
-                ))}
+              {openTasks.map((t) => (
+                <li key={t.id}>
+                  {t.title} ({REPAIR_TASK_STATUS_LABEL[t.status]})
+                </li>
+              ))}
             </ul>
+            <label className="mt-3 flex cursor-pointer items-start gap-3 rounded-lg border border-amber-400/60 bg-white/60 p-3 text-sm dark:border-amber-700 dark:bg-amber-950/20">
+              <input
+                type="checkbox"
+                checked={completeOpenTasksChecked}
+                onChange={(e) => setCompleteOpenTasksChecked(e.target.checked)}
+                disabled={saving}
+                className="mt-0.5 h-4 w-4 shrink-0 rounded border border-[var(--border)]"
+              />
+              <span className="text-amber-950 dark:text-amber-100">
+                Mark {openTasks.length} open task{openTasks.length === 1 ? "" : "s"} as complete
+              </span>
+            </label>
           </div>
         )}
 
         <label
           className={`mt-4 flex items-start gap-3 rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 text-sm ${
-            allTasksDone ? "cursor-pointer" : "cursor-not-allowed opacity-60"
+            allTasksDone || completeOpenTasksChecked
+              ? "cursor-pointer"
+              : "cursor-not-allowed opacity-60"
           }`}
         >
           <input
             type="checkbox"
             checked={completeJobConfirmChecked}
             onChange={(e) => setCompleteJobConfirmChecked(e.target.checked)}
-            disabled={saving || !allTasksDone}
+            disabled={saving || (!allTasksDone && !completeOpenTasksChecked)}
             className="mt-0.5 h-4 w-4 shrink-0 rounded border border-[var(--border)]"
           />
           <span>
-            I confirm all tasks are completed and all reported issues are resolved.
+            I confirm work is finished and all reported issues are resolved.
           </span>
         </label>
 
@@ -2762,11 +2796,15 @@ export function RepairJobDetail({ jobId }: Props) {
           </button>
           <button
             type="button"
-            disabled={saving || !completeJobConfirmChecked || !allTasksDone}
+            disabled={saving || !canConfirmCompleteJob}
             onClick={() => void confirmCompleteJob()}
             className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
           >
-            {saving ? "Saving…" : "Mark job complete"}
+            {saving
+              ? "Saving…"
+              : allTasksDone
+                ? "Mark job complete"
+                : "Complete tasks and close job"}
           </button>
         </div>
       </Modal>

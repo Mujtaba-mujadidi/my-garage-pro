@@ -87,15 +87,12 @@ export function sanitizeTyreCode(value: string): string {
   return value.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
 }
 
-/** Tyre code from size: digits and letters only. e.g. 205/55 R16 → 20555R16 */
+/** Tyre code from size only (digits and letters). e.g. 205/55 R16 → 20555R16 */
 export function generateTyreCodeFromSize(size: string): string {
   return sanitizeTyreCode(size);
 }
 
-/** Base tyre code; appends brand letters/digits when provided (helps uniqueness). */
-export function previewTyreCode(size: string, brand?: string | null): string {
-  const base = generateTyreCodeFromSize(size);
-  if (!brand?.trim()) return base;
-  const suffix = sanitizeTyreCode(brand).slice(0, 16);
-  return suffix ? `${base}${suffix}` : base;
+/** Preview code for add-tyre form — size only; brand/supplier shown separately in the table. */
+export function previewTyreCode(size: string, _brand?: string | null): string {
+  return generateTyreCodeFromSize(size);
 }

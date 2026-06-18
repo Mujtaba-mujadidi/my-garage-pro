@@ -1,5 +1,5 @@
 import { BodyworkJobStatus } from "@prisma/client";
-import { IsArray, IsEnum, IsOptional, IsString, IsUUID, MaxLength } from "class-validator";
+import { IsArray, IsBoolean, IsEnum, IsOptional, IsString, IsUUID, MaxLength } from "class-validator";
 
 export class UpdateBodyworkJobStatusDto {
   @IsEnum(BodyworkJobStatus)
@@ -19,4 +19,12 @@ export class UpdateBodyworkJobStatusDto {
   @IsArray()
   @IsUUID("4", { each: true })
   failedTaskIds?: string[];
+
+  /**
+   * When closing the job, mark every non-cancelled open task as completed first.
+   * Used when mechanics finished work but did not update task status.
+   */
+  @IsOptional()
+  @IsBoolean()
+  completeOpenTasks?: boolean;
 }

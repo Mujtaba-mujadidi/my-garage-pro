@@ -2,10 +2,12 @@
 
 Companion to [PROJECT_PLAN.md](PROJECT_PLAN.md). **Delivery model:** gated phases — build → deploy staging → **you test → sign off** → next module (see PROJECT_PLAN §25).
 
-**Last updated:** 2026-06-06  
-**Current phase:** **Phase 7** (Parts stock — ready for local UAT)  
-**Current gate:** ⏳ Phase 7 local UAT → sign-off (Phases 4–6 still open)  
-**UAT note:** Phases 1–3 signed off on **local** (`pnpm dev`); Railway staging deferred.
+**Last updated:** 2026-06-12  
+**Current phase:** **Phase 7–8** (Parts + Tyres — local UAT in progress)  
+**Current gate:** ⏳ Phases 4–8 open (Phases 1–3 signed off locally)  
+**UAT note:** Phases 1–3 signed off on **local** (`pnpm dev`); Railway staging deferred.  
+**Latest push:** `33d666e` on `main` — customer record payment, supplier fixes, tyre form UX.  
+**Resume next session:** Read **Decision log** and **PCO module (signed off spec)** below, then continue from **Backlog / next build**.
 **Staging URL:** _Railway → **web** service → Settings → Networking → **Public domain**_ (verify in dashboard; stale docs URLs cause 404)
 
 **Local dev:** [LOCAL_DEVELOPMENT.md](./LOCAL_DEVELOPMENT.md) · **Railway deploy:** [RAILWAY_AUTODEPLOY.md](./RAILWAY_AUTODEPLOY.md)
@@ -46,7 +48,7 @@ Companion to [PROJECT_PLAN.md](PROJECT_PLAN.md). **Delivery model:** gated phase
 | 6 | Repair jobs + tasks (web) | `[x]` | `[ ]` | ⏳ | |
 | 7 | Parts stock | `[x]` | `[ ]` | ⏳ | |
 | — | Bodywork (parallel) | `[x]` | `[ ]` | ⏳ | |
-| 8 | Tyre stock | `[ ]` | `[ ]` | ⏳ | |
+| 8 | Tyre stock | `[~]` | `[ ]` | ⏳ | |
 | 9 | Mechanic PWA | `[ ]` | `[ ]` | ⏳ | |
 | 10 | Used cars | `[ ]` | `[ ]` | ⏳ | |
 | 11 | Partners | `[ ]` | `[ ]` | ⏳ | |
@@ -72,7 +74,10 @@ Companion to [PROJECT_PLAN.md](PROJECT_PLAN.md). **Delivery model:** gated phase
 **After this push, staging should pick up:**
 
 - Migration `20260602101701_suppliers` (and any earlier not yet applied)
-- Customers + suppliers API/UI
+- Customers + suppliers API/UI (incl. supplier detail, credit, purchases)
+- Shared **Record payment** modal (invoices + customer profile)
+- Supplier part-order `supplierId` fix; broader purchase history query
+- Tyre add/receive stock purchase UX (cost/VAT/payment)
 - Super Admin garage edit (tabs, sticky save bar)
 - Settings tabs (General + Roles & access)
 - Team delete, disable/enable confirmations
@@ -165,14 +170,19 @@ Companion to [PROJECT_PLAN.md](PROJECT_PLAN.md). **Delivery model:** gated phase
 - [x] API: CRUD, search, activate/deactivate
 - [x] Web: list, create/edit modal, deactivate/activate confirm
 - [x] RBAC: `suppliers.read` / `suppliers.write`; nav gated by module + permission
+- [x] **Supplier detail** (`/suppliers/[id]`): profile, credit balance + history, job part orders, stock purchases
+- [x] API: `GET /suppliers/:id/part-orders`, `GET /suppliers/:id/purchases`
+- [x] Part orders save `supplierId`; receive-ordered-part pre-fills supplier
 - [x] **You:** UAT (local, 2026-06-04)
 
 **Test script**
 1. Add supplier with contact details.
 2. Search and edit supplier.
 3. Deactivate supplier; activate again.
+4. Open supplier detail — credit, part orders, and purchases show linked activity.
+5. Order part on repair job with supplier selected; order appears on supplier profile.
 
-**Gate:** ✅ **Signed off:** 2026-06-04 (local UAT — stakeholder Pass)
+**Gate:** ✅ **Signed off:** 2026-06-04 (local UAT — stakeholder Pass) — _detail page + orders: re-test before go-live_
 
 ---
 
@@ -191,12 +201,21 @@ Companion to [PROJECT_PLAN.md](PROJECT_PLAN.md). **Delivery model:** gated phase
 
 ## Phase 5 — Invoices + payments
 
+**Build checklist (recent)**
+- [x] Shared `RecordPaymentModal` — invoices page + **customer profile** (in-page, no redirect)
+- [x] Split payment lines + balance hints (remaining / cleared / overpaid)
+- [x] Customer **Record payment** button: orange, disabled when no balance due
+- [x] Invoices payment modal: customer dropdown **only customers with open balance**
+- [x] Modal: fullscreen, fixed height, scrollable payment-received section
+
 **Test script**
 1. Create invoice for a customer (lines + VAT toggle).
 2. Download PDF.
 3. Record £700 payment against 4 invoices (mix of paid + part-paid).
 4. Customer balance correct.
 5. Undo one allocation (owner) — statuses recompute.
+6. From **customer profile**, record payment in modal (split methods if needed).
+7. Customer with £0 balance — Record payment disabled on profile.
 
 **Gate:** ⏳ **Signed off:** _
 
@@ -250,10 +269,19 @@ Companion to [PROJECT_PLAN.md](PROJECT_PLAN.md). **Delivery model:** gated phase
 
 ## Phase 8 — Tyre stock
 
+**Build checklist**
+- [x] Tyre SKU CRUD, stock movements, receive stock
+- [x] Add tyre + receive: buy price ex VAT, Include VAT, payment method / paid from
+- [x] Add tyre form order: Stock → Cost → Sell
+- [x] Inventory table grouped by size — expand to see brand/supplier lines (separate SKU per supplier)
+- [ ] Job tyre picker _(deferred to Phase 9 — not in Phase 8 scope)_
+- [ ] **You:** UAT (local)
+
 **Test script**
-1. Add tyre SKU (size, brand, qty).
-2. Tyre sale or fit on job — stock down, income + COGS in ledger.
-3. Fitting charges on invoice.
+1. Add tyre SKU (size, brand, qty) with opening stock + purchase payment.
+2. Receive stock — same cost/VAT/payment layout as add tyre.
+3. Tyre sale or fit on job — stock down, income + COGS in ledger.
+4. Fitting charges on invoice.
 
 **Gate:** ⏳ **Signed off:** _
 
@@ -325,10 +353,141 @@ Companion to [PROJECT_PLAN.md](PROJECT_PLAN.md). **Delivery model:** gated phase
 **Test script**
 1. Daily cash close with variance.
 2. Stock adjustment (parts/tyres) with approval.
-3. Attachment on job and invoice.
+3. Attachment on job, **ledger expense (supplier receipt)**, and invoice.
 4. Re-run failed items from earlier gates.
 
 **Gate:** ⏳ **Signed off:** _
+
+---
+
+## Architecture & hosting (planned — not built yet)
+
+Decisions from 2026-06-12 planning (VAT receipts, mobile, go-live). **Use this section to resume work** without relying on chat history.
+
+### Production stack (target)
+
+| Layer | Choice | Notes |
+|-------|--------|--------|
+| Web + API | **Railway** | Current staging/prod path; keep for go-live |
+| Database | **Railway Postgres** | Metadata + tenancy (`garageAccountId`); easy to migrate later via `DATABASE_URL` |
+| File blobs | **Object storage** (R2 or Supabase Storage) | Receipts/photos; not Postgres BYTEA |
+| Queue / workers | **Redis on Railway** | Notifications, PDF jobs (when added) |
+| Mobile | **Same API + same DB** | No direct DB access from app; JWT + RBAC |
+
+**Do not** move main app DB to Supabase Postgres for multi-garage — Railway Postgres + Prisma is sufficient.
+
+### VAT receipt / scan upload (backlog)
+
+**Goal:** Attach supplier receipt PDFs to **ledger expenses** (external invoices) for VAT submission.
+
+| Item | Plan |
+|------|------|
+| v1 scope | Ledger expense entries (+ stock purchases that post ledger) |
+| Metadata | `DocumentAttachment` in Postgres (`ledgerEntryId`, `storageKey`, size, `uploadedBy`) |
+| Files | Private bucket or Railway Volume for MVP; `StorageService` abstraction to swap R2/Supabase later |
+| Web | Upload PDF |
+| Mobile / iPad | Camera scan → compress images → merge to small PDF |
+| Cost (1 garage, Railway Volume) | ~£0–1/mo for scan storage at current volume |
+
+**Not started** — waiting on hosting confirmation for blob provider.
+
+### Push notifications (backlog)
+
+| Item | Plan |
+|------|------|
+| In-garage alerts | FCM (iOS/Android) + Web Push (PWA); **not** Supabase Realtime |
+| Data | `notifications` + `device_tokens` tables in Postgres |
+| Mobile v1 | PWA first; Capacitor/Expo shell if iOS push needs native |
+
+### Tyre inventory UX (design only)
+
+- Separate SKU row per supplier line (same size OK).
+- Job picker: `{size} — {brand} · {supplier} · {qty}`; **0 qty disabled**.
+
+---
+
+## Backlog / next build (priority order)
+
+1. **PCO module** — see signed-off spec below (vehicle + booking, ledger-only income).
+2. **Tyre job picker** — supplier + stock on repair jobs (Phase 9 with PWA).
+3. **Receipt upload Phase 1** — `DocumentAttachment` + API + ledger UI (Phase 14).
+4. **Phases 4–8 local UAT** sign-off.
+5. **Notification tables + Web Push** (pre go-live).
+6. **MTD VAT export** incl. receipt links (later).
+
+---
+
+## PCO module — signed-off spec (build from here)
+
+**Status:** `[x]` Built · **Gate:** ⏳ UAT  
+**Shared types:** `packages/shared/src/pco-types.ts` (job types incl. **Retest**).
+
+### Data model
+
+| Entity | Purpose |
+|--------|---------|
+| **PcoVehicle** | One row per VRM **+ keeper** snapshot. Same VRM with a **new keeper** → **new vehicle record**; previous record archived (history kept). |
+| **PcoBooking** | Each job/appointment linked to a vehicle. Completed bookings move to **Past**; vehicle `pcoExpiry` updated on complete. |
+
+### Job types
+
+`Renewal` · `New` · `Admin` · `Logbook expiring` · **`Retest`**
+
+Admin jobs: free-text **job details**. Other types: standard fields.
+
+### Vehicle / keeper fields
+
+VRM · Registered keeper · Address · Email · Phone · Date of first registration · PCO expiry · Logbook expiry (auto **+10 years** from first registration, overridable) · Note
+
+### Booking fields
+
+Job type · Job details (admin) · Priority (Low / Medium / High) · Charges ( **no VAT** ) · Partial payments · Booking date & time (**UK / Europe-London**) · Booking centre (from **PCO settings**) · Client informed · Client responded · Booking payment method (existing `PaymentMethod` list) · Admin user (auto) · Admin date/time (auto `createdAt`)
+
+### Booking centres
+
+`SettingOption` with `option_type = pco_booking_centre`. **PCO → Settings** tab for admins to add/edit centres.
+
+### Complete booking
+
+1. Status → `COMPLETED` (past tab).
+2. Prompt **next PCO expiry** — default **previous expiry + 1 year** (not completion date). ✅ Confirmed.
+3. Update vehicle `pcoExpiry`.
+
+### Tabs (UI)
+
+| Tab | Rule |
+|-----|------|
+| Active bookings | `ACTIVE` |
+| Past bookings | `COMPLETED` |
+| Renewals due | PCO expiry within **30 days** |
+| Logbook due | First registration + 10 years within **30 days** |
+
+### Payments & finance
+
+- **No invoice PDF** for PCO — charges + **partial payments** on the booking only.
+- On payment / complete: post **ledger income** with `source_module = PCO` (add `PCO` to `LedgerSourceModule` enum in schema).
+- Ledger entries clearly tagged so **P&L by module** works later: garage (repair/parts/tyres) · bodywork · PCO · rental · combined (Reports phase).
+
+### Previous charges hint
+
+On new booking, lookup by VRM: show last completed booking(s) with **amount charged** (hint only, do not auto-fill).
+
+### Build checklist (order)
+
+- [x] Prisma: `PcoVehicle`, `PcoBooking`, `PcoBookingPayment`; `LedgerSourceModule.PCO`
+- [x] API: vehicles, bookings, centres (settings), complete + roll expiry, due-soon lists
+- [x] Web: `/pco` — tabs, plate header, centres settings, payment modal pattern
+- [x] Seed demo PCO centre + sample booking
+- [x] Enable `pco` on demo garage; add `pco.read` / `pco.write` to Manager/Staff roles
+- [ ] **You:** UAT
+
+**Test script**
+1. Add booking centre in PCO settings.
+2. Create vehicle + **Retest** booking; record partial payment.
+3. Complete booking — next PCO expiry defaults to old expiry + 1 year.
+4. Same VRM, new keeper — new vehicle record; old keeper history visible on past bookings.
+5. Renewals due tab shows vehicle within 30 days of expiry.
+6. Ledger shows PCO income; no invoice generated.
 
 ---
 
@@ -366,6 +525,19 @@ Companion to [PROJECT_PLAN.md](PROJECT_PLAN.md). **Delivery model:** gated phase
 | 2026-06-04 | **Dashboard RBAC deferred** | Focus core modules; gate financial KPIs at end | Stakeholder |
 | 2026-06-04 | **Disable ≠ delete** for team | Disable = reversible; delete = soft-remove from list | Dev |
 | 2026-06-04 | **Phases 1–3 gate ✅ (local)** | Stakeholder UAT Pass on localhost; Railway deferred | Stakeholder |
+| 2026-06-12 | **Record payment on customer page** | Shared modal; no redirect to invoices; split-pay balance hints | Dev |
+| 2026-06-12 | **Supplier detail + order linking** | Profile, credit, purchases; `supplierId` on part orders | Dev |
+| 2026-06-12 | **Railway for go-live** | API + web + Postgres on Railway; blobs separate | Stakeholder + Dev |
+| 2026-06-12 | **Receipt storage** | Postgres metadata + object storage (or Volume MVP); not DB blobs | Dev |
+| 2026-06-12 | **Push notifications** | FCM + Web Push + Postgres tables; not Supabase Realtime | Dev |
+| 2026-06-12 | **Mobile** | Same NestJS API + JWT; never direct Postgres from app | Dev |
+| 2026-06-12 | **Tyre SKUs per supplier line** | Same size allowed; job dropdown shows supplier + qty | Stakeholder |
+| 2026-06-13 | **PCO: job types incl. Retest** | Renewal, New, Admin, Logbook expiring, Retest | Stakeholder |
+| 2026-06-13 | **PCO expiry roll-forward** | On complete: next expiry = **previous expiry + 1 year**, not completion date | Stakeholder |
+| 2026-06-13 | **PCO: no VAT** | PCO charges are VAT-exempt; no invoice PDF | Stakeholder |
+| 2026-06-13 | **PCO: new keeper = new record** | Same VRM + new keeper → new vehicle row; archive old | Stakeholder |
+| 2026-06-13 | **PCO: ledger only** | Income to ledger `source_module=PCO`; P&L by module in Reports later | Stakeholder |
+| 2026-06-13 | **PCO booking datetime** | UK garage local (Europe/London), date + time | Stakeholder |
 
 ---
 
@@ -388,3 +560,6 @@ Companion to [PROJECT_PLAN.md](PROJECT_PLAN.md). **Delivery model:** gated phase
 | 2026-06-04 | Phase 4 build complete (ledger API + web, migration, seed accounts) |
 | 2026-06-05 | Phase 5 build complete (invoices, payments, PDF, allocations, demo ABC invoices) |
 | 2026-06-06 | Phase 6 build complete (repair jobs, tasks, invoice from job, ledger REPAIR income) |
+| 2026-06-12 | Customer record payment modal; supplier detail/orders; tyre stock purchase UX; payment balance hints (`33d666e`) |
+| 2026-06-12 | Architecture notes: Railway go-live, receipt storage, push, mobile API-only |
+| 2026-06-13 | PCO module spec signed off; Retest job type; shared `pco-types.ts`; backlog #1 |

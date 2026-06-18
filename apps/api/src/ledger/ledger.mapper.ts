@@ -35,6 +35,7 @@ type EntryWithAccount = LedgerEntry & {
   customer?: Pick<Customer, "type" | "firstName" | "lastName" | "companyName"> | null;
   repairJob?: { id: string; jobNumber: string } | null;
   bodyworkJob?: { id: string; jobNumber: string } | null;
+  pcoBooking?: { id: string; bookingNumber: string } | null;
 };
 
 export function toLedgerEntryDto(row: EntryWithAccount): LedgerEntryDto {
@@ -59,6 +60,8 @@ export function toLedgerEntryDto(row: EntryWithAccount): LedgerEntryDto {
     repairJobNumber: row.repairJob?.jobNumber ?? null,
     bodyworkJobId: row.bodyworkJobId,
     bodyworkJobNumber: row.bodyworkJob?.jobNumber ?? null,
+    pcoBookingId: row.pcoBookingId,
+    pcoBookingNumber: row.pcoBooking?.bookingNumber ?? null,
     notes: row.notes,
     reversesEntryId: row.reversesEntryId,
     createdById: row.createdById,

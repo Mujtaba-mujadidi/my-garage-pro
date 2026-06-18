@@ -5,6 +5,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Modal } from "@/components/ui/modal";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { SearchableTable, type TableColumn } from "@/components/ui/searchable-table";
+import { Select } from "@/components/ui/select";
 import { TableRowActionsMenu } from "@/components/ui/table-row-actions-menu";
 import { apiFetch, ApiError } from "@/lib/api-client";
 import {
@@ -111,7 +112,10 @@ export function TyresPageContent() {
   const [accounts, setAccounts] = useState<PaymentAccountDto[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [lowStockOnly, setLowStockOnly] = useState(false);
+  const [filterSize, setFilterSize] = useState("");
+  const [filterBrand, setFilterBrand] = useState("");
+  const [filterSupplierId, setFilterSupplierId] = useState("");
+  const [stockFilter, setStockFilter] = useState<"" | "in" | "out" | "low">("");
 
   const [modalOpen, setModalOpen] = useState(false);
   const [draft, setDraft] = useState<DraftTyre>(emptyDraft());
@@ -149,8 +153,8 @@ export function TyresPageContent() {
   const previewCode = useMemo(() => {
     if (draft.id) return draft.skuCode;
     if (!draft.size.trim()) return "";
-    return previewTyreCode(draft.size, draft.brand || null);
-  }, [draft.id, draft.skuCode, draft.size, draft.brand]);
+    return previewTyreCode(draft.size);
+  }, [draft.id, draft.skuCode, draft.size]);
 
   const unitBuyPrice = Number(draft.costPriceNet) || 0;
   const openingQty = Number(draft.quantityOnHand) || 0;
@@ -159,14 +163,13 @@ export function TyresPageContent() {
     setLoading(true);
     setError("");
     try {
-      const params = lowStockOnly ? "?lowStock=true" : "";
-      setRows(await apiFetch<TyreDto[]>(`/tyres${params}`));
+      setRows(await apiFetch<TyreDto[]>("/tyres"));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not load tyres");
     } finally {
       setLoading(false);
     }
-  }, [lowStockOnly]);
+  }, []);
 
   const loadSuppliers = useCallback(async () => {
     const data = await apiFetch<SupplierDto[]>("/suppliers").catch(() => []);
@@ -205,29 +208,159 @@ export function TyresPageContent() {
     [accounts],
   );
 
+  const brandFilterOptions = useMemo(() => {
+    const brands = new Set<string>();
+    let hasUnbranded = false;
+    for (const t of rows) {
+      if (t.brand?.trim()) brands.add(t.brand.trim());
+      else hasUnbranded = true;
+    }
+    const opts = [{ value: "", label: "All brands" }];
+    if (hasUnbranded) opts.push({ value: "__none__", label: "No brand" });
+    for (const b of [...brands].sort((a, b) => a.localeCompare(b))) {
+      opts.push({ value: b, label: b });
+    }
+    return opts;
+  }, [rows]);
+
+  const supplierFilterOptions = useMemo(
+    () => [
+      { value: "", label: "All suppliers" },
+      { value: "__none__", label: "No supplier" },
+      ...suppliers.map((s) => ({ value: s.id, label: s.name })),
+    ],
+    [suppliers],
+  );
+
+  const filteredRows = useMemo(() => {
+    const sizeQ = filterSize.trim().toLowerCase();
+    return rows
+      .filter((t) => {
+        if (sizeQ && !t.size.toLowerCase().includes(sizeQ) && !t.skuCode.toLowerCase().includes(sizeQ)) {
+          return false;
+        }
+        if (filterBrand === "__none__" && t.brand?.trim()) return false;
+        if (filterBrand && filterBrand !== "__none__" && t.brand?.trim() !== filterBrand) {
+          return false;
+        }
+        if (filterSupplierId === "__none__" && t.supplierId) return false;
+        if (filterSupplierId && filterSupplierId !== "__none__" && t.supplierId !== filterSupplierId) {
+          return false;
+        }
+        const qty = Number(t.quantityOnHand) || 0;
+        if (stockFilter === "in" && qty <= 0) return false;
+        if (stockFilter === "out" && qty > 0) return false;
+        if (stockFilter === "low" && !t.isLowStock) return false;
+        return true;
+      })
+      .sort((a, b) => {
+        const size = a.size.localeCompare(b.size);
+        if (size !== 0) return size;
+        const brand = (a.brand ?? "").localeCompare(b.brand ?? "");
+        if (brand !== 0) return brand;
+        return (a.supplierName ?? "").localeCompare(b.supplierName ?? "");
+      });
+  }, [rows, filterSize, filterBrand, filterSupplierId, stockFilter]);
+
+  const hasActiveFilters =
+    filterSize.trim() !== "" ||
+    filterBrand !== "" ||
+    filterSupplierId !== "" ||
+    stockFilter !== "";
+
+  const renderTyreActions = useCallback(
+    (t: TyreDto) => {
+      if (!canWrite) return null;
+      return (
+        <TableRowActionsMenu
+          triggerLabel={`Actions for ${t.skuCode}`}
+          actions={[
+          ...(canSell
+            ? [
+                {
+                  label: "Counter sale",
+                  onClick: () => {
+                    setSaleTyre(t);
+                    setSaleCustomerId("");
+                    setSaleQty("1");
+                    setSalePrice(t.sellPriceNet);
+                    setSalePayNow(false);
+                    setSaleAccountId(accounts[0]?.id ?? "");
+                    setSaleOpen(true);
+                  },
+                },
+              ]
+            : []),
+          {
+            label: "Receive stock",
+            onClick: () => {
+              setReceiveTarget(t);
+              setReceiveQty("1");
+              setReceiveBuyPrice(t.costPriceNet);
+              setReceiveIncludeVat(false);
+              setReceivePayment(emptyStockPaymentDraft(accounts));
+              setReceiveOpen(true);
+            },
+          },
+          {
+            label: "Edit",
+            onClick: () => {
+              setDraft(toDraft(t));
+              setModalOpen(true);
+            },
+          },
+          {
+            label: t.status === "INACTIVE" ? "Activate" : "Deactivate",
+            variant: t.status === "INACTIVE" ? ("default" as const) : ("danger" as const),
+            onClick: () => {
+              setConfirmTarget(t);
+              setConfirmOpen(true);
+            },
+          },
+        ]}
+      />
+      );
+    },
+    [canWrite, canSell, accounts],
+  );
+
   const columns: TableColumn<TyreDto>[] = useMemo(() => {
     const cols: TableColumn<TyreDto>[] = [
       {
+        id: "size",
+        header: "Size",
+        searchText: (t) => t.size,
+        cell: (t) => <span className="font-medium">{t.size}</span>,
+      },
+      {
         id: "code",
-        header: "Tyre code",
-        searchText: (t) => [t.skuCode, t.size, t.brand ?? ""].join(" "),
-        cell: (t) => (
-          <div>
-            <div className="font-medium">{t.skuCode}</div>
-            <div className="text-xs text-[var(--muted)]">{t.size}</div>
-          </div>
-        ),
+        header: "Code",
+        searchText: (t) => t.skuCode,
+        cell: (t) => <span className="font-mono text-xs">{t.skuCode}</span>,
       },
       {
         id: "brand",
         header: "Brand",
+        searchText: (t) => t.brand ?? "",
         cell: (t) => t.brand ?? "—",
+      },
+      {
+        id: "supplier",
+        header: "Supplier",
+        searchText: (t) => t.supplierName ?? "",
+        cell: (t) => t.supplierName ?? "—",
       },
       {
         id: "stock",
         header: "On hand",
         cell: (t) => (
-          <span className={t.isLowStock ? "font-semibold text-amber-700 dark:text-amber-300" : "tabular-nums"}>
+          <span
+            className={
+              t.isLowStock
+                ? "font-semibold tabular-nums text-amber-700 dark:text-amber-300"
+                : "tabular-nums"
+            }
+          >
             {t.quantityOnHand}
             {t.isLowStock && (
               <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-950 dark:text-amber-200">
@@ -264,60 +397,12 @@ export function TyresPageContent() {
         id: "actions",
         header: "",
         align: "right",
-        cell: (t) => (
-          <TableRowActionsMenu
-            triggerLabel={`Actions for ${t.skuCode}`}
-            actions={[
-              ...(canSell
-                ? [
-                    {
-                      label: "Counter sale",
-                      onClick: () => {
-                        setSaleTyre(t);
-                        setSaleCustomerId("");
-                        setSaleQty("1");
-                        setSalePrice(t.sellPriceNet);
-                        setSalePayNow(false);
-                        setSaleAccountId(accounts[0]?.id ?? "");
-                        setSaleOpen(true);
-                      },
-                    },
-                  ]
-                : []),
-              {
-                label: "Receive stock",
-                onClick: () => {
-                  setReceiveTarget(t);
-                  setReceiveQty("1");
-                  setReceiveBuyPrice(t.costPriceNet);
-                  setReceiveIncludeVat(false);
-                  setReceivePayment(emptyStockPaymentDraft(accounts));
-                  setReceiveOpen(true);
-                },
-              },
-              {
-                label: "Edit",
-                onClick: () => {
-                  setDraft(toDraft(t));
-                  setModalOpen(true);
-                },
-              },
-              {
-                label: t.status === "INACTIVE" ? "Activate" : "Deactivate",
-                variant: t.status === "INACTIVE" ? "default" : "danger",
-                onClick: () => {
-                  setConfirmTarget(t);
-                  setConfirmOpen(true);
-                },
-              },
-            ]}
-          />
-        ),
+        cell: (t) => renderTyreActions(t),
       });
     }
 
     return cols;
-  }, [canWrite, canSell, accounts]);
+  }, [canWrite, renderTyreActions]);
 
   async function saveNewSupplier(e: FormEvent) {
     e.preventDefault();
@@ -387,8 +472,15 @@ export function TyresPageContent() {
       };
 
       if (draft.id) {
-        const { quantityOnHand: _q, ...updatePayload } = payload;
-        await apiFetch(`/tyres/${draft.id}`, { method: "PATCH", body: JSON.stringify(updatePayload) });
+        const { quantityOnHand: _q, ...rest } = payload;
+        await apiFetch(`/tyres/${draft.id}`, {
+          method: "PATCH",
+          body: JSON.stringify({
+            ...rest,
+            brand: draft.brand.trim() || null,
+            supplierId: draft.supplierId || null,
+          }),
+        });
       } else {
         await apiFetch("/tyres", { method: "POST", body: JSON.stringify(payload) });
       }
@@ -489,21 +581,11 @@ export function TyresPageContent() {
           </p>
           <h1 className="text-2xl font-bold text-[var(--foreground)]">Tyre stock</h1>
           <p className="mt-1 text-sm text-[var(--muted)]">
-            Inventory levels, counter sales, and job fitting. Sell prices include fitting.
+            Each brand and supplier is a separate SKU line. Sell prices include fitting.
           </p>
         </div>
 
         <div className="flex items-center gap-3">
-          <label className="flex items-center gap-2 text-xs text-[var(--muted)]">
-            <input
-              type="checkbox"
-              checked={lowStockOnly}
-              onChange={(e) => setLowStockOnly(e.target.checked)}
-              className="h-4 w-4 rounded border border-[var(--border)]"
-            />
-            Low stock only
-          </label>
-
           {canWrite && (
             <button
               type="button"
@@ -522,16 +604,82 @@ export function TyresPageContent() {
       </div>
 
       {error && <p className="mb-4 text-sm text-red-600">{error}</p>}
-      {loading && <p className="mb-4 text-sm text-[var(--muted)]">Loading…</p>}
 
-      <SearchableTable
-        rows={rows}
-        columns={columns}
-        getRowId={(r) => r.id}
-        searchPlaceholder="Search code, size, brand…"
-        emptyLabel={loading ? "Loading…" : "No tyres in stock yet"}
-        countLabel={(f, t) => `${f} of ${t} SKUs`}
-      />
+      <div className="mb-4 flex flex-wrap items-end gap-3">
+        <label className="min-w-[10rem] flex-1 text-xs text-[var(--muted)]">
+          <span className="mb-1 block font-medium">Size / code</span>
+          <input
+            type="search"
+            value={filterSize}
+            onChange={(e) => setFilterSize(e.target.value)}
+            placeholder="e.g. 205/55R16"
+            className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--foreground)]"
+          />
+        </label>
+        <label className="min-w-[10rem] flex-1 text-xs text-[var(--muted)]">
+          <span className="mb-1 block font-medium">Brand</span>
+          <Select
+            value={filterBrand}
+            onChange={setFilterBrand}
+            options={brandFilterOptions}
+            placeholder="All brands"
+          />
+        </label>
+        <label className="min-w-[10rem] flex-1 text-xs text-[var(--muted)]">
+          <span className="mb-1 block font-medium">Supplier</span>
+          <Select
+            value={filterSupplierId}
+            onChange={setFilterSupplierId}
+            options={supplierFilterOptions}
+            placeholder="All suppliers"
+          />
+        </label>
+        <label className="min-w-[10rem] flex-1 text-xs text-[var(--muted)]">
+          <span className="mb-1 block font-medium">Stock</span>
+          <Select
+            value={stockFilter}
+            onChange={(v) => setStockFilter(v as "" | "in" | "out" | "low")}
+            options={[
+              { value: "", label: "All stock" },
+              { value: "in", label: "In stock" },
+              { value: "out", label: "Out of stock" },
+              { value: "low", label: "Low stock" },
+            ]}
+            placeholder="All stock"
+          />
+        </label>
+        {hasActiveFilters && (
+          <button
+            type="button"
+            onClick={() => {
+              setFilterSize("");
+              setFilterBrand("");
+              setFilterSupplierId("");
+              setStockFilter("");
+            }}
+            className="rounded-lg border border-[var(--border)] px-3 py-2 text-xs font-medium text-[var(--muted)] hover:bg-[var(--background)]"
+          >
+            Clear filters
+          </button>
+        )}
+      </div>
+
+      {loading ? (
+        <p className="text-sm text-[var(--muted)]">Loading…</p>
+      ) : (
+        <SearchableTable<TyreDto>
+          rows={filteredRows}
+          columns={columns}
+          getRowId={(t) => t.id}
+          searchPlaceholder="Search brand, supplier, code…"
+          countLabel={(filtered, total) =>
+            hasActiveFilters ? `${filtered} of ${total} tyres` : `${filtered} tyres`
+          }
+          emptyLabel="No tyre SKUs yet — add your first line."
+          noMatchLabel="No tyres match the current filters."
+          minWidth="72rem"
+        />
+      )}
 
       <Modal
         title={draft.id ? "Edit tyre" : "Add tyre SKU"}

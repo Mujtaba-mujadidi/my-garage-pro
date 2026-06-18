@@ -18,6 +18,7 @@ import { RepairJobsModule } from "./repair-jobs/repair-jobs.module";
 import { BodyworkJobsModule } from "./bodywork-jobs/bodywork-jobs.module";
 import { PartsModule } from "./parts/parts.module";
 import { TyresModule } from "./tyres/tyres.module";
+import { PcoModule } from "./pco/pco.module";
 
 @Module({
   imports: [
@@ -37,6 +38,7 @@ import { TyresModule } from "./tyres/tyres.module";
     BodyworkJobsModule,
     PartsModule,
     TyresModule,
+    PcoModule,
   ],
   controllers: [HealthController],
   providers: [

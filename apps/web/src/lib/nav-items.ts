@@ -43,7 +43,7 @@ const MODULE_PHASE_LABELS: Partial<Record<ModuleKey, string>> = {
   ledger: "Phase 4",
   used_cars: "Phase 10",
   rental: "Phase 12",
-  pco: "Post-MVP",
+  pco: "PCO",
   partners: "Phase 11",
   reports: "Phase 13",
 };
@@ -73,5 +73,5 @@ export const FOOTER_NAV: NavItem[] = [
 /** Module keys that use the shared `[module]` placeholder route (not a dedicated page). */
 export const PLACEHOLDER_MODULE_KEYS = SIDEBAR_MODULE_ORDER.filter(
   (key) =>
-    !["customers", "suppliers", "ledger", "invoices", "repair", "bodywork", "partners", "parts", "tyres"].includes(key),
+    !["customers", "suppliers", "ledger", "invoices", "repair", "bodywork", "partners", "parts", "tyres", "pco"].includes(key),
 );

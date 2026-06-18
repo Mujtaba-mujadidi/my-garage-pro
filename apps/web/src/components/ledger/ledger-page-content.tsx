@@ -481,6 +481,12 @@ export function LedgerPageContent() {
         cell: (e) => e.category ?? "—",
       },
       {
+        id: "source",
+        header: "Source",
+        searchText: (e) => LEDGER_SOURCE_MODULE_LABEL[e.sourceModule] ?? e.sourceModule,
+        cell: (e) => LEDGER_SOURCE_MODULE_LABEL[e.sourceModule] ?? e.sourceModule,
+      },
+      {
         id: "reference",
         header: "Reference",
         searchText: (e) => e.notes ?? "",
@@ -986,6 +992,9 @@ export function LedgerPageContent() {
                   label={viewEntry.bodyworkJobNumber ?? "Open job"}
                 />
               </DetailRow>
+            )}
+            {viewEntry.pcoBookingNumber && (
+              <DetailRow label="PCO booking">{viewEntry.pcoBookingNumber}</DetailRow>
             )}
             {viewEntry.notes ? (
               <div className="border-b border-[var(--border)] py-2.5 last:border-0 sm:col-span-2">

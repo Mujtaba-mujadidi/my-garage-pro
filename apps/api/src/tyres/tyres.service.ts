@@ -9,7 +9,6 @@ import {
 import {
   generateTyreCodeFromSize,
   isRepairJobApprovedForWork,
-  previewTyreCode,
   sanitizeTyreCode,
   type RepairJobDto,
 } from "@mygaragepro/shared";
@@ -81,31 +80,25 @@ export class TyresService {
   private async resolveUniqueTyreCode(
     garageAccountId: string,
     size: string,
-    brand?: string | null,
     excludeId?: string,
   ): Promise<string> {
-    const candidates = [
-      generateTyreCodeFromSize(size),
-      previewTyreCode(size, brand),
-    ].filter((code, index, arr) => code && arr.indexOf(code) === index);
+    const base = generateTyreCodeFromSize(size);
+    if (!base) throw new BadRequestException("Tyre code could not be generated from size");
 
-    for (const code of candidates) {
-      const clash = await this.prisma.tyre.findFirst({
-        where: {
-          garageAccountId,
-          skuCode: code,
-          deletedAt: null,
-          ...(excludeId ? { id: { not: excludeId } } : {}),
-        },
-        select: { id: true },
-      });
-      if (!clash) return code;
-    }
+    const clash = await this.prisma.tyre.findFirst({
+      where: {
+        garageAccountId,
+        skuCode: base,
+        deletedAt: null,
+        ...(excludeId ? { id: { not: excludeId } } : {}),
+      },
+      select: { id: true },
+    });
+    if (!clash) return base;
 
-    const base = previewTyreCode(size, brand) || generateTyreCodeFromSize(size);
     for (let n = 2; n < 1000; n++) {
       const code = `${base}${n}`;
-      const clash = await this.prisma.tyre.findFirst({
+      const dup = await this.prisma.tyre.findFirst({
         where: {
           garageAccountId,
           skuCode: code,
@@ -114,7 +107,7 @@ export class TyresService {
         },
         select: { id: true },
       });
-      if (!clash) return code;
+      if (!dup) return code;
     }
 
     throw new BadRequestException("Could not generate a unique tyre code");
@@ -173,7 +166,7 @@ export class TyresService {
     const brand = dto.brand?.trim() || null;
     const skuCode = dto.skuCode?.trim()
       ? sanitizeTyreCode(dto.skuCode)
-      : await this.resolveUniqueTyreCode(garageAccountId, size, brand);
+      : await this.resolveUniqueTyreCode(garageAccountId, size);
     if (!skuCode) throw new BadRequestException("Tyre code could not be generated from size");
 
     if (dto.supplierId) {

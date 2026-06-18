@@ -24,7 +24,8 @@ export type LedgerSourceModule =
   | "REPAIR"
   | "BODYWORK"
   | "PARTS"
-  | "TYRES";
+  | "TYRES"
+  | "PCO";
 
 export const LEDGER_SOURCE_MODULE_LABEL: Record<LedgerSourceModule, string> = {
   GENERAL: "General",
@@ -35,6 +36,7 @@ export const LEDGER_SOURCE_MODULE_LABEL: Record<LedgerSourceModule, string> = {
   BODYWORK: "Bodywork",
   PARTS: "Parts",
   TYRES: "Tyres",
+  PCO: "PCO",
 };
 
 export type LedgerEntryDto = {
@@ -58,6 +60,8 @@ export type LedgerEntryDto = {
   repairJobNumber: string | null;
   bodyworkJobId: string | null;
   bodyworkJobNumber: string | null;
+  pcoBookingId: string | null;
+  pcoBookingNumber: string | null;
   notes: string | null;
   reversesEntryId: string | null;
   createdById: string;

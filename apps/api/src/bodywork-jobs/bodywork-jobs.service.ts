@@ -115,12 +115,16 @@ export class BodyworkJobsService {
   }
 
   private async assertJobTasksEditable(garageAccountId: string, jobId: string) {
-    const invoice = await this.prisma.invoice.findFirst({
-      where: { bodyworkJobId: jobId, garageAccountId },
+    const job = await this.prisma.bodyworkJob.findFirst({
+      where: { id: jobId, garageAccountId },
       select: { status: true },
     });
-    if (invoice?.status === InvoiceStatus.PAID) {
-      throw new BadRequestException("Tasks cannot be changed after the invoice is paid");
+    if (!job) throw new NotFoundException("Bodywork job not found");
+    if (
+      job.status === BodyworkJobStatus.COMPLETED ||
+      job.status === BodyworkJobStatus.CANCELLED
+    ) {
+      throw new BadRequestException("Tasks cannot be changed after the job is completed");
     }
   }
 
@@ -652,7 +656,8 @@ export class BodyworkJobsService {
     }
     if (
       dto.status === BodyworkJobStatus.COMPLETED &&
-      !allBodyworkTasksComplete(existing.tasks)
+      !allBodyworkTasksComplete(existing.tasks) &&
+      !dto.completeOpenTasks
     ) {
       throw new BadRequestException(
         "All tasks must be completed before the job can be marked complete",
@@ -715,6 +720,20 @@ export class BodyworkJobsService {
           },
         });
       } else {
+        if (
+          dto.status === BodyworkJobStatus.COMPLETED &&
+          dto.completeOpenTasks
+        ) {
+          await tx.bodyworkTask.updateMany({
+            where: {
+              bodyworkJobId: id,
+              status: {
+                notIn: [BodyworkTaskStatus.COMPLETED, BodyworkTaskStatus.CANCELLED],
+              },
+            },
+            data: { status: BodyworkTaskStatus.COMPLETED },
+          });
+        }
         await tx.bodyworkJob.update({
           where: { id },
           data: { status: dto.status },
@@ -747,6 +766,7 @@ export class BodyworkJobsService {
               allTasksFailed: !dto.failedTaskIds?.length,
             }
           : {}),
+        ...(dto.completeOpenTasks ? { completeOpenTasks: true } : {}),
       },
     });
 

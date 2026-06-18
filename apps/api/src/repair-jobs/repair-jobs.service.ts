@@ -133,12 +133,16 @@ export class RepairJobsService {
   }
 
   private async assertJobTasksEditable(garageAccountId: string, jobId: string) {
-    const invoice = await this.prisma.invoice.findFirst({
-      where: { repairJobId: jobId, garageAccountId },
+    const job = await this.prisma.repairJob.findFirst({
+      where: { id: jobId, garageAccountId },
       select: { status: true },
     });
-    if (invoice?.status === InvoiceStatus.PAID) {
-      throw new BadRequestException("Tasks cannot be changed after the invoice is paid");
+    if (!job) throw new NotFoundException("Repair job not found");
+    if (
+      job.status === RepairJobStatus.COMPLETED ||
+      job.status === RepairJobStatus.CANCELLED
+    ) {
+      throw new BadRequestException("Tasks cannot be changed after the job is completed");
     }
   }
 
@@ -690,7 +694,8 @@ export class RepairJobsService {
     }
     if (
       dto.status === RepairJobStatus.COMPLETED &&
-      !allRepairTasksComplete(existing.tasks)
+      !allRepairTasksComplete(existing.tasks) &&
+      !dto.completeOpenTasks
     ) {
       throw new BadRequestException(
         "All tasks must be completed before the job can be marked complete",
@@ -753,6 +758,20 @@ export class RepairJobsService {
           },
         });
       } else {
+        if (
+          dto.status === RepairJobStatus.COMPLETED &&
+          dto.completeOpenTasks
+        ) {
+          await tx.repairTask.updateMany({
+            where: {
+              repairJobId: id,
+              status: {
+                notIn: [RepairTaskStatus.COMPLETED, RepairTaskStatus.CANCELLED],
+              },
+            },
+            data: { status: RepairTaskStatus.COMPLETED },
+          });
+        }
         await tx.repairJob.update({
           where: { id },
           data: { status: dto.status },
@@ -804,6 +823,7 @@ export class RepairJobsService {
               allTasksFailed: !dto.failedTaskIds?.length,
             }
           : {}),
+        ...(dto.completeOpenTasks ? { completeOpenTasks: true } : {}),
       },
     });
 

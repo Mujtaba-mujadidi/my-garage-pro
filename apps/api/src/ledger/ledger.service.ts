@@ -182,6 +182,7 @@ export class LedgerService {
     },
     repairJob: { select: { id: true, jobNumber: true } },
     bodyworkJob: { select: { id: true, jobNumber: true } },
+    pcoBooking: { select: { id: true, bookingNumber: true } },
   } as const;
 
   async listEntries(
@@ -244,6 +245,7 @@ export class LedgerService {
         paymentAccountId: dto.paymentAccountId,
         direction: dto.direction,
         status: LedgerEntryStatus.PENDING,
+        sourceModule: LedgerSourceModule.GENERAL,
         valueDate: this.parseValueDate(dto.valueDate),
         amountGross: amounts.amountGross,
         vatAmount: amounts.vatAmount,
@@ -582,6 +584,67 @@ export class LedgerService {
       entityId: row.id,
       metadata: { source: "repair_job", repairJobId: params.repairJobId },
     });
+
+    return row;
+  }
+
+  /** Posted income from a PCO booking payment (no invoice). */
+  async createPostedIncomeForPcoPayment(
+    user: RequestUser,
+    params: {
+      pcoBookingId: string;
+      pcoBookingPaymentId: string;
+      paymentAccountId: string;
+      method: PaymentMethod;
+      valueDate: Date;
+      amountGross: number;
+      reference: string;
+    },
+    tx?: Prisma.TransactionClient,
+  ) {
+    const garageAccountId = this.financeGarageId(user);
+    const db = tx ?? this.prisma;
+    const amounts = this.parseAmounts(params.amountGross, 0);
+    const now = new Date();
+
+    const row = await db.ledgerEntry.create({
+      data: {
+        garageAccountId,
+        paymentAccountId: params.paymentAccountId,
+        paymentMethod: params.method,
+        pcoBookingId: params.pcoBookingId,
+        direction: LedgerEntryDirection.INCOME,
+        status: LedgerEntryStatus.POSTED,
+        sourceModule: LedgerSourceModule.PCO,
+        valueDate: params.valueDate,
+        postedAt: now,
+        amountGross: amounts.amountGross,
+        vatAmount: amounts.vatAmount,
+        amountNet: amounts.amountNet,
+        category: "PCO service",
+        notes: params.reference,
+        createdById: user.id,
+        checkedById: user.id,
+        checkedAt: now,
+        approvedById: user.id,
+      },
+      ...(tx ? {} : { include: this.entryInclude }),
+    });
+
+    if (!tx) {
+      await this.audit.log({
+        action: "ledger.entry.post",
+        userId: user.id,
+        garageAccountId,
+        entityType: "ledger_entry",
+        entityId: row.id,
+        metadata: {
+          source: "pco_payment",
+          pcoBookingId: params.pcoBookingId,
+          pcoBookingPaymentId: params.pcoBookingPaymentId,
+        },
+      });
+    }
 
     return row;
   }
