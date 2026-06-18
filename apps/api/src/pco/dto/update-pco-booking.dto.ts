@@ -1,13 +1,5 @@
 import { PcoJobType, PcoPriority, PaymentMethod } from "@prisma/client";
-import {
-  IsBoolean,
-  IsEnum,
-  IsOptional,
-  IsString,
-  IsUUID,
-  Matches,
-  MaxLength,
-} from "class-validator";
+import { IsBoolean, IsEnum, IsInt, IsOptional, IsString, IsUUID, Matches, MaxLength, Min } from "class-validator";
 
 export class UpdatePcoBookingDto {
   @IsOptional()
@@ -91,6 +83,31 @@ export class UpdatePcoBookingDto {
   @IsString()
   @MaxLength(40)
   phone?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  make?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  model?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  color?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  fuelType?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  seatCount?: number;
 
   @IsOptional()
   @IsString()

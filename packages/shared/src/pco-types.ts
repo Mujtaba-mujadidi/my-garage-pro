@@ -22,13 +22,17 @@ export const PCO_JOB_TYPES: PcoJobType[] = [
   "RETEST",
 ];
 
-export type PcoBookingStatus = "ACTIVE" | "COMPLETED" | "CANCELLED";
+export type PcoBookingStatus = "PENDING" | "ACTIVE" | "COMPLETED" | "CANCELLED";
 
 export const PCO_BOOKING_STATUS_LABEL: Record<PcoBookingStatus, string> = {
-  ACTIVE: "Active",
+  PENDING: "To book",
+  ACTIVE: "Booked",
   COMPLETED: "Completed",
   CANCELLED: "Cancelled",
 };
+
+export const PCO_FUEL_TYPES = ["Petrol", "Diesel", "Electric", "Hybrid", "Other"] as const;
+export type PcoFuelType = (typeof PCO_FUEL_TYPES)[number];
 
 export type PcoPriority = "LOW" | "MEDIUM" | "HIGH";
 
@@ -38,8 +42,8 @@ export const PCO_PRIORITY_LABEL: Record<PcoPriority, string> = {
   HIGH: "High",
 };
 
-/** Days before expiry to show on renewals / logbook due tabs. */
-export const PCO_DUE_SOON_DAYS = 30;
+/** Days before expiry to show on renewals / V5C due tabs. */
+export const PCO_DUE_SOON_DAYS = 28;
 
 /** Logbook validity from date of first registration (UK). */
 export const PCO_LOGBOOK_YEARS = 10;
@@ -107,6 +111,11 @@ export type PcoVehicleDto = {
   postcode: string | null;
   email: string | null;
   phone: string | null;
+  make: string | null;
+  model: string | null;
+  color: string | null;
+  fuelType: string | null;
+  seatCount: number | null;
   firstRegistrationDate: string;
   pcoExpiryDate: string;
   logbookExpiryDate: string;
@@ -177,6 +186,11 @@ export type PcoBookingListDto = {
   addressLine1: string | null;
   city: string | null;
   postcode: string | null;
+  make: string | null;
+  model: string | null;
+  color: string | null;
+  fuelType: string | null;
+  seatCount: number | null;
   firstRegistrationDate: string;
   pcoExpiryDate: string;
   logbookExpiryDate: string;
@@ -192,6 +206,11 @@ export type PcoDueVehicleDto = {
   addressLine1: string | null;
   city: string | null;
   postcode: string | null;
+  make: string | null;
+  model: string | null;
+  color: string | null;
+  fuelType: string | null;
+  seatCount: number | null;
   pcoExpiryDate: string | null;
   logbookExpiryDate: string;
   firstRegistrationDate: string;
@@ -202,7 +221,14 @@ export type PcoDueVehicleDto = {
 
 export type PcoVrmLookupDto = {
   activeVehicle: PcoVehicleDto | null;
+  /** Vehicle details from the most recent completed booking for this VRM. */
+  lastCompletedVehicle: PcoVehicleDto | null;
   previousCharges: { bookingNumber: string; jobType: PcoJobType; chargeGross: string; completedAt: string | null }[];
 };
 
-export type PcoBookingTab = "active" | "past" | "renewals_due" | "logbook_due";
+export type PcoBookingTab =
+  | "active"
+  | "pending"
+  | "past"
+  | "v5c_expiring"
+  | "renewals_due";

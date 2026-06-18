@@ -20,6 +20,7 @@ import { CompletePcoBookingDto } from "./dto/complete-pco-booking.dto";
 import { CreatePcoBookingDto } from "./dto/create-pco-booking.dto";
 import { CreatePcoCentreDto } from "./dto/create-pco-centre.dto";
 import { RecordPcoPaymentDto } from "./dto/record-pco-payment.dto";
+import { SchedulePcoBookingDto } from "./dto/schedule-pco-booking.dto";
 import { UpdatePcoBookingDto } from "./dto/update-pco-booking.dto";
 import {
   toPcoBookingDto,
@@ -94,6 +95,11 @@ export class PcoService {
       postcode: dto.postcode?.trim() || null,
       email: dto.email?.trim() || null,
       phone: dto.phone?.trim() || null,
+      make: dto.make?.trim() || null,
+      model: dto.model?.trim() || null,
+      color: dto.color?.trim() || null,
+      fuelType: dto.fuelType?.trim() || null,
+      seatCount: dto.seatCount ?? null,
       firstRegistrationDate: this.parseDate(dto.firstRegistrationDate),
       pcoExpiryDate: this.parseDate(dto.pcoExpiryDate),
       logbookExpiryDate: this.parseDate(logbookExpiry),
@@ -193,6 +199,16 @@ export class PcoService {
       where: { garageAccountId, vrm, status: PcoVehicleStatus.ACTIVE },
     });
 
+    const lastCompleted = await this.prisma.pcoBooking.findFirst({
+      where: {
+        garageAccountId,
+        status: PcoBookingStatus.COMPLETED,
+        vehicle: { vrm },
+      },
+      orderBy: { completedAt: "desc" },
+      include: { vehicle: true },
+    });
+
     const completed = await this.prisma.pcoBooking.findMany({
       where: {
         garageAccountId,
@@ -211,6 +227,7 @@ export class PcoService {
 
     return {
       activeVehicle: activeVehicle ? toPcoVehicleDto(activeVehicle) : null,
+      lastCompletedVehicle: lastCompleted ? toPcoVehicleDto(lastCompleted.vehicle) : null,
       previousCharges: completed.map((b) => ({
         bookingNumber: b.bookingNumber,
         jobType: b.jobType,
@@ -223,7 +240,8 @@ export class PcoService {
   async listBookings(user: RequestUser, tab: string) {
     const garageAccountId = this.garageId(user);
 
-    if (tab === "renewals_due" || tab === "logbook_due") {
+    if (tab === "renewals_due" || tab === "v5c_expiring" || tab === "logbook_due") {
+      const dueTab = tab === "logbook_due" ? "v5c_expiring" : tab;
       const vehicles = await this.prisma.pcoVehicle.findMany({
         where: { garageAccountId, status: PcoVehicleStatus.ACTIVE },
         orderBy: [{ pcoExpiryDate: "asc" }],
@@ -237,7 +255,7 @@ export class PcoService {
 
       for (const v of vehicles) {
         const dueDate =
-          tab === "renewals_due" ? v.pcoExpiryDate : v.logbookExpiryDate;
+          dueTab === "renewals_due" ? v.pcoExpiryDate : v.logbookExpiryDate;
         if (dueDate < today || dueDate > end) continue;
 
         const lastBooking = await this.prisma.pcoBooking.findFirst({
@@ -256,8 +274,13 @@ export class PcoService {
       return due.sort((a, b) => a.daysUntilDue - b.daysUntilDue);
     }
 
-    const status =
-      tab === "past" ? PcoBookingStatus.COMPLETED : PcoBookingStatus.ACTIVE;
+    const statusByTab: Record<string, PcoBookingStatus> = {
+      pending: PcoBookingStatus.PENDING,
+      active: PcoBookingStatus.ACTIVE,
+      past: PcoBookingStatus.COMPLETED,
+    };
+    const status = statusByTab[tab];
+    if (!status) throw new BadRequestException("Invalid tab");
 
     const rows = await this.prisma.pcoBooking.findMany({
       where: { garageAccountId, status },
@@ -265,7 +288,9 @@ export class PcoService {
       orderBy:
         tab === "past"
           ? [{ completedAt: "desc" }, { createdAt: "desc" }]
-          : [{ bookingDate: "asc" }, { createdAt: "desc" }],
+          : tab === "pending"
+            ? [{ createdAt: "desc" }]
+            : [{ bookingDate: "asc" }, { createdAt: "desc" }],
       take: 300,
     });
 
@@ -305,16 +330,13 @@ export class PcoService {
           bookingNumber,
           jobType: dto.jobType,
           jobDetails: dto.jobDetails?.trim() || null,
+          status: PcoBookingStatus.PENDING,
           priority: dto.priority ?? "MEDIUM",
           chargeGross: roundMoney(dto.chargeGross ?? 0),
-          bookingDate: dto.bookingDate ? this.parseDate(dto.bookingDate) : null,
-          bookingTime: dto.bookingTime ?? null,
-          bookingCentreId: dto.bookingCentreId ?? null,
           clientInformed: informed,
           clientResponded: responded,
           clientInformedAt: informed ? now : null,
           clientRespondedAt: responded ? now : null,
-          bookingPaymentMethod: dto.bookingPaymentMethod ?? null,
           createdById: user.id,
         },
         include: this.bookingInclude,
@@ -340,8 +362,8 @@ export class PcoService {
       include: { vehicle: true },
     });
     if (!existing) throw new NotFoundException("PCO booking not found");
-    if (existing.status !== PcoBookingStatus.ACTIVE) {
-      throw new BadRequestException("Only active bookings can be edited");
+    if (existing.status !== PcoBookingStatus.PENDING && existing.status !== PcoBookingStatus.ACTIVE) {
+      throw new BadRequestException("Only pending or active bookings can be edited");
     }
 
     const now = new Date();
@@ -380,6 +402,11 @@ export class PcoService {
     if (dto.postcode !== undefined) vehicleData.postcode = dto.postcode?.trim() || null;
     if (dto.email !== undefined) vehicleData.email = dto.email?.trim() || null;
     if (dto.phone !== undefined) vehicleData.phone = dto.phone?.trim() || null;
+    if (dto.make !== undefined) vehicleData.make = dto.make?.trim() || null;
+    if (dto.model !== undefined) vehicleData.model = dto.model?.trim() || null;
+    if (dto.color !== undefined) vehicleData.color = dto.color?.trim() || null;
+    if (dto.fuelType !== undefined) vehicleData.fuelType = dto.fuelType?.trim() || null;
+    if (dto.seatCount !== undefined) vehicleData.seatCount = dto.seatCount ?? null;
     if (dto.vehicleNote !== undefined) vehicleData.note = dto.vehicleNote?.trim() || null;
     if (dto.pcoExpiryDate !== undefined) {
       vehicleData.pcoExpiryDate = this.parseDate(dto.pcoExpiryDate);
@@ -397,6 +424,110 @@ export class PcoService {
         data: bookingData,
         include: this.bookingInclude,
       });
+    });
+
+    return toPcoBookingDto(row);
+  }
+
+  async scheduleBooking(user: RequestUser, id: string, dto: SchedulePcoBookingDto) {
+    const garageAccountId = this.garageId(user);
+    const existing = await this.prisma.pcoBooking.findFirst({
+      where: { id, garageAccountId },
+      include: { vehicle: true },
+    });
+    if (!existing) throw new NotFoundException("PCO booking not found");
+    if (existing.status !== PcoBookingStatus.PENDING) {
+      throw new BadRequestException("Only pending bookings can be scheduled");
+    }
+
+    const centre = await this.prisma.settingOption.findFirst({
+      where: {
+        id: dto.bookingCentreId,
+        garageAccountId,
+        optionType: PCO_CENTRE_OPTION_TYPE,
+        deletedAt: null,
+      },
+    });
+    if (!centre) throw new BadRequestException("Booking centre not found");
+
+    const row = await this.prisma.pcoBooking.update({
+      where: { id },
+      data: {
+        status: PcoBookingStatus.ACTIVE,
+        bookingDate: this.parseDate(dto.bookingDate),
+        bookingTime: dto.bookingTime,
+        bookingCentreId: dto.bookingCentreId,
+        bookingPaymentMethod: dto.bookingPaymentMethod,
+        ...(dto.chargeGross !== undefined
+          ? { chargeGross: roundMoney(dto.chargeGross) }
+          : {}),
+      },
+      include: this.bookingInclude,
+    });
+
+    await this.audit.log({
+      action: "pco.booking.schedule",
+      userId: user.id,
+      garageAccountId,
+      entityType: "pco_booking",
+      entityId: id,
+      metadata: {
+        bookingNumber: row.bookingNumber,
+        centre: centre.label,
+        bookingDate: dto.bookingDate,
+        bookingTime: dto.bookingTime,
+      },
+    });
+
+    return toPcoBookingDto(row);
+  }
+
+  async rescheduleBooking(user: RequestUser, id: string, dto: SchedulePcoBookingDto) {
+    const garageAccountId = this.garageId(user);
+    const existing = await this.prisma.pcoBooking.findFirst({
+      where: { id, garageAccountId },
+    });
+    if (!existing) throw new NotFoundException("PCO booking not found");
+    if (existing.status !== PcoBookingStatus.ACTIVE) {
+      throw new BadRequestException("Only booked (active) appointments can be rescheduled");
+    }
+
+    const centre = await this.prisma.settingOption.findFirst({
+      where: {
+        id: dto.bookingCentreId,
+        garageAccountId,
+        optionType: PCO_CENTRE_OPTION_TYPE,
+        deletedAt: null,
+      },
+    });
+    if (!centre) throw new BadRequestException("Booking centre not found");
+
+    const row = await this.prisma.pcoBooking.update({
+      where: { id },
+      data: {
+        bookingDate: this.parseDate(dto.bookingDate),
+        bookingTime: dto.bookingTime,
+        bookingCentreId: dto.bookingCentreId,
+        bookingPaymentMethod: dto.bookingPaymentMethod,
+        ...(dto.chargeGross !== undefined
+          ? { chargeGross: roundMoney(dto.chargeGross) }
+          : {}),
+      },
+      include: this.bookingInclude,
+    });
+
+    await this.audit.log({
+      action: "pco.booking.reschedule",
+      userId: user.id,
+      garageAccountId,
+      entityType: "pco_booking",
+      entityId: id,
+      metadata: {
+        bookingNumber: row.bookingNumber,
+        centre: centre.label,
+        bookingDate: dto.bookingDate,
+        bookingTime: dto.bookingTime,
+      },
     });
 
     return toPcoBookingDto(row);
@@ -523,8 +654,11 @@ export class PcoService {
       where: { id, garageAccountId },
     });
     if (!existing) throw new NotFoundException("PCO booking not found");
-    if (existing.status !== PcoBookingStatus.ACTIVE) {
-      throw new BadRequestException("Only active bookings can be cancelled");
+    if (
+      existing.status !== PcoBookingStatus.PENDING &&
+      existing.status !== PcoBookingStatus.ACTIVE
+    ) {
+      throw new BadRequestException("Only pending or active bookings can be cancelled");
     }
 
     await this.prisma.pcoBooking.update({

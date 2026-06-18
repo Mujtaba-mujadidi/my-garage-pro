@@ -7,6 +7,7 @@ import { CompletePcoBookingDto } from "./dto/complete-pco-booking.dto";
 import { CreatePcoBookingDto } from "./dto/create-pco-booking.dto";
 import { CreatePcoCentreDto } from "./dto/create-pco-centre.dto";
 import { RecordPcoPaymentDto } from "./dto/record-pco-payment.dto";
+import { SchedulePcoBookingDto } from "./dto/schedule-pco-booking.dto";
 import { UpdatePcoBookingDto } from "./dto/update-pco-booking.dto";
 import { PcoService } from "./pco.service";
 
@@ -65,6 +66,26 @@ export class PcoController {
     @Body() dto: UpdatePcoBookingDto,
   ) {
     return this.pco.updateBooking(user, id, dto);
+  }
+
+  @Post("bookings/:id/schedule")
+  @RequirePermissions("pco.write")
+  scheduleBooking(
+    @CurrentUser() user: RequestUser,
+    @Param("id") id: string,
+    @Body() dto: SchedulePcoBookingDto,
+  ) {
+    return this.pco.scheduleBooking(user, id, dto);
+  }
+
+  @Post("bookings/:id/reschedule")
+  @RequirePermissions("pco.write")
+  rescheduleBooking(
+    @CurrentUser() user: RequestUser,
+    @Param("id") id: string,
+    @Body() dto: SchedulePcoBookingDto,
+  ) {
+    return this.pco.rescheduleBooking(user, id, dto);
   }
 
   @Post("bookings/:id/payments")

@@ -237,6 +237,7 @@ enum PcoJobType {
 }
 
 enum PcoBookingStatus {
+  PENDING
   ACTIVE
   COMPLETED
   CANCELLED
@@ -1117,6 +1118,11 @@ model PcoVehicle {
   postcode              String?
   email                 String?
   phone                 String?
+  make                  String?
+  model                 String?
+  color                 String?
+  fuelType              String?          @map("fuel_type")
+  seatCount             Int?             @map("seat_count")
   firstRegistrationDate DateTime         @map("first_registration_date") @db.Date
   pcoExpiryDate         DateTime         @map("pco_expiry_date") @db.Date
   logbookExpiryDate     DateTime         @map("logbook_expiry_date") @db.Date
@@ -1143,7 +1149,7 @@ model PcoBooking {
   bookingNumber         String           @map("booking_number")
   jobType               PcoJobType       @map("job_type")
   jobDetails            String?          @map("job_details")
-  status                PcoBookingStatus @default(ACTIVE)
+  status                PcoBookingStatus @default(PENDING)
   priority              PcoPriority      @default(MEDIUM)
   chargeGross           Decimal          @default(0) @map("charge_gross") @db.Decimal(14, 2)
   amountPaid            Decimal          @default(0) @map("amount_paid") @db.Decimal(14, 2)
