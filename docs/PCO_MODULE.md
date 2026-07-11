@@ -37,7 +37,7 @@ flowchart LR
 | Status | UI tab | Meaning |
 |--------|--------|---------|
 | `PENDING` | **To book** | Request added; centre/date not set yet |
-| `ACTIVE` | **Active bookings** | Centre, date, time and slot payment recorded |
+| `ACTIVE` | **Active bookings** | Centre, date, time and slot payment recorded. Mark **Client informed** / **Client confirmed** here only. |
 | `COMPLETED` | **Past bookings** | Job done; PCO expiry rolled forward |
 | `CANCELLED` | — | Removed from active lists |
 

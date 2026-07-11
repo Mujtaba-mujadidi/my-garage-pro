@@ -60,7 +60,21 @@ function formatGbp(n: number | string) {
 }
 
 function todayIso() {
-  return new Date().toISOString().slice(0, 10);
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/** Earliest selectable booking date — tomorrow (future appointments only). */
+function minBookingDateIso() {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 function formatDateTime(iso: string) {
@@ -494,8 +508,6 @@ export function PcoPageContent() {
           jobDetails: draft.jobDetails || undefined,
           priority: draft.priority,
           chargeGross: draft.chargeGross ? Number(draft.chargeGross) : 0,
-          clientInformed: draft.clientInformed,
-          clientResponded: draft.clientResponded,
         }),
       });
       setModalOpen(false);
@@ -512,7 +524,7 @@ export function PcoPageContent() {
   function openScheduleModal(booking: PcoBookingDto) {
     setDetail(booking);
     setScheduleDraft({
-      bookingDate: booking.bookingDate ?? todayIso(),
+      bookingDate: "",
       bookingTime: booking.bookingTime ?? "",
       bookingCentreId: booking.bookingCentreId ?? centres[0]?.id ?? "",
       slotPaidBy: booking.slotPaidBy ?? "US",
@@ -636,6 +648,36 @@ export function PcoPageContent() {
     }
   }, [load]);
 
+  async function updateClientFlags(
+    bookingId: string,
+    patch: { clientInformed?: boolean; clientResponded?: boolean },
+  ) {
+    setSaving(true);
+    setError("");
+    try {
+      const updated = await apiFetch<PcoBookingDto>(`/pco/bookings/${bookingId}`, {
+        method: "PATCH",
+        body: JSON.stringify(patch),
+      });
+      setDetail((prev) => (prev?.id === bookingId ? updated : prev));
+      setRows((prev) =>
+        prev.map((r) =>
+          r.id === bookingId
+            ? {
+                ...r,
+                clientInformed: updated.clientInformed,
+                clientResponded: updated.clientResponded,
+              }
+            : r,
+        ),
+      );
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not update client status");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   function openFeeActionModal(mode: "cancel" | "reschedule", booking: PcoBookingDto) {
     setFeeActionModal({ mode, booking });
     setSlotFeeDisposition("");
@@ -753,8 +795,6 @@ export function PcoPageContent() {
           jobType: renewJobType,
           priority: renewDraft.priority,
           chargeGross: renewDraft.chargeGross ? Number(renewDraft.chargeGross) : 0,
-          clientInformed: true,
-          clientResponded: true,
         }),
       });
       setRenewDueOpen(false);
@@ -771,6 +811,14 @@ export function PcoPageContent() {
   async function scheduleBooking(e: FormEvent) {
     e.preventDefault();
     if (!detail) return;
+    if (!scheduleDraft.bookingDate) {
+      setError("Booking date is required");
+      return;
+    }
+    if (scheduleDraft.bookingDate < minBookingDateIso()) {
+      setError("Booking date must be in the future");
+      return;
+    }
     if (!scheduleDraft.bookingCentreId) {
       setError("Booking centre is required");
       return;
@@ -1033,10 +1081,10 @@ export function PcoPageContent() {
               id: "flags",
               header: "Client",
               cell: (r: PcoBookingListDto) => (
-                <span className="text-xs text-[var(--muted)] whitespace-nowrap">
-                  {r.clientInformed ? "Informed" : "Not informed"}
-                  {r.clientResponded ? " · Responded" : ""}
-                </span>
+                <div className="flex flex-col gap-0.5 text-xs text-[var(--muted)] whitespace-nowrap">
+                  <span>{r.clientInformed ? "Informed" : "Not informed"}</span>
+                  <span>{r.clientResponded ? "Confirmed" : "Not confirmed"}</span>
+                </div>
               ),
             } as TableColumn<PcoBookingListDto>,
           ]
@@ -1566,25 +1614,6 @@ export function PcoPageContent() {
             />
           </div>
 
-          <div className="flex flex-wrap gap-4 text-sm">
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={draft.clientInformed}
-                onChange={(e) => setDraft((d) => ({ ...d, clientInformed: e.target.checked }))}
-              />
-              Client informed
-            </label>
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={draft.clientResponded}
-                onChange={(e) => setDraft((d) => ({ ...d, clientResponded: e.target.checked }))}
-              />
-              Client responded
-            </label>
-          </div>
-
           <div className="flex justify-end gap-2">
             <button
               type="button"
@@ -1736,20 +1765,63 @@ export function PcoPageContent() {
                       : ""}
                   </DetailRow>
                 )}
-                <DetailRow label="Client informed">
-                  {detail.clientInformed
-                    ? detail.clientInformedAt
-                      ? `Yes · ${formatDateTime(detail.clientInformedAt)}`
-                      : "Yes"
-                    : "No"}
-                </DetailRow>
-                <DetailRow label="Client responded">
-                  {detail.clientResponded
-                    ? detail.clientRespondedAt
-                      ? `Yes · ${formatDateTime(detail.clientRespondedAt)}`
-                      : "Yes"
-                    : "No"}
-                </DetailRow>
+                <div className="border-b border-[var(--border)] py-2.5 last:border-0 sm:col-span-2">
+                  <dt className="text-sm text-[var(--muted)]">Client</dt>
+                  <dd className="mt-1.5 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
+                    {detail.status === "ACTIVE" && canWrite ? (
+                      <>
+                        <label className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={detail.clientInformed}
+                            disabled={saving}
+                            onChange={(e) =>
+                              void updateClientFlags(detail.id, {
+                                clientInformed: e.target.checked,
+                              })
+                            }
+                          />
+                          <span>
+                            Informed
+                            {detail.clientInformed && detail.clientInformedAt
+                              ? ` · ${formatDateTime(detail.clientInformedAt)}`
+                              : ""}
+                          </span>
+                        </label>
+                        <label className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={detail.clientResponded}
+                            disabled={saving}
+                            onChange={(e) =>
+                              void updateClientFlags(detail.id, {
+                                clientResponded: e.target.checked,
+                              })
+                            }
+                          />
+                          <span>
+                            Confirmed
+                            {detail.clientResponded && detail.clientRespondedAt
+                              ? ` · ${formatDateTime(detail.clientRespondedAt)}`
+                              : ""}
+                          </span>
+                        </label>
+                      </>
+                    ) : (
+                      <span>
+                        {detail.clientInformed ? "Informed" : "Not informed"}
+                        {detail.clientInformed && detail.clientInformedAt
+                          ? ` · ${formatDateTime(detail.clientInformedAt)}`
+                          : ""}
+                        {" · "}
+                        {detail.clientResponded ? "Confirmed" : "Not confirmed"}
+                        {detail.clientResponded && detail.clientRespondedAt
+                          ? ` · ${formatDateTime(detail.clientRespondedAt)}`
+                          : ""}
+                      </span>
+                    )}
+                  </dd>
+                </div>
                 {detail.jobDetails && (
                   <div className="border-b border-[var(--border)] py-2.5 last:border-0 sm:col-span-2">
                     <dt className="text-sm text-[var(--muted)]">Job details</dt>
@@ -1848,13 +1920,6 @@ export function PcoPageContent() {
 
             {detail.status === "ACTIVE" && canWrite && (
               <div className="flex flex-wrap gap-2 border-t border-[var(--border)] pt-4">
-                <button
-                  type="button"
-                  onClick={() => openFeeActionModal("reschedule", detail)}
-                  className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm font-medium"
-                >
-                  Reschedule
-                </button>
                 {canPay && Number(detail.balanceDue) > 0 && (
                   <button
                     type="button"
@@ -1867,6 +1932,13 @@ export function PcoPageContent() {
                     Record payment
                   </button>
                 )}
+                <button
+                  type="button"
+                  onClick={() => openFeeActionModal("reschedule", detail)}
+                  className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm font-medium"
+                >
+                  Reschedule
+                </button>
                 <button
                   type="button"
                   onClick={() => {
@@ -1885,7 +1957,7 @@ export function PcoPageContent() {
                   onClick={() => openFeeActionModal("cancel", detail)}
                   className="rounded-lg border border-red-300 px-3 py-1.5 text-sm text-red-700 dark:border-red-900 dark:text-red-400"
                 >
-                  Cancel
+                  Cancel booking
                 </button>
               </div>
             )}
@@ -1920,10 +1992,12 @@ export function PcoPageContent() {
               <input
                 type="date"
                 value={scheduleDraft.bookingDate}
+                min={minBookingDateIso()}
                 onChange={(e) => setScheduleDraft((d) => ({ ...d, bookingDate: e.target.value }))}
                 className={inputClass}
                 required
               />
+              <p className="mt-1 text-xs text-[var(--muted)]">Must be a future date.</p>
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Time (HH:mm)</label>

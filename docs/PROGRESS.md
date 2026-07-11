@@ -439,7 +439,7 @@ Two-step: **Add request** → **To book** (`PENDING`) → **Add booking details*
 
 **Vehicle:** VRM, keeper, address, contact, first registration, PCO/V5C expiry, optional make/model/colour/fuel/seats, vehicle note.
 
-**Booking:** Job type, priority (High/Medium/Low), charge (default **£140**, no VAT), notes, client informed/responded, centre/date/time when scheduled, **slot payment method** (incl. Customer paid — metadata only, not ledger enum).
+**Booking:** Job type, priority (High/Medium/Low), charge (default **£140**, no VAT), notes, centre/date/time when scheduled, **slot payment method**, **client informed / confirmed** (Active bookings only, after appointment is booked).
 
 ### Tabs (UI)
 
@@ -524,6 +524,7 @@ Two-step: **Add request** → **To book** (`PENDING`) → **Add booking details*
 | 2026-06-02 | **PCO slot paid by** | Add booking details: Us (ledger expense + account), Customer (no expense), N/A (no fee) | Stakeholder |
 | 2026-06-02 | **PCO due list exclusion** | Hide from due-to-renew when PENDING/ACTIVE booking exists | Stakeholder |
 | 2026-06-02 | **PCO notes + priority** | Notes on bookings; To book sorted by priority | Stakeholder |
+| 2026-07-11 | **PCO client informed/confirmed** | Only on **Active** bookings after appointment is booked — not on Add request / To book | Stakeholder |
 
 ---
 

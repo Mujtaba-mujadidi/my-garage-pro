@@ -590,6 +590,13 @@ export class PcoService {
       throw new BadRequestException("Only pending bookings can be scheduled");
     }
 
+    const today = new Date();
+    const todayUtc = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate());
+    const bookingDay = this.parseDate(dto.bookingDate);
+    if (bookingDay.getTime() <= todayUtc) {
+      throw new BadRequestException("Booking date must be in the future");
+    }
+
     const centre = await this.prisma.settingOption.findFirst({
       where: {
         id: dto.bookingCentreId,
