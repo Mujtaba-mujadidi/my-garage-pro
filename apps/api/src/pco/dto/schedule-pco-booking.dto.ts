@@ -1,5 +1,5 @@
-import { PaymentMethod } from "@prisma/client";
-import { IsEnum, IsOptional, IsString, IsUUID, Matches } from "class-validator";
+import { PcoBookingSlotPaidBy } from "@prisma/client";
+import { IsEnum, IsNumber, IsOptional, IsString, IsUUID, Matches, Min, ValidateIf } from "class-validator";
 
 /** Book a pending PCO record at a centre (moves status to ACTIVE). */
 export class SchedulePcoBookingDto {
@@ -14,9 +14,19 @@ export class SchedulePcoBookingDto {
   @IsUUID()
   bookingCentreId!: string;
 
-  @IsEnum(PaymentMethod)
-  bookingPaymentMethod!: PaymentMethod;
+  @IsEnum(PcoBookingSlotPaidBy)
+  slotPaidBy!: PcoBookingSlotPaidBy;
 
-  @IsOptional()
-  chargeGross?: number;
+  @ValidateIf((dto: SchedulePcoBookingDto) => dto.slotPaidBy === PcoBookingSlotPaidBy.US)
+  @IsUUID()
+  slotPaymentAccountId?: string;
+
+  @ValidateIf((dto: SchedulePcoBookingDto) => dto.slotPaidBy === PcoBookingSlotPaidBy.US)
+  @IsNumber()
+  @Min(0.01)
+  slotChargeGross?: number;
+
+  @ValidateIf((dto: SchedulePcoBookingDto) => dto.slotPaidBy === PcoBookingSlotPaidBy.TFL_CREDIT)
+  @IsUUID()
+  slotCreditSourceBookingId?: string;
 }

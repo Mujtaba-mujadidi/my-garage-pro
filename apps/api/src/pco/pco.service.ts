@@ -6,10 +6,14 @@ import {
 } from "@nestjs/common";
 import {
   PcoBookingStatus,
+  PcoBookingSlotPaidBy,
+  PcoJobType,
+  PcoSlotCreditStatus,
+  PcoSlotFeeDisposition,
   PcoVehicleStatus,
   Prisma,
 } from "@prisma/client";
-import { calculateLogbookExpiryFromFirstRegistration, PCO_DUE_SOON_DAYS } from "@mygaragepro/shared";
+import { calculateLogbookExpiryFromFirstRegistration, PCO_DUE_SOON_DAYS, PCO_DEFAULT_BOOKING_CHARGE, sortPcoBookingsByPriority } from "@mygaragepro/shared";
 import { AuditService } from "../audit/audit.service";
 import type { RequestUser } from "../auth/auth.types";
 import { normalizeRegistration } from "../customers/customers.mapper";
@@ -17,6 +21,7 @@ import { roundMoney } from "../invoices/invoice-calculations";
 import { LedgerService } from "../ledger/ledger.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { CompletePcoBookingDto } from "./dto/complete-pco-booking.dto";
+import { CancelPcoBookingDto } from "./dto/cancel-pco-booking.dto";
 import { CreatePcoBookingDto } from "./dto/create-pco-booking.dto";
 import { CreatePcoCentreDto } from "./dto/create-pco-centre.dto";
 import { RecordPcoPaymentDto } from "./dto/record-pco-payment.dto";
@@ -27,6 +32,7 @@ import {
   toPcoBookingListDto,
   toPcoCentreDto,
   toPcoDueVehicleDto,
+  toPcoSlotCreditDto,
   toPcoVehicleDto,
 } from "./pco.mapper";
 
@@ -51,6 +57,10 @@ export class PcoService {
   private bookingInclude = {
     vehicle: true,
     bookingCentre: { select: { label: true } },
+    slotPaymentAccount: { select: { name: true } },
+    slotCreditSourceBooking: { select: { bookingNumber: true } },
+    rescheduledFromBooking: { select: { bookingNumber: true } },
+    rescheduledToBooking: { select: { bookingNumber: true } },
     payments: { include: { paymentAccount: { select: { name: true } } }, orderBy: { createdAt: "asc" } },
     createdBy: { select: { displayName: true } },
     completedBy: { select: { displayName: true } },
@@ -65,8 +75,91 @@ export class PcoService {
     return new Date(`${iso}T00:00:00.000Z`);
   }
 
+  /** One open (PENDING or ACTIVE) booking per VRM across all vehicle records. */
+  private async findOpenBookingByVrm(
+    garageAccountId: string,
+    vrm: string,
+    excludeBookingId?: string,
+  ) {
+    return this.prisma.pcoBooking.findFirst({
+      where: {
+        garageAccountId,
+        status: { in: [PcoBookingStatus.PENDING, PcoBookingStatus.ACTIVE] },
+        vehicle: { vrm },
+        ...(excludeBookingId ? { id: { not: excludeBookingId } } : {}),
+      },
+      include: { vehicle: { select: { vrm: true } } },
+      orderBy: [{ updatedAt: "desc" }],
+    });
+  }
+
+  private openBookingErrorMessage(
+    vrm: string,
+    booking: { bookingNumber: string; status: PcoBookingStatus },
+  ) {
+    const list =
+      booking.status === PcoBookingStatus.ACTIVE ? "Active bookings" : "To book";
+    return `${vrm} already has an open booking (${booking.bookingNumber}) on ${list}. Complete, cancel, or reschedule it before adding another.`;
+  }
+
+  private dedupeListByVrm<T extends { vrm: string }>(rows: T[]): T[] {
+    const byVrm = new Map<string, T>();
+    for (const row of rows) {
+      const key = normalizeRegistration(row.vrm);
+      if (!byVrm.has(key)) byVrm.set(key, row);
+    }
+    return [...byVrm.values()];
+  }
+
   private keeperKey(name: string) {
     return name.trim().toLowerCase();
+  }
+
+  /** Active booking where the garage or customer paid a TfL slot fee (not N/A or TfL credit). */
+  private hadActiveSlotFee(booking: {
+    status: PcoBookingStatus;
+    slotPaidBy: PcoBookingSlotPaidBy | null;
+  }) {
+    return (
+      booking.status === PcoBookingStatus.ACTIVE &&
+      (booking.slotPaidBy === PcoBookingSlotPaidBy.US ||
+        booking.slotPaidBy === PcoBookingSlotPaidBy.CUSTOMER)
+    );
+  }
+
+  private validateCancellationInput(
+    hadSlotFee: boolean,
+    dto: CancelPcoBookingDto,
+  ): { disposition: PcoSlotFeeDisposition; note: string | null } {
+    if (!hadSlotFee) {
+      return { disposition: PcoSlotFeeDisposition.NOT_APPLICABLE, note: null };
+    }
+    if (
+      !dto.slotFeeDisposition ||
+      dto.slotFeeDisposition === PcoSlotFeeDisposition.NOT_APPLICABLE
+    ) {
+      throw new BadRequestException(
+        "Choose whether to keep the slot fee for a future booking or request a refund",
+      );
+    }
+    const note = dto.cancellationNote?.trim();
+    if (!note) {
+      throw new BadRequestException("A cancellation note is required when a slot fee was paid");
+    }
+    return { disposition: dto.slotFeeDisposition, note };
+  }
+
+  private async nextBookingNumber(
+    tx: Prisma.TransactionClient,
+    garageAccountId: string,
+  ) {
+    const garage = await tx.garageAccount.update({
+      where: { id: garageAccountId },
+      data: { pcoNextSeq: { increment: 1 } },
+      select: { pcoNextSeq: true },
+    });
+    const year = new Date().getFullYear();
+    return `PCO-${year}-${String(garage.pcoNextSeq).padStart(5, "0")}`;
   }
 
   private async resolveVehicle(
@@ -209,6 +302,17 @@ export class PcoService {
       include: { vehicle: true },
     });
 
+    const activeBooking = await this.prisma.pcoBooking.findFirst({
+      where: {
+        garageAccountId,
+        status: PcoBookingStatus.ACTIVE,
+        vehicle: { vrm },
+      },
+      include: { bookingCentre: { select: { label: true } } },
+    });
+
+    const openBooking = await this.findOpenBookingByVrm(garageAccountId, vrm);
+
     const completed = await this.prisma.pcoBooking.findMany({
       where: {
         garageAccountId,
@@ -228,6 +332,28 @@ export class PcoService {
     return {
       activeVehicle: activeVehicle ? toPcoVehicleDto(activeVehicle) : null,
       lastCompletedVehicle: lastCompleted ? toPcoVehicleDto(lastCompleted.vehicle) : null,
+      activeBooking: activeBooking
+        ? {
+            id: activeBooking.id,
+            bookingNumber: activeBooking.bookingNumber,
+            bookingDate: activeBooking.bookingDate
+              ? activeBooking.bookingDate.toISOString().slice(0, 10)
+              : null,
+            bookingTime: activeBooking.bookingTime,
+            bookingCentreId: activeBooking.bookingCentreId,
+            bookingCentreName: activeBooking.bookingCentre?.label ?? null,
+            slotPaidBy: activeBooking.slotPaidBy,
+            chargeGross: activeBooking.chargeGross.toString(),
+          }
+        : null,
+      openBooking: openBooking
+        ? {
+            id: openBooking.id,
+            bookingNumber: openBooking.bookingNumber,
+            status: openBooking.status,
+            jobType: openBooking.jobType,
+          }
+        : null,
       previousCharges: completed.map((b) => ({
         bookingNumber: b.bookingNumber,
         jobType: b.jobType,
@@ -257,6 +383,15 @@ export class PcoService {
         const dueDate =
           dueTab === "renewals_due" ? v.pcoExpiryDate : v.logbookExpiryDate;
         if (dueDate < today || dueDate > end) continue;
+
+        const openBooking = await this.prisma.pcoBooking.findFirst({
+          where: {
+            garageAccountId,
+            status: { in: [PcoBookingStatus.PENDING, PcoBookingStatus.ACTIVE] },
+            vehicle: { vrm: v.vrm },
+          },
+        });
+        if (openBooking) continue;
 
         const lastBooking = await this.prisma.pcoBooking.findFirst({
           where: {
@@ -288,13 +423,28 @@ export class PcoService {
       orderBy:
         tab === "past"
           ? [{ completedAt: "desc" }, { createdAt: "desc" }]
-          : tab === "pending"
-            ? [{ createdAt: "desc" }]
-            : [{ bookingDate: "asc" }, { createdAt: "desc" }],
+          : tab === "active"
+            ? [{ bookingDate: "asc" }, { createdAt: "desc" }]
+            : [{ createdAt: "desc" }],
       take: 300,
     });
 
-    return rows.map(toPcoBookingListDto);
+    const mapped = rows.map(toPcoBookingListDto);
+    if (tab === "pending") {
+      const activeForVrm = await this.prisma.pcoBooking.findMany({
+        where: { garageAccountId, status: PcoBookingStatus.ACTIVE },
+        select: { vehicle: { select: { vrm: true } } },
+      });
+      const activeVrms = new Set(activeForVrm.map((b) => normalizeRegistration(b.vehicle.vrm)));
+      const withoutActiveDuplicate = mapped.filter(
+        (r) => !activeVrms.has(normalizeRegistration(r.vrm)),
+      );
+      return sortPcoBookingsByPriority(this.dedupeListByVrm(withoutActiveDuplicate));
+    }
+    if (tab === "active") {
+      return this.dedupeListByVrm(mapped);
+    }
+    return mapped;
   }
 
   async getBooking(user: RequestUser, id: string) {
@@ -309,19 +459,20 @@ export class PcoService {
 
   async createBooking(user: RequestUser, dto: CreatePcoBookingDto) {
     const garageAccountId = this.garageId(user);
+    const vrm = normalizeRegistration(dto.vrm);
+
+    const existingOpen = await this.findOpenBookingByVrm(garageAccountId, vrm);
+    if (existingOpen) {
+      throw new BadRequestException(this.openBookingErrorMessage(vrm, existingOpen));
+    }
+
     const now = new Date();
     const informed = dto.clientInformed ?? false;
     const responded = dto.clientResponded ?? false;
 
     const row = await this.prisma.$transaction(async (tx) => {
       const vehicle = await this.resolveVehicle(tx, garageAccountId, dto);
-      const garage = await tx.garageAccount.update({
-        where: { id: garageAccountId },
-        data: { pcoNextSeq: { increment: 1 } },
-        select: { pcoNextSeq: true },
-      });
-      const year = new Date().getFullYear();
-      const bookingNumber = `PCO-${year}-${String(garage.pcoNextSeq).padStart(5, "0")}`;
+      const bookingNumber = await this.nextBookingNumber(tx, garageAccountId);
 
       return tx.pcoBooking.create({
         data: {
@@ -330,6 +481,7 @@ export class PcoService {
           bookingNumber,
           jobType: dto.jobType,
           jobDetails: dto.jobDetails?.trim() || null,
+          notes: dto.notes?.trim() || null,
           status: PcoBookingStatus.PENDING,
           priority: dto.priority ?? "MEDIUM",
           chargeGross: roundMoney(dto.chargeGross ?? 0),
@@ -371,6 +523,7 @@ export class PcoService {
 
     if (dto.jobType !== undefined) bookingData.jobType = dto.jobType;
     if (dto.jobDetails !== undefined) bookingData.jobDetails = dto.jobDetails?.trim() || null;
+    if (dto.notes !== undefined) bookingData.notes = dto.notes?.trim() || null;
     if (dto.priority !== undefined) bookingData.priority = dto.priority;
     if (dto.chargeGross !== undefined) bookingData.chargeGross = roundMoney(dto.chargeGross);
     if (dto.bookingDate !== undefined) {
@@ -381,9 +534,6 @@ export class PcoService {
       bookingData.bookingCentre = dto.bookingCentreId
         ? { connect: { id: dto.bookingCentreId } }
         : { disconnect: true };
-    }
-    if (dto.bookingPaymentMethod !== undefined) {
-      bookingData.bookingPaymentMethod = dto.bookingPaymentMethod;
     }
     if (dto.clientInformed !== undefined) {
       bookingData.clientInformed = dto.clientInformed;
@@ -450,19 +600,97 @@ export class PcoService {
     });
     if (!centre) throw new BadRequestException("Booking centre not found");
 
-    const row = await this.prisma.pcoBooking.update({
-      where: { id },
-      data: {
-        status: PcoBookingStatus.ACTIVE,
-        bookingDate: this.parseDate(dto.bookingDate),
-        bookingTime: dto.bookingTime,
-        bookingCentreId: dto.bookingCentreId,
-        bookingPaymentMethod: dto.bookingPaymentMethod,
-        ...(dto.chargeGross !== undefined
-          ? { chargeGross: roundMoney(dto.chargeGross) }
-          : {}),
-      },
-      include: this.bookingInclude,
+    const otherActive = await this.findOpenBookingByVrm(
+      garageAccountId,
+      existing.vehicle.vrm,
+      id,
+    );
+    if (otherActive?.status === PcoBookingStatus.ACTIVE) {
+      throw new BadRequestException(
+        this.openBookingErrorMessage(existing.vehicle.vrm, otherActive),
+      );
+    }
+
+    if (dto.slotPaidBy === PcoBookingSlotPaidBy.US) {
+      if (!user.enabledModules.includes("ledger")) {
+        throw new ForbiddenException("Ledger module is required to record slot expense");
+      }
+      if (!dto.slotPaymentAccountId) {
+        throw new BadRequestException("Payment account is required when the garage pays the slot");
+      }
+      const amount = Number(roundMoney(dto.slotChargeGross ?? PCO_DEFAULT_BOOKING_CHARGE));
+      if (amount <= 0) {
+        throw new BadRequestException("Slot expense amount must be greater than zero");
+      }
+    }
+
+    if (dto.slotPaidBy === PcoBookingSlotPaidBy.TFL_CREDIT) {
+      if (!dto.slotCreditSourceBookingId) {
+        throw new BadRequestException("Select which TfL credit to apply");
+      }
+    }
+
+    const valueDate = this.parseDate(dto.bookingDate);
+    const reference = `PCO slot ${existing.bookingNumber} — ${existing.vehicle.vrm}`;
+
+    const row = await this.prisma.$transaction(async (tx) => {
+      let slotLedgerEntryId: string | null = null;
+      let slotPaymentAccountId: string | null = null;
+      let slotChargeGross: Prisma.Decimal | null = null;
+      let slotCreditSourceBookingId: string | null = null;
+
+      if (dto.slotPaidBy === PcoBookingSlotPaidBy.US) {
+        const amount = Number(roundMoney(dto.slotChargeGross ?? PCO_DEFAULT_BOOKING_CHARGE));
+        const ledgerRow = await this.ledger.createPostedExpenseForPcoSlot(
+          user,
+          {
+            pcoBookingId: id,
+            paymentAccountId: dto.slotPaymentAccountId!,
+            valueDate,
+            amountGross: amount,
+            reference,
+          },
+          tx,
+        );
+        slotLedgerEntryId = ledgerRow.id;
+        slotPaymentAccountId = dto.slotPaymentAccountId!;
+        slotChargeGross = roundMoney(amount);
+      } else if (dto.slotPaidBy === PcoBookingSlotPaidBy.TFL_CREDIT) {
+        const creditSource = await tx.pcoBooking.findFirst({
+          where: {
+            id: dto.slotCreditSourceBookingId!,
+            garageAccountId,
+            slotCreditStatus: PcoSlotCreditStatus.AVAILABLE,
+            vehicle: { vrm: existing.vehicle.vrm },
+          },
+        });
+        if (!creditSource) {
+          throw new BadRequestException("TfL credit is not available for this vehicle");
+        }
+        await tx.pcoBooking.update({
+          where: { id: creditSource.id },
+          data: { slotCreditStatus: PcoSlotCreditStatus.APPLIED },
+        });
+        slotCreditSourceBookingId = creditSource.id;
+        slotChargeGross =
+          creditSource.slotChargeGross ?? roundMoney(PCO_DEFAULT_BOOKING_CHARGE);
+      }
+
+      return tx.pcoBooking.update({
+        where: { id },
+        data: {
+          status: PcoBookingStatus.ACTIVE,
+          bookingDate: valueDate,
+          bookingTime: dto.bookingTime,
+          bookingCentreId: dto.bookingCentreId,
+          slotPaidBy: dto.slotPaidBy,
+          slotPaymentAccountId,
+          slotLedgerEntryId,
+          slotChargeGross,
+          slotCreditSourceBookingId,
+        },
+        include: this.bookingInclude,
+      });
     });
 
     await this.audit.log({
@@ -476,58 +704,85 @@ export class PcoService {
         centre: centre.label,
         bookingDate: dto.bookingDate,
         bookingTime: dto.bookingTime,
+        slotPaidBy: dto.slotPaidBy,
       },
     });
 
     return toPcoBookingDto(row);
   }
 
-  async rescheduleBooking(user: RequestUser, id: string, dto: SchedulePcoBookingDto) {
+  /** Move a booked appointment back to To book for re-scheduling. */
+  async returnActiveToBook(user: RequestUser, id: string) {
     const garageAccountId = this.garageId(user);
     const existing = await this.prisma.pcoBooking.findFirst({
       where: { id, garageAccountId },
+      include: { vehicle: true, bookingCentre: { select: { label: true } } },
     });
     if (!existing) throw new NotFoundException("PCO booking not found");
     if (existing.status !== PcoBookingStatus.ACTIVE) {
-      throw new BadRequestException("Only booked (active) appointments can be rescheduled");
+      throw new BadRequestException("Only booked appointments can be moved to To book");
     }
 
-    const centre = await this.prisma.settingOption.findFirst({
+    const otherPending = await this.prisma.pcoBooking.findFirst({
       where: {
-        id: dto.bookingCentreId,
         garageAccountId,
-        optionType: PCO_CENTRE_OPTION_TYPE,
-        deletedAt: null,
+        status: PcoBookingStatus.PENDING,
+        vehicle: { vrm: existing.vehicle.vrm },
+        id: { not: id },
       },
     });
-    if (!centre) throw new BadRequestException("Booking centre not found");
+    if (otherPending) {
+      throw new BadRequestException(
+        this.openBookingErrorMessage(existing.vehicle.vrm, otherPending),
+      );
+    }
 
-    const row = await this.prisma.pcoBooking.update({
-      where: { id },
-      data: {
-        bookingDate: this.parseDate(dto.bookingDate),
-        bookingTime: dto.bookingTime,
-        bookingCentreId: dto.bookingCentreId,
-        bookingPaymentMethod: dto.bookingPaymentMethod,
-        ...(dto.chargeGross !== undefined
-          ? { chargeGross: roundMoney(dto.chargeGross) }
-          : {}),
-      },
-      include: this.bookingInclude,
+    const prevParts: string[] = [];
+    if (existing.bookingCentre?.label || existing.bookingDate) {
+      const dateStr = existing.bookingDate
+        ? existing.bookingDate.toISOString().slice(0, 10)
+        : "";
+      prevParts.push(
+        `Previous appointment: ${existing.bookingCentre?.label ?? "—"}, ${dateStr}${existing.bookingTime ? ` ${existing.bookingTime}` : ""}`.trim(),
+      );
+    }
+    const mergedNotes = [existing.notes, ...prevParts].filter(Boolean).join("\n") || null;
+
+    const row = await this.prisma.$transaction(async (tx) => {
+      if (existing.slotLedgerEntryId) {
+        await this.ledger.reversePcoSlotExpenseIfPosted(
+          user,
+          garageAccountId,
+          existing.slotLedgerEntryId,
+          tx,
+        );
+      }
+
+      return tx.pcoBooking.update({
+        where: { id },
+        data: {
+          status: PcoBookingStatus.PENDING,
+          jobType: PcoJobType.RESCHEDULE,
+          bookingDate: null,
+          bookingTime: null,
+          bookingCentreId: null,
+          slotPaidBy: null,
+          slotPaymentAccountId: null,
+          slotLedgerEntryId: null,
+          slotChargeGross: null,
+          notes: mergedNotes,
+        },
+        include: this.bookingInclude,
+      });
     });
 
     await this.audit.log({
-      action: "pco.booking.reschedule",
+      action: "pco.booking.return_to_book",
       userId: user.id,
       garageAccountId,
       entityType: "pco_booking",
       entityId: id,
-      metadata: {
-        bookingNumber: row.bookingNumber,
-        centre: centre.label,
-        bookingDate: dto.bookingDate,
-        bookingTime: dto.bookingTime,
-      },
+      metadata: { bookingNumber: row.bookingNumber },
     });
 
     return toPcoBookingDto(row);
@@ -648,7 +903,25 @@ export class PcoService {
     return this.getBooking(user, id);
   }
 
-  async cancelBooking(user: RequestUser, id: string) {
+  async listSlotCredits(user: RequestUser, vrm: string) {
+    const garageAccountId = this.garageId(user);
+    const normalized = normalizeRegistration(vrm);
+    if (!normalized) {
+      throw new BadRequestException("VRM is required");
+    }
+    const rows = await this.prisma.pcoBooking.findMany({
+      where: {
+        garageAccountId,
+        slotCreditStatus: PcoSlotCreditStatus.AVAILABLE,
+        vehicle: { vrm: normalized },
+      },
+      include: { vehicle: { select: { vrm: true } } },
+      orderBy: [{ cancelledAt: "asc" }],
+    });
+    return rows.map(toPcoSlotCreditDto);
+  }
+
+  async cancelBooking(user: RequestUser, id: string, dto: CancelPcoBookingDto) {
     const garageAccountId = this.garageId(user);
     const existing = await this.prisma.pcoBooking.findFirst({
       where: { id, garageAccountId },
@@ -661,11 +934,173 @@ export class PcoService {
       throw new BadRequestException("Only pending or active bookings can be cancelled");
     }
 
-    await this.prisma.pcoBooking.update({
-      where: { id },
-      data: { status: PcoBookingStatus.CANCELLED },
+    const hadSlotFee = this.hadActiveSlotFee(existing);
+    const { disposition, note } = this.validateCancellationInput(hadSlotFee, dto);
+    const now = new Date();
+    const slotCreditStatus =
+      hadSlotFee && disposition === PcoSlotFeeDisposition.RETAINED
+        ? PcoSlotCreditStatus.AVAILABLE
+        : PcoSlotCreditStatus.NOT_APPLICABLE;
+
+    await this.prisma.$transaction(async (tx) => {
+      if (
+        hadSlotFee &&
+        disposition === PcoSlotFeeDisposition.REFUND_REQUESTED &&
+        existing.slotPaidBy === PcoBookingSlotPaidBy.US &&
+        existing.slotLedgerEntryId
+      ) {
+        await this.ledger.reversePcoSlotExpenseIfPosted(
+          user,
+          garageAccountId,
+          existing.slotLedgerEntryId,
+          tx,
+        );
+      }
+
+      await tx.pcoBooking.update({
+        where: { id },
+        data: {
+          status: PcoBookingStatus.CANCELLED,
+          slotFeeDisposition: disposition,
+          slotCreditStatus,
+          cancellationNote: note,
+          cancelledAt: now,
+          cancelledById: user.id,
+        },
+      });
+    });
+
+    await this.audit.log({
+      action: "pco.booking.cancel",
+      userId: user.id,
+      garageAccountId,
+      entityType: "pco_booking",
+      entityId: id,
+      metadata: {
+        bookingNumber: existing.bookingNumber,
+        slotFeeDisposition: disposition,
+      },
     });
 
     return this.getBooking(user, id);
+  }
+
+  async cancelAndReschedule(user: RequestUser, id: string, dto: CancelPcoBookingDto) {
+    const garageAccountId = this.garageId(user);
+    const existing = await this.prisma.pcoBooking.findFirst({
+      where: { id, garageAccountId },
+      include: { vehicle: true, bookingCentre: { select: { label: true } } },
+    });
+    if (!existing) throw new NotFoundException("PCO booking not found");
+    if (existing.status !== PcoBookingStatus.ACTIVE) {
+      throw new BadRequestException("Only booked appointments can be rescheduled");
+    }
+
+    const otherPending = await this.prisma.pcoBooking.findFirst({
+      where: {
+        garageAccountId,
+        status: PcoBookingStatus.PENDING,
+        vehicle: { vrm: existing.vehicle.vrm },
+        id: { not: id },
+      },
+    });
+    if (otherPending) {
+      throw new BadRequestException(
+        this.openBookingErrorMessage(existing.vehicle.vrm, otherPending),
+      );
+    }
+
+    const hadSlotFee = this.hadActiveSlotFee(existing);
+    const { disposition, note } = this.validateCancellationInput(hadSlotFee, dto);
+    const now = new Date();
+    const slotCreditStatus =
+      hadSlotFee && disposition === PcoSlotFeeDisposition.RETAINED
+        ? PcoSlotCreditStatus.AVAILABLE
+        : PcoSlotCreditStatus.NOT_APPLICABLE;
+
+    const prevParts: string[] = [];
+    if (existing.bookingCentre?.label || existing.bookingDate) {
+      const dateStr = existing.bookingDate
+        ? existing.bookingDate.toISOString().slice(0, 10)
+        : "";
+      prevParts.push(
+        `Rescheduled from ${existing.bookingCentre?.label ?? "—"}, ${dateStr}${existing.bookingTime ? ` ${existing.bookingTime}` : ""}`.trim(),
+      );
+    }
+    const newNotes = [existing.notes, ...prevParts].filter(Boolean).join("\n") || null;
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      if (
+        hadSlotFee &&
+        disposition === PcoSlotFeeDisposition.REFUND_REQUESTED &&
+        existing.slotPaidBy === PcoBookingSlotPaidBy.US &&
+        existing.slotLedgerEntryId
+      ) {
+        await this.ledger.reversePcoSlotExpenseIfPosted(
+          user,
+          garageAccountId,
+          existing.slotLedgerEntryId,
+          tx,
+        );
+      }
+
+      const cancelled = await tx.pcoBooking.update({
+        where: { id },
+        data: {
+          status: PcoBookingStatus.CANCELLED,
+          slotFeeDisposition: disposition,
+          slotCreditStatus,
+          cancellationNote: note,
+          cancelledAt: now,
+          cancelledById: user.id,
+        },
+        include: this.bookingInclude,
+      });
+
+      const bookingNumber = await this.nextBookingNumber(tx, garageAccountId);
+      const newBooking = await tx.pcoBooking.create({
+        data: {
+          garageAccountId,
+          pcoVehicleId: existing.pcoVehicleId,
+          bookingNumber,
+          jobType: PcoJobType.RESCHEDULE,
+          status: PcoBookingStatus.PENDING,
+          priority: existing.priority,
+          chargeGross: existing.chargeGross,
+          notes: newNotes,
+          rescheduledFromBookingId: id,
+          createdById: user.id,
+        },
+        include: this.bookingInclude,
+      });
+
+      await tx.pcoBooking.update({
+        where: { id },
+        data: { rescheduledToBookingId: newBooking.id },
+      });
+
+      return {
+        cancelled: { ...cancelled, rescheduledToBookingId: newBooking.id },
+        newBooking,
+      };
+    });
+
+    await this.audit.log({
+      action: "pco.booking.cancel_and_reschedule",
+      userId: user.id,
+      garageAccountId,
+      entityType: "pco_booking",
+      entityId: id,
+      metadata: {
+        cancelledBookingNumber: existing.bookingNumber,
+        newBookingNumber: result.newBooking.bookingNumber,
+        slotFeeDisposition: disposition,
+      },
+    });
+
+    return {
+      cancelled: toPcoBookingDto(result.cancelled),
+      newBooking: toPcoBookingDto(result.newBooking),
+    };
   }
 }

@@ -228,12 +228,35 @@ enum PaymentMethod {
   OTHER
 }
 
+// Who pays the TfL / centre booking slot fee (Add booking details).
+enum PcoBookingSlotPaidBy {
+  US
+  CUSTOMER
+  NA
+  TFL_CREDIT
+}
+
+// On cancel: what happens to an existing slot fee (Us or Customer paid).
+enum PcoSlotFeeDisposition {
+  NOT_APPLICABLE
+  RETAINED
+  REFUND_REQUESTED
+}
+
+// Retained TfL credit lifecycle on the cancelled booking.
+enum PcoSlotCreditStatus {
+  NOT_APPLICABLE
+  AVAILABLE
+  APPLIED
+}
+
 enum PcoJobType {
   RENEWAL
   NEW
   ADMIN
   LOGBOOK_EXPIRING
   RETEST
+  RESCHEDULE
 }
 
 enum PcoBookingStatus {
@@ -344,6 +367,7 @@ model User {
   supplierCreditsCreated     SupplierCreditTransaction[] @relation("SupplierCreditCreatedBy")
   pcoBookingsCreated         PcoBooking[]                @relation("PcoBookingCreatedBy")
   pcoBookingsCompleted       PcoBooking[]                @relation("PcoBookingCompletedBy")
+  pcoBookingsCancelled       PcoBooking[]                @relation("PcoBookingCancelledBy")
   pcoPaymentsCreated         PcoBookingPayment[]         @relation("PcoPaymentCreatedBy")
 
   @@map("users")
@@ -531,6 +555,7 @@ model PaymentAccount {
   customerPayments     CustomerPayment[]
   jobPartReturnPayments JobPartUsage[] @relation("JobPartReturnPaymentAccount")
   pcoBookingPayments   PcoBookingPayment[]
+  pcoSlotPayments      PcoBooking[]        @relation("PcoSlotPaymentAccount")
 
   @@index([garageAccountId, deletedAt])
   @@map("payment_account")
@@ -585,6 +610,7 @@ model LedgerEntry {
   reversedBy               LedgerEntry?                @relation("LedgerReversal")
   supplierCreditTransactions SupplierCreditTransaction[]
   pcoBookingPayment        PcoBookingPayment?
+  pcoSlotBooking           PcoBooking?         @relation("PcoSlotLedgerEntry")
 
   pcoBookingId     String?    @map("pco_booking_id") @db.Uuid
   pcoBooking       PcoBooking? @relation(fields: [pcoBookingId], references: [id], onDelete: SetNull)
@@ -1160,7 +1186,19 @@ model PcoBooking {
   clientResponded       Boolean          @default(false) @map("client_responded")
   clientInformedAt      DateTime?        @map("client_informed_at")
   clientRespondedAt     DateTime?        @map("client_responded_at")
-  bookingPaymentMethod  PaymentMethod?   @map("booking_payment_method")
+  slotPaidBy            PcoBookingSlotPaidBy? @map("slot_paid_by")
+  slotPaymentAccountId  String?          @map("slot_payment_account_id") @db.Uuid
+  slotLedgerEntryId     String?          @unique @map("slot_ledger_entry_id") @db.Uuid
+  slotChargeGross       Decimal?         @map("slot_charge_gross") @db.Decimal(14, 2)
+  slotCreditSourceBookingId String?      @map("slot_credit_source_booking_id") @db.Uuid
+  slotFeeDisposition    PcoSlotFeeDisposition? @map("slot_fee_disposition")
+  slotCreditStatus      PcoSlotCreditStatus @default(NOT_APPLICABLE) @map("slot_credit_status")
+  cancellationNote      String?          @map("cancellation_note")
+  cancelledAt           DateTime?        @map("cancelled_at")
+  cancelledById         String?          @map("cancelled_by_id") @db.Uuid
+  rescheduledFromBookingId String?       @unique @map("rescheduled_from_booking_id") @db.Uuid
+  rescheduledToBookingId   String?       @unique @map("rescheduled_to_booking_id") @db.Uuid
+  notes                 String?
   createdById           String           @map("created_by_id") @db.Uuid
   completedAt           DateTime?        @map("completed_at")
   completedById         String?          @map("completed_by_id") @db.Uuid
@@ -1170,6 +1208,15 @@ model PcoBooking {
   garageAccount   GarageAccount      @relation(fields: [garageAccountId], references: [id], onDelete: Cascade)
   vehicle         PcoVehicle         @relation(fields: [pcoVehicleId], references: [id], onDelete: Restrict)
   bookingCentre   SettingOption?     @relation(fields: [bookingCentreId], references: [id], onDelete: SetNull)
+  slotPaymentAccount PaymentAccount? @relation("PcoSlotPaymentAccount", fields: [slotPaymentAccountId], references: [id], onDelete: SetNull)
+  slotLedgerEntry    LedgerEntry?    @relation("PcoSlotLedgerEntry", fields: [slotLedgerEntryId], references: [id], onDelete: SetNull)
+  slotCreditSourceBooking PcoBooking? @relation("PcoSlotCreditSource", fields: [slotCreditSourceBookingId], references: [id], onDelete: SetNull)
+  slotCreditConsumers   PcoBooking[]  @relation("PcoSlotCreditSource")
+  cancelledBy         User?              @relation("PcoBookingCancelledBy", fields: [cancelledById], references: [id], onDelete: SetNull)
+  rescheduledFromBooking PcoBooking?   @relation("PcoRescheduleFrom", fields: [rescheduledFromBookingId], references: [id], onDelete: SetNull)
+  rescheduledFromSuccessor PcoBooking? @relation("PcoRescheduleFrom")
+  rescheduledToBooking   PcoBooking?   @relation("PcoRescheduleTo", fields: [rescheduledToBookingId], references: [id], onDelete: SetNull)
+  rescheduledToPredecessor PcoBooking? @relation("PcoRescheduleTo")
   createdBy       User               @relation("PcoBookingCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
   completedBy     User?              @relation("PcoBookingCompletedBy", fields: [completedById], references: [id], onDelete: SetNull)
   payments        PcoBookingPayment[]

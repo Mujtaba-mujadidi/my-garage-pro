@@ -7,6 +7,7 @@ import { Modal } from "@/components/ui/modal";
 import { SearchableTable, type TableColumn } from "@/components/ui/searchable-table";
 import { Select } from "@/components/ui/select";
 import { TabBar } from "@/components/ui/tab-bar";
+import { TableRowActionsMenu } from "@/components/ui/table-row-actions-menu";
 import { apiFetch, ApiError } from "@/lib/api-client";
 import { formatRegistrationDisplay, normalizeRegistration } from "@/lib/vehicle-registration";
 import type {
@@ -19,6 +20,8 @@ import type {
   PcoDueVehicleDto,
   PcoJobType,
   PcoPriority,
+  PcoSlotCreditDto,
+  PcoSlotFeeDisposition,
   PcoVehicleDto,
   PcoVrmLookupDto,
 } from "@mygaragepro/shared";
@@ -27,10 +30,15 @@ import {
   PCO_JOB_TYPES,
   PCO_PRIORITY_LABEL,
   PCO_BOOKING_STATUS_LABEL,
+  PCO_BOOKING_SLOT_PAID_BY_LABEL,
+  PCO_BOOKING_SLOT_PAID_BY_OPTIONS,
+  PCO_DEFAULT_BOOKING_CHARGE,
   PCO_FUEL_TYPES,
+  PCO_SLOT_FEE_DISPOSITION_LABEL,
   calculateLogbookExpiryFromFirstRegistration,
   calculateNextPcoExpiry,
   defaultPaymentMethodForAccount,
+  type PcoBookingSlotPaidBy,
 } from "@mygaragepro/shared";
 import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 
@@ -117,6 +125,49 @@ function formatKeeperAddress(v: {
   return [v.addressLine1, v.addressLine2, v.city, v.postcode].filter(Boolean).join(", ") || "—";
 }
 
+function formatTableAddress(r: {
+  addressLine1?: string | null;
+  city?: string | null;
+  postcode?: string | null;
+}) {
+  return [r.addressLine1, r.city, r.postcode].filter(Boolean).join(", ") || "—";
+}
+
+function formatTableContact(email?: string | null, phone?: string | null) {
+  if (!email && !phone) return "—";
+  return (
+    <div className="text-sm leading-snug">
+      {email && <p className="truncate max-w-[12rem]">{email}</p>}
+      {phone && <p className={email ? "text-xs text-[var(--muted)]" : ""}>{phone}</p>}
+    </div>
+  );
+}
+
+const PRIORITY_INLINE_SELECT_CLASS: Record<PcoPriority, string> = {
+  HIGH: "font-semibold text-red-700 dark:text-red-400",
+  MEDIUM: "text-amber-700 dark:text-amber-400",
+  LOW: "text-[var(--muted)]",
+};
+
+const tableInlineSelectClass =
+  "w-full min-w-[5.5rem] rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1 text-xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/25 disabled:opacity-50";
+
+function FieldSpinner({ label }: { label: string }) {
+  return (
+    <span
+      className="pointer-events-none absolute right-2.5 top-2.5 flex h-4 w-4 items-center justify-center"
+      role="status"
+      aria-label={label}
+    >
+      <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-[var(--muted)] border-t-accent" />
+    </span>
+  );
+}
+
+function lastCustomerChargeFromLookup(data: PcoVrmLookupDto): string {
+  return data.previousCharges[0]?.chargeGross ?? "";
+}
+
 function emptyDraft() {
   return {
     vrm: "",
@@ -138,6 +189,7 @@ function emptyDraft() {
     seatCount: "",
     jobType: "RENEWAL" as PcoJobType,
     jobDetails: "",
+    notes: "",
     priority: "MEDIUM" as PcoPriority,
     chargeGross: "",
     clientInformed: false,
@@ -150,9 +202,18 @@ function emptyScheduleDraft() {
     bookingDate: "",
     bookingTime: "",
     bookingCentreId: "",
-    bookingPaymentMethod: "BANK_TRANSFER" as PaymentMethod,
-    chargeGross: "",
+    slotPaidBy: "US" as PcoBookingSlotPaidBy,
+    slotPaymentAccountId: "",
+    slotChargeGross: String(PCO_DEFAULT_BOOKING_CHARGE),
+    slotCreditSourceBookingId: "",
   };
+}
+
+function bookingHadActiveSlotFee(booking: Pick<PcoBookingDto, "status" | "slotPaidBy">) {
+  return (
+    booking.status === "ACTIVE" &&
+    (booking.slotPaidBy === "US" || booking.slotPaidBy === "CUSTOMER")
+  );
 }
 
 function vehicleToDraft(v: PcoVehicleDto): Partial<ReturnType<typeof emptyDraft>> {
@@ -193,6 +254,7 @@ function dueVehicleToDraft(v: PcoDueVehicleDto): Partial<ReturnType<typeof empty
     color: v.color ?? "",
     fuelType: v.fuelType ?? "",
     seatCount: v.seatCount != null ? String(v.seatCount) : "",
+    chargeGross: v.lastChargeGross ?? "",
   };
 }
 
@@ -200,6 +262,7 @@ export function PcoPageContent() {
   const { hasPermission } = useSession();
   const canWrite = hasPermission("pco.write");
   const canPay = canWrite && hasPermission("ledger.write");
+  const canReadLedger = hasPermission("ledger.read");
 
   const [tab, setTab] = useState<TabId>("active");
   const [rows, setRows] = useState<PcoBookingListDto[]>([]);
@@ -213,16 +276,21 @@ export function PcoPageContent() {
   const [modalOpen, setModalOpen] = useState(false);
   const [draft, setDraft] = useState(emptyDraft());
   const [vrmHint, setVrmHint] = useState<PcoVrmLookupDto | null>(null);
+  const [vrmLookupLoading, setVrmLookupLoading] = useState(false);
   const [vrmConfirmOpen, setVrmConfirmOpen] = useState(false);
   const [vrmConfirmVehicle, setVrmConfirmVehicle] = useState<PcoVehicleDto | null>(null);
   const [saving, setSaving] = useState(false);
+  const [priorityUpdatingId, setPriorityUpdatingId] = useState<string | null>(null);
 
   const [detail, setDetail] = useState<PcoBookingDto | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
 
   const [scheduleOpen, setScheduleOpen] = useState(false);
-  const [scheduleMode, setScheduleMode] = useState<"schedule" | "reschedule">("schedule");
   const [scheduleDraft, setScheduleDraft] = useState(emptyScheduleDraft());
+
+  const [editOpen, setEditOpen] = useState(false);
+  const [editDraft, setEditDraft] = useState(emptyDraft());
+  const [editBookingId, setEditBookingId] = useState<string | null>(null);
 
   const [renewDueOpen, setRenewDueOpen] = useState(false);
   const [renewDueVehicle, setRenewDueVehicle] = useState<PcoDueVehicleDto | null>(null);
@@ -242,7 +310,13 @@ export function PcoPageContent() {
 
   const [centreName, setCentreName] = useState("");
   const [confirmDeleteCentre, setConfirmDeleteCentre] = useState<PcoCentreDto | null>(null);
-  const [confirmCancel, setConfirmCancel] = useState<PcoBookingDto | null>(null);
+  const [feeActionModal, setFeeActionModal] = useState<{
+    mode: "cancel" | "reschedule";
+    booking: PcoBookingDto;
+  } | null>(null);
+  const [slotFeeDisposition, setSlotFeeDisposition] = useState<PcoSlotFeeDisposition | "">("");
+  const [cancellationNote, setCancellationNote] = useState("");
+  const [slotCredits, setSlotCredits] = useState<PcoSlotCreditDto[]>([]);
 
   const centreOptions = useMemo(
     () => centres.map((c) => ({ value: c.id, label: c.label })),
@@ -290,24 +364,29 @@ export function PcoPageContent() {
   }, [load]);
 
   useEffect(() => {
-    if (!canPay) return;
+    if (!canReadLedger) return;
     void apiFetch<PaymentAccountDto[]>("/ledger/accounts")
       .then((a) => {
         setAccounts(a);
         if (a[0]) {
           setPayAccountId(a[0].id);
           setPayMethod(defaultPaymentMethodForAccount(a[0].type));
+          setScheduleDraft((d) =>
+            d.slotPaymentAccountId ? d : { ...d, slotPaymentAccountId: a[0].id },
+          );
         }
       })
       .catch(() => []);
-  }, [canPay]);
+  }, [canReadLedger]);
 
   async function lookupVrm(vrm: string) {
     const n = normalizeRegistration(vrm);
     if (n.length < 3) {
       setVrmHint(null);
+      setVrmLookupLoading(false);
       return;
     }
+    setVrmLookupLoading(true);
     try {
       const data = await apiFetch<PcoVrmLookupDto>(`/pco/lookup?vrm=${encodeURIComponent(n)}`);
       setVrmHint(data);
@@ -318,14 +397,36 @@ export function PcoPageContent() {
       } else {
         setVrmConfirmVehicle(null);
       }
+      if (draft.jobType === "RESCHEDULE" && data.activeBooking) {
+        const ab = data.activeBooking;
+        setDraft((d) => ({
+          ...d,
+          notes: [
+            d.notes,
+            ab.bookingCentreName && ab.bookingDate
+              ? `Current booking: ${ab.bookingCentreName}, ${ab.bookingDate}${ab.bookingTime ? ` ${ab.bookingTime}` : ""}`
+              : "",
+          ]
+            .filter(Boolean)
+            .join("\n"),
+        }));
+      } else {
+        setDraft((d) => ({
+          ...d,
+          chargeGross: lastCustomerChargeFromLookup(data),
+        }));
+      }
     } catch {
       setVrmHint(null);
+    } finally {
+      setVrmLookupLoading(false);
     }
   }
 
   function openCreate(prefill?: Partial<ReturnType<typeof emptyDraft>>) {
     setDraft({ ...emptyDraft(), ...prefill });
     setVrmHint(null);
+    setVrmLookupLoading(false);
     setVrmConfirmVehicle(null);
     setVrmConfirmOpen(false);
     setModalOpen(true);
@@ -333,7 +434,11 @@ export function PcoPageContent() {
 
   function applyVrmSnapshot() {
     if (!vrmConfirmVehicle) return;
-    setDraft((d) => ({ ...d, ...vehicleToDraft(vrmConfirmVehicle) }));
+    setDraft((d) => ({
+      ...d,
+      ...vehicleToDraft(vrmConfirmVehicle),
+      chargeGross: vrmHint ? lastCustomerChargeFromLookup(vrmHint) : d.chargeGross,
+    }));
     setVrmConfirmOpen(false);
   }
 
@@ -384,6 +489,7 @@ export function PcoPageContent() {
           pcoExpiryDate: draft.pcoExpiryDate,
           logbookExpiryDate: logbook,
           note: draft.note || undefined,
+          notes: draft.notes || undefined,
           jobType: draft.jobType,
           jobDetails: draft.jobDetails || undefined,
           priority: draft.priority,
@@ -403,24 +509,32 @@ export function PcoPageContent() {
     }
   }
 
-  function openScheduleModal(booking: PcoBookingDto, mode: "schedule" | "reschedule") {
+  function openScheduleModal(booking: PcoBookingDto) {
     setDetail(booking);
-    setScheduleMode(mode);
     setScheduleDraft({
       bookingDate: booking.bookingDate ?? todayIso(),
       bookingTime: booking.bookingTime ?? "",
       bookingCentreId: booking.bookingCentreId ?? centres[0]?.id ?? "",
-      bookingPaymentMethod: (booking.bookingPaymentMethod as PaymentMethod) ?? "BANK_TRANSFER",
-      chargeGross: booking.chargeGross,
+      slotPaidBy: booking.slotPaidBy ?? "US",
+      slotPaymentAccountId:
+        booking.slotPaymentAccountId ?? accounts[0]?.id ?? "",
+      slotChargeGross:
+        booking.slotChargeGross ?? String(PCO_DEFAULT_BOOKING_CHARGE),
+      slotCreditSourceBookingId: booking.slotCreditSourceBookingId ?? "",
     });
     setScheduleOpen(true);
+    void apiFetch<PcoSlotCreditDto[]>(
+      `/pco/slot-credits?vrm=${encodeURIComponent(booking.vehicle.vrm)}`,
+    )
+      .then(setSlotCredits)
+      .catch(() => setSlotCredits([]));
   }
 
   async function quickSchedule(bookingId: string) {
     setSaving(true);
     try {
       const b = await apiFetch<PcoBookingDto>(`/pco/bookings/${bookingId}`);
-      openScheduleModal(b, "schedule");
+      openScheduleModal(b);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not load booking");
     } finally {
@@ -428,13 +542,162 @@ export function PcoPageContent() {
     }
   }
 
-  async function quickReschedule(bookingId: string) {
+  async function openEditPending(bookingId: string) {
     setSaving(true);
+    setError("");
     try {
       const b = await apiFetch<PcoBookingDto>(`/pco/bookings/${bookingId}`);
-      openScheduleModal(b, "reschedule");
+      setEditBookingId(b.id);
+      setEditDraft({
+        ...emptyDraft(),
+        registeredKeeper: b.vehicle.registeredKeeper,
+        email: b.vehicle.email ?? "",
+        phone: b.vehicle.phone ?? "",
+        addressLine1: b.vehicle.addressLine1 ?? "",
+        addressLine2: b.vehicle.addressLine2 ?? "",
+        city: b.vehicle.city ?? "",
+        postcode: b.vehicle.postcode ?? "",
+        firstRegistrationDate: b.vehicle.firstRegistrationDate,
+        pcoExpiryDate: b.vehicle.pcoExpiryDate,
+        logbookExpiryDate: b.vehicle.logbookExpiryDate,
+        note: b.vehicle.note ?? "",
+        make: b.vehicle.make ?? "",
+        model: b.vehicle.model ?? "",
+        color: b.vehicle.color ?? "",
+        fuelType: b.vehicle.fuelType ?? "",
+        seatCount: b.vehicle.seatCount != null ? String(b.vehicle.seatCount) : "",
+        jobType: b.jobType,
+        jobDetails: b.jobDetails ?? "",
+        notes: b.notes ?? "",
+        priority: b.priority,
+        chargeGross: b.chargeGross,
+      });
+      setEditOpen(true);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not load booking");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveEditPending(e: FormEvent) {
+    e.preventDefault();
+    if (!editBookingId) return;
+    setSaving(true);
+    setError("");
+    try {
+      await apiFetch(`/pco/bookings/${editBookingId}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          jobType: editDraft.jobType,
+          jobDetails: editDraft.jobDetails || undefined,
+          notes: editDraft.notes || undefined,
+          priority: editDraft.priority,
+          chargeGross: editDraft.chargeGross ? Number(editDraft.chargeGross) : undefined,
+          registeredKeeper: editDraft.registeredKeeper,
+          email: editDraft.email || undefined,
+          phone: editDraft.phone || undefined,
+          addressLine1: editDraft.addressLine1 || undefined,
+          city: editDraft.city || undefined,
+          postcode: editDraft.postcode || undefined,
+          make: editDraft.make || undefined,
+          model: editDraft.model || undefined,
+          color: editDraft.color || undefined,
+          fuelType: editDraft.fuelType || undefined,
+          seatCount: editDraft.seatCount ? Number(editDraft.seatCount) : undefined,
+          pcoExpiryDate: editDraft.pcoExpiryDate || undefined,
+          vehicleNote: editDraft.note || undefined,
+        }),
+      });
+      setEditOpen(false);
+      setMessage("Booking updated");
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not update booking");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const updatePriority = useCallback(async (bookingId: string, priority: PcoPriority) => {
+    setPriorityUpdatingId(bookingId);
+    setError("");
+    try {
+      await apiFetch(`/pco/bookings/${bookingId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ priority }),
+      });
+      setRows((prev) => prev.map((r) => (r.id === bookingId ? { ...r, priority } : r)));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not update priority");
+      await load();
+    } finally {
+      setPriorityUpdatingId(null);
+    }
+  }, [load]);
+
+  function openFeeActionModal(mode: "cancel" | "reschedule", booking: PcoBookingDto) {
+    setFeeActionModal({ mode, booking });
+    setSlotFeeDisposition("");
+    setCancellationNote("");
+    setError("");
+  }
+
+  async function openRescheduleModal(bookingId: string) {
+    setSaving(true);
+    setError("");
+    try {
+      const booking = await apiFetch<PcoBookingDto>(`/pco/bookings/${bookingId}`);
+      openFeeActionModal("reschedule", booking);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not load booking");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function submitFeeAction() {
+    if (!feeActionModal) return;
+    const { mode, booking } = feeActionModal;
+    const needsFeeChoice = bookingHadActiveSlotFee(booking);
+    if (needsFeeChoice) {
+      if (!slotFeeDisposition || slotFeeDisposition === "NOT_APPLICABLE") {
+        setError("Choose what happens to the booking slot fee");
+        return;
+      }
+      if (!cancellationNote.trim()) {
+        setError("A cancellation note is required");
+        return;
+      }
+    }
+    setSaving(true);
+    setError("");
+    try {
+      const body =
+        needsFeeChoice
+          ? { slotFeeDisposition, cancellationNote: cancellationNote.trim() }
+          : {};
+      if (mode === "cancel") {
+        await apiFetch(`/pco/bookings/${booking.id}/cancel`, {
+          method: "POST",
+          body: JSON.stringify(body),
+        });
+        setFeeActionModal(null);
+        setDetailOpen(false);
+        setMessage("Booking cancelled");
+      } else {
+        await apiFetch(`/pco/bookings/${booking.id}/cancel-and-reschedule`, {
+          method: "POST",
+          body: JSON.stringify(body),
+        });
+        setFeeActionModal(null);
+        setDetailOpen(false);
+        setMessage("Cancelled and added to To book for a new appointment");
+        setTab("pending");
+      }
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not complete action");
     } finally {
       setSaving(false);
     }
@@ -486,6 +749,7 @@ export function PcoPageContent() {
           pcoExpiryDate: renewDraft.pcoExpiryDate,
           logbookExpiryDate: logbook,
           note: renewDraft.note || undefined,
+          notes: renewDraft.notes || undefined,
           jobType: renewJobType,
           priority: renewDraft.priority,
           chargeGross: renewDraft.chargeGross ? Number(renewDraft.chargeGross) : 0,
@@ -511,31 +775,43 @@ export function PcoPageContent() {
       setError("Booking centre is required");
       return;
     }
+    if (scheduleDraft.slotPaidBy === "US") {
+      if (!scheduleDraft.slotPaymentAccountId) {
+        setError("Select which account paid for the booking slot");
+        return;
+      }
+      if (!Number(scheduleDraft.slotChargeGross) || Number(scheduleDraft.slotChargeGross) <= 0) {
+        setError("Enter the slot expense amount");
+        return;
+      }
+    }
+    if (scheduleDraft.slotPaidBy === "TFL_CREDIT" && !scheduleDraft.slotCreditSourceBookingId) {
+      setError("Select which TfL credit to apply");
+      return;
+    }
     setSaving(true);
     setError("");
     try {
-      const updated = await apiFetch<PcoBookingDto>(
-        `/pco/bookings/${detail.id}/${scheduleMode === "reschedule" ? "reschedule" : "schedule"}`,
-        {
-          method: "POST",
-          body: JSON.stringify({
-            bookingDate: scheduleDraft.bookingDate,
-            bookingTime: scheduleDraft.bookingTime,
-            bookingCentreId: scheduleDraft.bookingCentreId,
-            bookingPaymentMethod: scheduleDraft.bookingPaymentMethod,
-            ...(scheduleDraft.chargeGross
-              ? { chargeGross: Number(scheduleDraft.chargeGross) }
-              : {}),
-          }),
-        },
-      );
+      const body: Record<string, unknown> = {
+        bookingDate: scheduleDraft.bookingDate,
+        bookingTime: scheduleDraft.bookingTime,
+        bookingCentreId: scheduleDraft.bookingCentreId,
+        slotPaidBy: scheduleDraft.slotPaidBy,
+      };
+      if (scheduleDraft.slotPaidBy === "US") {
+        body.slotPaymentAccountId = scheduleDraft.slotPaymentAccountId;
+        body.slotChargeGross = Number(scheduleDraft.slotChargeGross);
+      }
+      if (scheduleDraft.slotPaidBy === "TFL_CREDIT") {
+        body.slotCreditSourceBookingId = scheduleDraft.slotCreditSourceBookingId;
+      }
+      const updated = await apiFetch<PcoBookingDto>(`/pco/bookings/${detail.id}/schedule`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
       setDetail(updated);
       setScheduleOpen(false);
-      setMessage(
-        scheduleMode === "reschedule"
-          ? "Appointment rescheduled"
-          : "Booking details saved — moved to active",
-      );
+      setMessage("Booking details saved — moved to active bookings");
       setTab("active");
       await load();
     } catch (err) {
@@ -546,7 +822,7 @@ export function PcoPageContent() {
   }
 
   function openScheduleModalFromDetail(booking: PcoBookingDto) {
-    openScheduleModal(booking, "schedule");
+    openScheduleModal(booking);
   }
 
   async function recordPayment(e: FormEvent) {
@@ -595,22 +871,6 @@ export function PcoPageContent() {
     }
   }
 
-  async function cancelBooking() {
-    if (!confirmCancel) return;
-    setSaving(true);
-    try {
-      await apiFetch(`/pco/bookings/${confirmCancel.id}/cancel`, { method: "POST" });
-      setConfirmCancel(null);
-      setDetailOpen(false);
-      setMessage("Booking cancelled");
-      await load();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Could not cancel");
-    } finally {
-      setSaving(false);
-    }
-  }
-
   async function addCentre(e: FormEvent) {
     e.preventDefault();
     if (!centreName.trim()) return;
@@ -650,84 +910,116 @@ export function PcoPageContent() {
     const cols: TableColumn<PcoBookingListDto>[] = [
       {
         id: "vrm",
-        header: "VRM",
+        header: "Reg",
+        sticky: "left",
         searchText: (r) => formatRegistrationDisplay(r.vrm),
         cell: (r) => <VrmText vrm={r.vrm} />,
       },
+      ...(tab === "pending"
+        ? [
+            {
+              id: "priority",
+              header: "Priority",
+              cell: (r: PcoBookingListDto) =>
+                canWrite ? (
+                  <select
+                    value={r.priority}
+                    onChange={(e) => void updatePriority(r.id, e.target.value as PcoPriority)}
+                    disabled={priorityUpdatingId === r.id}
+                    aria-label={`Priority for ${formatRegistrationDisplay(r.vrm)}`}
+                    className={`${tableInlineSelectClass} ${PRIORITY_INLINE_SELECT_CLASS[r.priority]}`}
+                  >
+                    {(["HIGH", "MEDIUM", "LOW"] as const).map((p) => (
+                      <option key={p} value={p}>
+                        {PCO_PRIORITY_LABEL[p]}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <span className={PRIORITY_INLINE_SELECT_CLASS[r.priority]}>
+                    {PCO_PRIORITY_LABEL[r.priority]}
+                  </span>
+                ),
+            } as TableColumn<PcoBookingListDto>,
+          ]
+        : []),
       {
         id: "keeper",
         header: "Keeper",
-        searchText: (r) =>
-          [r.registeredKeeper, r.email, r.phone, r.addressLine1, r.city, r.postcode]
-            .filter(Boolean)
-            .join(" "),
+        searchText: (r) => r.registeredKeeper,
+        cell: (r) => <span className="font-medium">{r.registeredKeeper}</span>,
+      },
+      {
+        id: "address",
+        header: "Address",
+        searchText: (r) => formatTableAddress(r),
         cell: (r) => (
-          <KeeperCell
-            name={r.registeredKeeper}
-            email={r.email}
-            phone={r.phone}
-            addressLine1={r.addressLine1}
-            city={r.city}
-            postcode={r.postcode}
-          />
+          <span className="block max-w-[14rem] truncate text-sm" title={formatTableAddress(r)}>
+            {formatTableAddress(r)}
+          </span>
         ),
       },
       {
-        id: "expiries",
-        header: "Licence dates",
-        searchText: (r) =>
-          `${r.pcoExpiryDate} ${r.logbookExpiryDate} ${r.firstRegistrationDate}`,
+        id: "contact",
+        header: "Contact",
+        searchText: (r) => [r.email, r.phone].filter(Boolean).join(" "),
+        cell: (r) => formatTableContact(r.email, r.phone),
+      },
+      {
+        id: "pcoExpiry",
+        header: "PCO expiry",
+        searchText: (r) => r.pcoExpiryDate,
+        cell: (r) => <span className="text-sm tabular-nums whitespace-nowrap">{r.pcoExpiryDate}</span>,
+      },
+      {
+        id: "logbookExpiry",
+        header: "Logbook expiry",
+        searchText: (r) => r.logbookExpiryDate,
         cell: (r) => (
-          <div className="text-xs">
-            <p>
-              <span className="text-[var(--muted)]">PCO </span>
-              {r.pcoExpiryDate}
-            </p>
-            <p>
-              <span className="text-[var(--muted)]">Logbook </span>
-              {r.logbookExpiryDate}
-            </p>
-            <p className="text-[var(--muted)]">1st reg {r.firstRegistrationDate}</p>
-          </div>
+          <span className="text-sm tabular-nums whitespace-nowrap">{r.logbookExpiryDate}</span>
         ),
       },
+      ...(tab !== "pending"
+        ? [
+            {
+              id: "appointment",
+              header: "Booking",
+              searchText: (r) =>
+                [r.bookingDate, r.bookingTime, r.bookingCentreName].filter(Boolean).join(" "),
+              cell: (r) =>
+                r.bookingDate ? (
+                  <div className="text-sm tabular-nums whitespace-nowrap">
+                    <p>
+                      {r.bookingDate}
+                      {r.bookingTime ? ` ${r.bookingTime}` : ""}
+                    </p>
+                    {r.bookingCentreName && (
+                      <p className="text-xs text-[var(--muted)]">{r.bookingCentreName}</p>
+                    )}
+                  </div>
+                ) : (
+                  <span className="text-xs text-[var(--muted)]">—</span>
+                ),
+            } as TableColumn<PcoBookingListDto>,
+          ]
+        : []),
       {
         id: "job",
         header: "Job",
         searchText: (r) => `${r.bookingNumber} ${PCO_JOB_TYPE_LABEL[r.jobType]}`,
         cell: (r) => (
-          <div>
+          <div className="text-sm whitespace-nowrap">
             <p>{PCO_JOB_TYPE_LABEL[r.jobType]}</p>
-            <p className="text-xs text-[var(--muted)]">
-              {r.bookingNumber} · {PCO_PRIORITY_LABEL[r.priority]}
-            </p>
+            <p className="text-xs text-[var(--muted)]">{r.bookingNumber}</p>
           </div>
         ),
-      },
-      {
-        id: "booking",
-        header: "Appointment",
-        cell: (r) =>
-          r.bookingDate ? (
-            <div className="text-sm">
-              <p>
-                {r.bookingDate}
-                {r.bookingTime ? ` ${r.bookingTime}` : ""}
-              </p>
-              {r.bookingCentreName && (
-                <p className="text-xs text-[var(--muted)]">{r.bookingCentreName}</p>
-              )}
-            </div>
-          ) : (
-            <span className="text-xs text-amber-700 dark:text-amber-400">Not booked yet</span>
-          ),
       },
       {
         id: "charge",
         header: "Charge / paid",
         align: "right",
         cell: (r) => (
-          <div className="text-right tabular-nums">
+          <div className="text-right tabular-nums text-sm whitespace-nowrap">
             <div>{formatGbp(r.chargeGross)}</div>
             <div className="text-xs text-[var(--muted)]">
               {Number(r.balanceDue) > 0 ? `${formatGbp(r.balanceDue)} due` : "Paid"}
@@ -735,99 +1027,107 @@ export function PcoPageContent() {
           </div>
         ),
       },
-      {
-        id: "flags",
-        header: "Client",
-        cell: (r) => (
-          <span className="text-xs text-[var(--muted)]">
-            {r.clientInformed ? "Informed" : "Not informed"}
-            {r.clientResponded ? " · Responded" : ""}
-          </span>
-        ),
-      },
+      ...(tab !== "pending"
+        ? [
+            {
+              id: "flags",
+              header: "Client",
+              cell: (r: PcoBookingListDto) => (
+                <span className="text-xs text-[var(--muted)] whitespace-nowrap">
+                  {r.clientInformed ? "Informed" : "Not informed"}
+                  {r.clientResponded ? " · Responded" : ""}
+                </span>
+              ),
+            } as TableColumn<PcoBookingListDto>,
+          ]
+        : []),
       {
         id: "actions",
         header: "",
         align: "right",
-        cell: (r) => (
-          <div className="flex flex-col items-end gap-1">
-            {tab === "pending" && canWrite && (
-              <button
-                type="button"
-                onClick={() => void quickSchedule(r.id)}
-                className="text-sm font-medium text-accent"
-              >
-                Add booking details
-              </button>
-            )}
-            {tab === "active" && canWrite && (
-              <button
-                type="button"
-                onClick={() => void quickReschedule(r.id)}
-                className="text-sm font-medium text-accent"
-              >
-                Reschedule
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={() => void openDetail(r.id)}
-              className="text-sm text-[var(--muted)] hover:text-accent"
-            >
-              Open
-            </button>
-          </div>
-        ),
+        sticky: "right",
+        cell: (r) => {
+          const actions: { label: string; onClick: () => void }[] = [
+            { label: "View", onClick: () => void openDetail(r.id) },
+          ];
+          if (tab === "pending" && canWrite) {
+            actions.unshift({ label: "Edit", onClick: () => void openEditPending(r.id) });
+          }
+          if (tab === "active" && canWrite) {
+            actions.unshift({
+              label: "Reschedule",
+              onClick: () => void openRescheduleModal(r.id),
+            });
+          }
+          return (
+            <div className="flex items-center justify-end gap-1 whitespace-nowrap">
+              {tab === "pending" && canWrite && (
+                <button
+                  type="button"
+                  onClick={() => void quickSchedule(r.id)}
+                  disabled={saving}
+                  className="rounded-lg bg-accent px-2.5 py-1 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-50"
+                >
+                  Book
+                </button>
+              )}
+              <TableRowActionsMenu
+                triggerLabel={`Actions for ${formatRegistrationDisplay(r.vrm)}`}
+                actions={actions}
+              />
+            </div>
+          );
+        },
       },
     ];
     return cols;
-  }, [tab, canWrite]);
+  }, [tab, canWrite, saving, priorityUpdatingId, updatePriority]);
 
   const dueColumns: TableColumn<PcoDueVehicleDto>[] = useMemo(
     () => [
       {
         id: "vrm",
-        header: "VRM",
+        header: "Reg",
+        sticky: "left",
         searchText: (r) => formatRegistrationDisplay(r.vrm),
         cell: (r) => <VrmText vrm={r.vrm} />,
       },
       {
         id: "keeper",
         header: "Keeper",
-        searchText: (r) =>
-          [r.registeredKeeper, r.email, r.phone, r.addressLine1, r.city, r.postcode]
-            .filter(Boolean)
-            .join(" "),
+        searchText: (r) => r.registeredKeeper,
+        cell: (r) => <span className="font-medium">{r.registeredKeeper}</span>,
+      },
+      {
+        id: "address",
+        header: "Address",
+        searchText: (r) => formatTableAddress(r),
         cell: (r) => (
-          <KeeperCell
-            name={r.registeredKeeper}
-            email={r.email}
-            phone={r.phone}
-            addressLine1={r.addressLine1}
-            city={r.city}
-            postcode={r.postcode}
-          />
+          <span className="block max-w-[14rem] truncate text-sm" title={formatTableAddress(r)}>
+            {formatTableAddress(r)}
+          </span>
         ),
       },
       {
-        id: "expiries",
-        header: "Licence dates",
+        id: "contact",
+        header: "Contact",
+        searchText: (r) => [r.email, r.phone].filter(Boolean).join(" "),
+        cell: (r) => formatTableContact(r.email, r.phone),
+      },
+      {
+        id: "pcoExpiry",
+        header: "PCO expiry",
+        searchText: (r) => r.pcoExpiryDate ?? "",
         cell: (r) => (
-          <div className="text-xs">
-            {tab === "v5c_expiring" && (
-              <p>
-                <span className="text-[var(--muted)]">V5C </span>
-                {r.logbookExpiryDate}
-              </p>
-            )}
-            {tab === "renewals_due" && r.pcoExpiryDate && (
-              <p>
-                <span className="text-[var(--muted)]">PCO </span>
-                {r.pcoExpiryDate}
-              </p>
-            )}
-            <p className="text-[var(--muted)]">1st reg {r.firstRegistrationDate}</p>
-          </div>
+          <span className="text-sm tabular-nums">{r.pcoExpiryDate ?? "—"}</span>
+        ),
+      },
+      {
+        id: "logbookExpiry",
+        header: "Logbook expiry",
+        searchText: (r) => r.logbookExpiryDate,
+        cell: (r) => (
+          <span className="text-sm tabular-nums">{r.logbookExpiryDate}</span>
         ),
       },
       {
@@ -844,7 +1144,7 @@ export function PcoPageContent() {
         header: "Last charge",
         cell: (r) =>
           r.lastChargeGross ? (
-            <span>
+            <span className="text-sm">
               {formatGbp(r.lastChargeGross)}
               {r.lastBookingNumber ? ` (${r.lastBookingNumber})` : ""}
             </span>
@@ -858,19 +1158,21 @@ export function PcoPageContent() {
               id: "actions",
               header: "",
               align: "right" as const,
+              sticky: "right" as const,
               cell: (r: PcoDueVehicleDto) => (
-                <button
-                  type="button"
-                  onClick={() =>
-                    openRenewDueModal(
-                      r,
-                      tab === "renewals_due" ? "RENEWAL" : "LOGBOOK_EXPIRING",
-                    )
-                  }
-                  className="text-sm font-medium text-accent"
-                >
-                  Add to To book
-                </button>
+                <TableRowActionsMenu
+                  triggerLabel={`Actions for ${formatRegistrationDisplay(r.vrm)}`}
+                  actions={[
+                    {
+                      label: "Add to To book",
+                      onClick: () =>
+                        openRenewDueModal(
+                          r,
+                          tab === "renewals_due" ? "RENEWAL" : "LOGBOOK_EXPIRING",
+                        ),
+                    },
+                  ]}
+                />
               ),
             },
           ]
@@ -894,7 +1196,7 @@ export function PcoPageContent() {
             onClick={() => openCreate()}
             className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white"
           >
-            Add car to list
+            Add request
           </button>
         )}
       </div>
@@ -965,19 +1267,20 @@ export function PcoPageContent() {
           rows={dueRows}
           columns={dueColumns}
           getRowId={(r) => r.vehicleId}
-          searchPlaceholder="Search keeper or VRM…"
+          searchPlaceholder="Search reg, keeper, email…"
           emptyLabel={
             tab === "renewals_due"
               ? "No cars due to renew in the next 28 days"
               : "No cars with V5C expiring in the next 28 days"
           }
+          minWidth="72rem"
         />
       ) : (
         <SearchableTable
           rows={rows}
           columns={bookingColumns}
           getRowId={(r) => r.id}
-          searchPlaceholder="Search VRM, keeper, booking no…"
+          searchPlaceholder="Search reg, keeper, email, booking no…"
           emptyLabel={
             tab === "past"
               ? "No past bookings"
@@ -985,25 +1288,29 @@ export function PcoPageContent() {
                 ? "No cars waiting to be booked"
                 : "No active bookings — book from the To book tab"
           }
-          minWidth="72rem"
+          minWidth={tab === "pending" ? "68rem" : tab === "past" ? "80rem" : "88rem"}
         />
       )}
 
-      <Modal title="Add car to PCO list" open={modalOpen} onClose={() => setModalOpen(false)} size="lg">
+      <Modal title="Add request" open={modalOpen} onClose={() => setModalOpen(false)} size="lg">
         <form onSubmit={(e) => void saveBooking(e)} className="space-y-4">
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
               <label className="mb-1 block text-xs font-medium text-[var(--muted)]">VRM</label>
-              <input
-                value={draft.vrm}
-                onChange={(e) => {
-                  const v = normalizeRegistration(e.target.value);
-                  setDraft((d) => ({ ...d, vrm: v }));
-                }}
-                onBlur={() => void lookupVrm(draft.vrm)}
-                className={`${inputClass} font-mono uppercase`}
-                required
-              />
+              <div className="relative">
+                <input
+                  value={draft.vrm}
+                  onChange={(e) => {
+                    const v = normalizeRegistration(e.target.value);
+                    setDraft((d) => ({ ...d, vrm: v }));
+                  }}
+                  onBlur={() => void lookupVrm(draft.vrm)}
+                  className={`${inputClass} font-mono uppercase ${vrmLookupLoading ? "pr-9" : ""}`}
+                  required
+                  aria-busy={vrmLookupLoading}
+                />
+                {vrmLookupLoading && <FieldSpinner label="Looking up registration" />}
+              </div>
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
@@ -1178,7 +1485,25 @@ export function PcoPageContent() {
               <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Job type</label>
               <Select
                 value={draft.jobType}
-                onChange={(v) => setDraft((d) => ({ ...d, jobType: v as PcoJobType }))}
+                onChange={(v) => {
+                  const jobType = v as PcoJobType;
+                  setDraft((d) => ({ ...d, jobType }));
+                  if (jobType === "RESCHEDULE" && vrmHint?.activeBooking) {
+                    const ab = vrmHint.activeBooking;
+                    setDraft((d) => ({
+                      ...d,
+                      jobType,
+                      notes: [
+                        d.notes,
+                        ab.bookingCentreName && ab.bookingDate
+                          ? `Current booking: ${ab.bookingCentreName}, ${ab.bookingDate}${ab.bookingTime ? ` ${ab.bookingTime}` : ""}`
+                          : "",
+                      ]
+                        .filter(Boolean)
+                        .join("\n"),
+                    }));
+                  }
+                }}
                 options={PCO_JOB_TYPES.map((t) => ({ value: t, label: PCO_JOB_TYPE_LABEL[t] }))}
               />
             </div>
@@ -1195,7 +1520,7 @@ export function PcoPageContent() {
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
-                Estimated charge (£)
+                Estimated customer charge (£)
               </label>
               <input
                 type="number"
@@ -1204,12 +1529,18 @@ export function PcoPageContent() {
                 value={draft.chargeGross}
                 onChange={(e) => setDraft((d) => ({ ...d, chargeGross: e.target.value }))}
                 className={inputClass}
+                placeholder="From last job if available"
               />
+              <p className="mt-1 text-xs text-[var(--muted)]">
+                What you charge the customer — prefilled from the last completed job for this reg,
+                or leave blank. The £{PCO_DEFAULT_BOOKING_CHARGE} TfL slot fee is on Add booking
+                details.
+              </p>
             </div>
           </div>
 
           <p className="text-xs text-[var(--muted)]">
-            Book centre, date and time after adding the car — from the Pending tab.
+            Book centre, date and time after adding the request — from the To book tab.
           </p>
 
           {draft.jobType === "ADMIN" && (
@@ -1223,6 +1554,17 @@ export function PcoPageContent() {
               />
             </div>
           )}
+
+          <div>
+            <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Notes</label>
+            <textarea
+              value={draft.notes}
+              onChange={(e) => setDraft((d) => ({ ...d, notes: e.target.value }))}
+              rows={3}
+              className={inputClass}
+              placeholder="Any notes for this request…"
+            />
+          </div>
 
           <div className="flex flex-wrap gap-4 text-sm">
             <label className="flex items-center gap-2">
@@ -1256,7 +1598,7 @@ export function PcoPageContent() {
               disabled={saving}
               className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
             >
-              {saving ? "Saving…" : "Add to list"}
+              {saving ? "Saving…" : "Add request"}
             </button>
           </div>
         </form>
@@ -1381,9 +1723,19 @@ export function PcoPageContent() {
                       : "—"}
                 </DetailRow>
                 <DetailRow label="Centre">{detail.bookingCentreName ?? "—"}</DetailRow>
-                <DetailRow label="Payment method at booking">
-                  {detail.bookingPaymentMethod ?? "—"}
+                <DetailRow label="Slot paid by">
+                  {detail.slotPaidBy
+                    ? PCO_BOOKING_SLOT_PAID_BY_LABEL[detail.slotPaidBy]
+                    : "—"}
                 </DetailRow>
+                {detail.slotPaidBy === "US" && detail.slotChargeGross != null && (
+                  <DetailRow label="Slot expense (us)">
+                    {formatGbp(detail.slotChargeGross)}
+                    {detail.slotPaymentAccountName
+                      ? ` · ${detail.slotPaymentAccountName}`
+                      : ""}
+                  </DetailRow>
+                )}
                 <DetailRow label="Client informed">
                   {detail.clientInformed
                     ? detail.clientInformedAt
@@ -1402,6 +1754,12 @@ export function PcoPageContent() {
                   <div className="border-b border-[var(--border)] py-2.5 last:border-0 sm:col-span-2">
                     <dt className="text-sm text-[var(--muted)]">Job details</dt>
                     <dd className="mt-0.5 whitespace-pre-wrap text-sm">{detail.jobDetails}</dd>
+                  </div>
+                )}
+                {detail.notes && (
+                  <div className="border-b border-[var(--border)] py-2.5 last:border-0 sm:col-span-2">
+                    <dt className="text-sm text-[var(--muted)]">Notes</dt>
+                    <dd className="mt-0.5 whitespace-pre-wrap text-sm">{detail.notes}</dd>
                   </div>
                 )}
               </dl>
@@ -1473,7 +1831,14 @@ export function PcoPageContent() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setConfirmCancel(detail)}
+                  onClick={() => void openEditPending(detail.id)}
+                  className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm font-medium"
+                >
+                  Edit
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openFeeActionModal("cancel", detail)}
                   className="rounded-lg border border-red-300 px-3 py-1.5 text-sm text-red-700 dark:border-red-900 dark:text-red-400"
                 >
                   Remove
@@ -1485,7 +1850,7 @@ export function PcoPageContent() {
               <div className="flex flex-wrap gap-2 border-t border-[var(--border)] pt-4">
                 <button
                   type="button"
-                  onClick={() => openScheduleModal(detail, "reschedule")}
+                  onClick={() => openFeeActionModal("reschedule", detail)}
                   className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm font-medium"
                 >
                   Reschedule
@@ -1517,7 +1882,7 @@ export function PcoPageContent() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setConfirmCancel(detail)}
+                  onClick={() => openFeeActionModal("cancel", detail)}
                   className="rounded-lg border border-red-300 px-3 py-1.5 text-sm text-red-700 dark:border-red-900 dark:text-red-400"
                 >
                   Cancel
@@ -1528,16 +1893,10 @@ export function PcoPageContent() {
         )}
       </Modal>
 
-      <Modal
-        title={scheduleMode === "reschedule" ? "Reschedule appointment" : "Add booking details"}
-        open={scheduleOpen}
-        onClose={() => setScheduleOpen(false)}
-      >
+      <Modal title="Add booking details" open={scheduleOpen} onClose={() => setScheduleOpen(false)}>
         <form onSubmit={(e) => void scheduleBooking(e)} className="space-y-3">
           <p className="text-sm text-[var(--muted)]">
-            {scheduleMode === "reschedule"
-              ? "Update the centre, date and time for this booked appointment."
-              : "Enter where and when the PCO test is booked. The car moves to Active bookings once saved."}
+            Centre, date, time, and who pays for the TfL booking slot.
           </p>
           <div>
             <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
@@ -1580,27 +1939,104 @@ export function PcoPageContent() {
           </div>
           <div>
             <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
-              How customer paid for booking
+              Who pays for the booking slot?
             </label>
             <Select
-              value={scheduleDraft.bookingPaymentMethod}
+              value={scheduleDraft.slotPaidBy}
               onChange={(v) =>
-                setScheduleDraft((d) => ({ ...d, bookingPaymentMethod: v as PaymentMethod }))
+                setScheduleDraft((d) => ({
+                  ...d,
+                  slotPaidBy: v as PcoBookingSlotPaidBy,
+                  slotCreditSourceBookingId:
+                    v === "TFL_CREDIT" ? d.slotCreditSourceBookingId : "",
+                }))
               }
-              options={PAYMENT_METHOD_OPTIONS}
+              options={PCO_BOOKING_SLOT_PAID_BY_OPTIONS.filter(
+                (m) => m !== "TFL_CREDIT" || slotCredits.length > 0,
+              ).map((m) => ({
+                value: m,
+                label: PCO_BOOKING_SLOT_PAID_BY_LABEL[m],
+              }))}
             />
+            {scheduleDraft.slotPaidBy === "CUSTOMER" && (
+              <p className="mt-1 text-xs text-[var(--muted)]">
+                Customer pays the centre — no expense recorded for the garage.
+              </p>
+            )}
+            {scheduleDraft.slotPaidBy === "NA" && (
+              <p className="mt-1 text-xs text-[var(--muted)]">
+                No booking slot fee applies for this appointment.
+              </p>
+            )}
+            {scheduleDraft.slotPaidBy === "TFL_CREDIT" && (
+              <p className="mt-1 text-xs text-[var(--muted)]">
+                Uses a retained TfL slot fee from a cancelled booking — no new ledger expense.
+              </p>
+            )}
           </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Charge (£)</label>
-            <input
-              type="number"
-              min="0"
-              step="0.01"
-              value={scheduleDraft.chargeGross}
-              onChange={(e) => setScheduleDraft((d) => ({ ...d, chargeGross: e.target.value }))}
-              className={inputClass}
-            />
-          </div>
+          {scheduleDraft.slotPaidBy === "TFL_CREDIT" && (
+            <div>
+              <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
+                TfL credit
+              </label>
+              <Select
+                value={scheduleDraft.slotCreditSourceBookingId}
+                onChange={(v) =>
+                  setScheduleDraft((d) => ({
+                    ...d,
+                    slotCreditSourceBookingId: v,
+                    slotChargeGross:
+                      slotCredits.find((c) => c.bookingId === v)?.amountGross ??
+                      d.slotChargeGross,
+                  }))
+                }
+                options={slotCredits.map((c) => ({
+                  value: c.bookingId,
+                  label: `${c.bookingNumber} — ${formatGbp(c.amountGross)}`,
+                }))}
+              />
+            </div>
+          )}
+          {scheduleDraft.slotPaidBy === "US" && (
+            <>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
+                  Paid from account
+                </label>
+                <Select
+                  value={scheduleDraft.slotPaymentAccountId}
+                  onChange={(v) =>
+                    setScheduleDraft((d) => ({ ...d, slotPaymentAccountId: v }))
+                  }
+                  options={
+                    accounts.length > 0
+                      ? accounts.map((a) => ({ value: a.id, label: a.name }))
+                      : [{ value: "", label: "Add a bank/cash account in Ledger first" }]
+                  }
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
+                  Slot expense amount (£)
+                </label>
+                <input
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value={scheduleDraft.slotChargeGross}
+                  onChange={(e) =>
+                    setScheduleDraft((d) => ({ ...d, slotChargeGross: e.target.value }))
+                  }
+                  className={inputClass}
+                  required
+                />
+                <p className="mt-1 text-xs text-[var(--muted)]">
+                  Posted to the ledger as a PCO booking slot expense (default £
+                  {PCO_DEFAULT_BOOKING_CHARGE}).
+                </p>
+              </div>
+            </>
+          )}
           <div className="flex justify-end gap-2">
             <button
               type="button"
@@ -1614,7 +2050,7 @@ export function PcoPageContent() {
               disabled={saving || centreOptions.length === 0}
               className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
             >
-              {saving ? "Saving…" : scheduleMode === "reschedule" ? "Save reschedule" : "Save booking details"}
+              {saving ? "Saving…" : "Save booking details"}
             </button>
           </div>
         </form>
@@ -1880,6 +2316,17 @@ export function PcoPageContent() {
               )}
             </div>
 
+            <div>
+              <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Notes</label>
+              <textarea
+                value={renewDraft.notes}
+                onChange={(e) => setRenewDraft((d) => ({ ...d, notes: e.target.value }))}
+                rows={3}
+                className={inputClass}
+                placeholder="Any notes for this request…"
+              />
+            </div>
+
             <div className="flex justify-end gap-2">
               <button
                 type="button"
@@ -1900,6 +2347,207 @@ export function PcoPageContent() {
         )}
       </Modal>
 
+      <Modal title="Edit request" open={editOpen} onClose={() => setEditOpen(false)} size="lg">
+        <form onSubmit={(e) => void saveEditPending(e)} className="space-y-4">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
+                Registered keeper
+              </label>
+              <input
+                value={editDraft.registeredKeeper}
+                onChange={(e) =>
+                  setEditDraft((d) => ({ ...d, registeredKeeper: e.target.value }))
+                }
+                className={inputClass}
+                required
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Email</label>
+              <input
+                type="email"
+                value={editDraft.email}
+                onChange={(e) => setEditDraft((d) => ({ ...d, email: e.target.value }))}
+                className={inputClass}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Phone</label>
+              <input
+                value={editDraft.phone}
+                onChange={(e) => setEditDraft((d) => ({ ...d, phone: e.target.value }))}
+                className={inputClass}
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Address</label>
+              <input
+                value={editDraft.addressLine1}
+                onChange={(e) => setEditDraft((d) => ({ ...d, addressLine1: e.target.value }))}
+                className={inputClass}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-[var(--muted)]">City</label>
+              <input
+                value={editDraft.city}
+                onChange={(e) => setEditDraft((d) => ({ ...d, city: e.target.value }))}
+                className={inputClass}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Postcode</label>
+              <input
+                value={editDraft.postcode}
+                onChange={(e) => setEditDraft((d) => ({ ...d, postcode: e.target.value }))}
+                className={inputClass}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-[var(--muted)]">PCO expiry</label>
+              <input
+                type="date"
+                value={editDraft.pcoExpiryDate}
+                onChange={(e) => setEditDraft((d) => ({ ...d, pcoExpiryDate: e.target.value }))}
+                className={inputClass}
+              />
+            </div>
+          </div>
+
+          <details className="rounded-lg border border-[var(--border)] p-3">
+            <summary className="cursor-pointer text-sm font-medium">Vehicle details (optional)</summary>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Make</label>
+                <input
+                  value={editDraft.make}
+                  onChange={(e) => setEditDraft((d) => ({ ...d, make: e.target.value }))}
+                  className={inputClass}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Model</label>
+                <input
+                  value={editDraft.model}
+                  onChange={(e) => setEditDraft((d) => ({ ...d, model: e.target.value }))}
+                  className={inputClass}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Colour</label>
+                <input
+                  value={editDraft.color}
+                  onChange={(e) => setEditDraft((d) => ({ ...d, color: e.target.value }))}
+                  className={inputClass}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Fuel type</label>
+                <Select
+                  value={editDraft.fuelType}
+                  onChange={(v) => setEditDraft((d) => ({ ...d, fuelType: v }))}
+                  options={[
+                    { value: "", label: "—" },
+                    ...PCO_FUEL_TYPES.map((f) => ({ value: f, label: f })),
+                  ]}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Seats</label>
+                <input
+                  type="number"
+                  min="1"
+                  max="20"
+                  value={editDraft.seatCount}
+                  onChange={(e) => setEditDraft((d) => ({ ...d, seatCount: e.target.value }))}
+                  className={inputClass}
+                />
+              </div>
+            </div>
+          </details>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Job type</label>
+              <Select
+                value={editDraft.jobType}
+                onChange={(v) => setEditDraft((d) => ({ ...d, jobType: v as PcoJobType }))}
+                options={PCO_JOB_TYPES.map((t) => ({ value: t, label: PCO_JOB_TYPE_LABEL[t] }))}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Priority</label>
+              <Select
+                value={editDraft.priority}
+                onChange={(v) => setEditDraft((d) => ({ ...d, priority: v as PcoPriority }))}
+                options={(["LOW", "MEDIUM", "HIGH"] as const).map((p) => ({
+                  value: p,
+                  label: PCO_PRIORITY_LABEL[p],
+                }))}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
+                Estimated customer charge (£)
+              </label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={editDraft.chargeGross}
+                onChange={(e) => setEditDraft((d) => ({ ...d, chargeGross: e.target.value }))}
+                className={inputClass}
+                placeholder="From last job if available"
+              />
+              <p className="mt-1 text-xs text-[var(--muted)]">
+                Customer charge only — not the TfL slot fee (£{PCO_DEFAULT_BOOKING_CHARGE}).
+              </p>
+            </div>
+          </div>
+
+          {editDraft.jobType === "ADMIN" && (
+            <div>
+              <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Job details</label>
+              <textarea
+                value={editDraft.jobDetails}
+                onChange={(e) => setEditDraft((d) => ({ ...d, jobDetails: e.target.value }))}
+                rows={3}
+                className={inputClass}
+              />
+            </div>
+          )}
+
+          <div>
+            <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Notes</label>
+            <textarea
+              value={editDraft.notes}
+              onChange={(e) => setEditDraft((d) => ({ ...d, notes: e.target.value }))}
+              rows={3}
+              className={inputClass}
+              placeholder="Any notes for this request…"
+            />
+          </div>
+
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setEditOpen(false)}
+              className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={saving}
+              className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+            >
+              {saving ? "Saving…" : "Save changes"}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
       <ConfirmDialog
         open={!!confirmDeleteCentre}
         title="Remove booking centre?"
@@ -1914,15 +2562,87 @@ export function PcoPageContent() {
         onCancel={() => setConfirmDeleteCentre(null)}
       />
 
-      <ConfirmDialog
-        open={!!confirmCancel}
-        title="Cancel booking?"
-        description="This booking will be marked cancelled. Payments already recorded stay on the ledger."
-        confirmLabel="Cancel booking"
-        variant="danger"
-        onConfirm={() => void cancelBooking()}
-        onCancel={() => setConfirmCancel(null)}
-      />
+      <Modal
+        title={
+          feeActionModal?.mode === "reschedule" ? "Reschedule booking?" : "Cancel booking?"
+        }
+        open={!!feeActionModal}
+        onClose={() => setFeeActionModal(null)}
+      >
+        {feeActionModal && (
+          <div className="space-y-4">
+            <p className="text-sm text-[var(--muted)]">
+              {feeActionModal.mode === "reschedule" ? (
+                <>
+                  <strong>{formatRegistrationDisplay(feeActionModal.booking.vehicle.vrm)}</strong> (
+                  {feeActionModal.booking.bookingNumber}) will be cancelled and a new entry added to{" "}
+                  <strong>To book</strong> for a new appointment.
+                </>
+              ) : (
+                <>
+                  <strong>{formatRegistrationDisplay(feeActionModal.booking.vehicle.vrm)}</strong> (
+                  {feeActionModal.booking.bookingNumber}) will be marked cancelled. Payments already
+                  recorded stay on the ledger.
+                </>
+              )}
+            </p>
+            {bookingHadActiveSlotFee(feeActionModal.booking) && (
+              <div className="space-y-3 rounded-lg border border-[var(--border)] p-3">
+                <p className="text-sm font-medium">Booking slot fee</p>
+                <div className="space-y-2">
+                  {(["RETAINED", "REFUND_REQUESTED"] as const).map((value) => (
+                    <label key={value} className="flex cursor-pointer items-start gap-2 text-sm">
+                      <input
+                        type="radio"
+                        name="slotFeeDisposition"
+                        checked={slotFeeDisposition === value}
+                        onChange={() => setSlotFeeDisposition(value)}
+                        className="mt-0.5"
+                      />
+                      <span>{PCO_SLOT_FEE_DISPOSITION_LABEL[value]}</span>
+                    </label>
+                  ))}
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
+                    Cancellation note
+                  </label>
+                  <textarea
+                    value={cancellationNote}
+                    onChange={(e) => setCancellationNote(e.target.value)}
+                    rows={3}
+                    className={inputClass}
+                    placeholder="Required — e.g. TfL reference or reason for refund"
+                  />
+                </div>
+              </div>
+            )}
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setFeeActionModal(null)}
+                className="rounded-lg border px-4 py-2 text-sm"
+              >
+                Back
+              </button>
+              <button
+                type="button"
+                disabled={saving}
+                onClick={() => void submitFeeAction()}
+                className={`rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-50 ${
+                  feeActionModal.mode === "cancel" ? "bg-red-600" : "bg-accent"
+                }`}
+              >
+                {saving
+                  ? "Saving…"
+                  : feeActionModal.mode === "reschedule"
+                    ? "Reschedule"
+                    : "Cancel booking"}
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

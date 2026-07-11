@@ -2,12 +2,14 @@
 
 Companion to [PROJECT_PLAN.md](PROJECT_PLAN.md). **Delivery model:** gated phases — build → deploy staging → **you test → sign off** → next module (see PROJECT_PLAN §25).
 
-**Last updated:** 2026-06-12  
-**Current phase:** **Phase 7–8** (Parts + Tyres — local UAT in progress)  
-**Current gate:** ⏳ Phases 4–8 open (Phases 1–3 signed off locally)  
+**Last updated:** 2026-06-02  
+**Current phase:** **PCO module UAT** (workflow redesign on feature branch)  
+**Current gate:** ⏳ PCO bookings — local UAT on `feat/pco-booking-workflow`  
 **UAT note:** Phases 1–3 signed off on **local** (`pnpm dev`); Railway staging deferred.  
-**Latest push:** `33d666e` on `main` — customer record payment, supplier fixes, tyre form UX.  
-**Resume next session:** Read **Decision log** and **PCO module (signed off spec)** below, then continue from **Backlog / next build**.
+**Latest on `main`:** `4cefc29` — PCO module (initial).  
+**Active branch:** `feat/pco-booking-workflow` @ `a795f72` (+ uncommitted refinements — reschedule, notes, priority, edit, slot payments).  
+**Resume next session:** Read [AGENTS.md](../AGENTS.md), then [PCO_MODULE.md](./PCO_MODULE.md) for full handoff, then **Decision log** and **PCO module** below.
+
 **Staging URL:** _Railway → **web** service → Settings → Networking → **Public domain**_ (verify in dashboard; stale docs URLs cause 404)
 
 **Local dev:** [LOCAL_DEVELOPMENT.md](./LOCAL_DEVELOPMENT.md) · **Railway deploy:** [RAILWAY_AUTODEPLOY.md](./RAILWAY_AUTODEPLOY.md)
@@ -49,6 +51,7 @@ Companion to [PROJECT_PLAN.md](PROJECT_PLAN.md). **Delivery model:** gated phase
 | 7 | Parts stock | `[x]` | `[ ]` | ⏳ | |
 | — | Bodywork (parallel) | `[x]` | `[ ]` | ⏳ | |
 | 8 | Tyre stock | `[~]` | `[ ]` | ⏳ | |
+| — | **PCO bookings** | `[x]` | `[ ]` | ⏳ | _see [PCO_MODULE.md](./PCO_MODULE.md)_ |
 | 9 | Mechanic PWA | `[ ]` | `[ ]` | ⏳ | |
 | 10 | Used cars | `[ ]` | `[ ]` | ⏳ | |
 | 11 | Partners | `[ ]` | `[ ]` | ⏳ | |
@@ -362,7 +365,7 @@ Companion to [PROJECT_PLAN.md](PROJECT_PLAN.md). **Delivery model:** gated phase
 
 ## Architecture & hosting (planned — not built yet)
 
-Decisions from 2026-06-12 planning (VAT receipts, mobile, go-live). **Use this section to resume work** without relying on chat history.
+Decisions from 2026-06-12 planning (VAT receipts, mobile, go-live). **Use this section to resume work** without relying on chat history. For **PCO bookings**, see [PCO_MODULE.md](./PCO_MODULE.md).
 
 ### Production stack (target)
 
@@ -408,86 +411,62 @@ Decisions from 2026-06-12 planning (VAT receipts, mobile, go-live). **Use this s
 
 ## Backlog / next build (priority order)
 
-1. **PCO module** — see signed-off spec below (vehicle + booking, ledger-only income).
-2. **Tyre job picker** — supplier + stock on repair jobs (Phase 9 with PWA).
-3. **Receipt upload Phase 1** — `DocumentAttachment` + API + ledger UI (Phase 14).
-4. **Phases 4–8 local UAT** sign-off.
+1. **PCO module UAT** — commit uncommitted workflow refinements on `feat/pco-booking-workflow`, test locally, merge to `main`. Handoff: [PCO_MODULE.md](./PCO_MODULE.md).
+2. **Phases 4–8 local UAT** sign-off (ledger, invoices, repair, parts, tyres, bodywork).
+3. **Tyre job picker** — supplier + stock on repair jobs (Phase 9 with PWA).
+4. **Receipt upload Phase 1** — `DocumentAttachment` + API + ledger UI (Phase 14).
 5. **Notification tables + Web Push** (pre go-live).
 6. **MTD VAT export** incl. receipt links (later).
 
 ---
 
-## PCO module — signed-off spec (build from here)
+## PCO module — signed-off spec
 
-**Status:** `[x]` Built · **Gate:** ⏳ UAT  
-**Shared types:** `packages/shared/src/pco-types.ts` (job types incl. **Retest**).
+**Status:** `[x]` Built (initial on `main`) · `[~]` Workflow redesign on `feat/pco-booking-workflow`  
+**Gate:** ⏳ UAT  
+**Full handoff:** [PCO_MODULE.md](./PCO_MODULE.md) (workflow, API, migrations, UAT script)  
+**Shared types:** `packages/shared/src/pco-types.ts`
 
-### Data model
+### Workflow summary
 
-| Entity | Purpose |
-|--------|---------|
-| **PcoVehicle** | One row per VRM **+ keeper** snapshot. Same VRM with a **new keeper** → **new vehicle record**; previous record archived (history kept). |
-| **PcoBooking** | Each job/appointment linked to a vehicle. Completed bookings move to **Past**; vehicle `pcoExpiry` updated on complete. |
+Two-step: **Add request** → **To book** (`PENDING`) → **Add booking details** → **Active** (`ACTIVE`) → **Complete** → **Past**. **Reschedule** on active moves back to To book. Due-to-renew / V5C tabs use a **28-day** window and hide vehicles with open bookings.
 
 ### Job types
 
-`Renewal` · `New` · `Admin` · `Logbook expiring` · **`Retest`**
+`Renewal` · `New` · `Admin` · `Logbook expiring` · `Retest` · **`Reschedule`**
 
-Admin jobs: free-text **job details**. Other types: standard fields.
+### Key fields
 
-### Vehicle / keeper fields
+**Vehicle:** VRM, keeper, address, contact, first registration, PCO/V5C expiry, optional make/model/colour/fuel/seats, vehicle note.
 
-VRM · Registered keeper · Address · Email · Phone · Date of first registration · PCO expiry · Logbook expiry (auto **+10 years** from first registration, overridable) · Note
-
-### Booking fields
-
-Job type · Job details (admin) · Priority (Low / Medium / High) · Charges ( **no VAT** ) · Partial payments · Booking date & time (**UK / Europe-London**) · Booking centre (from **PCO settings**) · Client informed · Client responded · Booking payment method (existing `PaymentMethod` list) · Admin user (auto) · Admin date/time (auto `createdAt`)
-
-### Booking centres
-
-`SettingOption` with `option_type = pco_booking_centre`. **PCO → Settings** tab for admins to add/edit centres.
-
-### Complete booking
-
-1. Status → `COMPLETED` (past tab).
-2. Prompt **next PCO expiry** — default **previous expiry + 1 year** (not completion date). ✅ Confirmed.
-3. Update vehicle `pcoExpiry`.
+**Booking:** Job type, priority (High/Medium/Low), charge (default **£140**, no VAT), notes, client informed/responded, centre/date/time when scheduled, **slot payment method** (incl. Customer paid — metadata only, not ledger enum).
 
 ### Tabs (UI)
 
-| Tab | Rule |
-|-----|------|
+| Tab | Content |
+|-----|---------|
 | Active bookings | `ACTIVE` |
+| To book | `PENDING` — priority sorted high first |
 | Past bookings | `COMPLETED` |
-| Renewals due | PCO expiry within **30 days** |
-| Logbook due | First registration + 10 years within **30 days** |
+| V5C expiring | Logbook due within 28d |
+| Due to renew (28d) | PCO expiry within 28d |
+| Centres | Booking centre settings |
 
-### Payments & finance
+### Finance
 
-- **No invoice PDF** for PCO — charges + **partial payments** on the booking only.
-- On payment / complete: post **ledger income** with `source_module = PCO` (add `PCO` to `LedgerSourceModule` enum in schema).
-- Ledger entries clearly tagged so **P&L by module** works later: garage (repair/parts/tyres) · bodywork · PCO · rental · combined (Reports phase).
+- No invoice PDF; partial payments on booking → ledger income `source_module = PCO`
+- Complete: next PCO expiry = **previous expiry + 1 year**
 
-### Previous charges hint
-
-On new booking, lookup by VRM: show last completed booking(s) with **amount charged** (hint only, do not auto-fill).
-
-### Build checklist (order)
+### Build checklist
 
 - [x] Prisma: `PcoVehicle`, `PcoBooking`, `PcoBookingPayment`; `LedgerSourceModule.PCO`
-- [x] API: vehicles, bookings, centres (settings), complete + roll expiry, due-soon lists
-- [x] Web: `/pco` — tabs, plate header, centres settings, payment modal pattern
-- [x] Seed demo PCO centre + sample booking
-- [x] Enable `pco` on demo garage; add `pco.read` / `pco.write` to Manager/Staff roles
-- [ ] **You:** UAT
-
-**Test script**
-1. Add booking centre in PCO settings.
-2. Create vehicle + **Retest** booking; record partial payment.
-3. Complete booking — next PCO expiry defaults to old expiry + 1 year.
-4. Same VRM, new keeper — new vehicle record; old keeper history visible on past bookings.
-5. Renewals due tab shows vehicle within 30 days of expiry.
-6. Ledger shows PCO income; no invoice generated.
+- [x] API: CRUD, schedule, return-to-book, complete, due lists, VRM lookup, centres
+- [x] Web: `/pco` — tabs, two-step flow, ⋮ row actions, edit, notes, slot payment on schedule
+- [x] Migrations through `20260617140200_pco_slot_payment_enum` (see PCO_MODULE.md)
+- [x] Seed demo centre; `pco.read` / `pco.write` on Manager/Staff
+- [ ] Commit latest refinements on feature branch
+- [ ] **You:** UAT ([test script in PCO_MODULE.md](./PCO_MODULE.md#uat-test-script))
+- [ ] Merge `feat/pco-booking-workflow` → `main`
 
 ---
 
@@ -538,6 +517,13 @@ On new booking, lookup by VRM: show last completed booking(s) with **amount char
 | 2026-06-13 | **PCO: new keeper = new record** | Same VRM + new keeper → new vehicle row; archive old | Stakeholder |
 | 2026-06-13 | **PCO: ledger only** | Income to ledger `source_module=PCO`; P&L by module in Reports later | Stakeholder |
 | 2026-06-13 | **PCO booking datetime** | UK garage local (Europe/London), date + time | Stakeholder |
+| 2026-06-02 | **PCO two-step workflow** | Add request → To book → schedule → active; `PENDING` status | Stakeholder |
+| 2026-06-02 | **PCO due window 28 days** | Renewals due + V5C expiring tabs | Stakeholder |
+| 2026-06-02 | **PCO reschedule** | Active → To book (not inline edit); `RESCHEDULE` job type | Stakeholder |
+| 2026-06-02 | **PCO slot charge £140** | Default centre booking fee; editable per booking | Stakeholder |
+| 2026-06-02 | **PCO slot paid by** | Add booking details: Us (ledger expense + account), Customer (no expense), N/A (no fee) | Stakeholder |
+| 2026-06-02 | **PCO due list exclusion** | Hide from due-to-renew when PENDING/ACTIVE booking exists | Stakeholder |
+| 2026-06-02 | **PCO notes + priority** | Notes on bookings; To book sorted by priority | Stakeholder |
 
 ---
 
@@ -563,3 +549,4 @@ On new booking, lookup by VRM: show last completed booking(s) with **amount char
 | 2026-06-12 | Customer record payment modal; supplier detail/orders; tyre stock purchase UX; payment balance hints (`33d666e`) |
 | 2026-06-12 | Architecture notes: Railway go-live, receipt storage, push, mobile API-only |
 | 2026-06-13 | PCO module spec signed off; Retest job type; shared `pco-types.ts`; backlog #1 |
+| 2026-06-02 | PCO on `main` (`4cefc29`); workflow branch `feat/pco-booking-workflow`; [PCO_MODULE.md](./PCO_MODULE.md) handoff doc |

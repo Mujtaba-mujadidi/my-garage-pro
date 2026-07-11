@@ -2,6 +2,8 @@
 
 Run the full app on your machine while Railway deploys are paused or slow. **Staging (Railway)** stays the shared environment for the wider team; **local** is for fast day-to-day work.
 
+**Resume a module without chat history:** [PROGRESS.md](./PROGRESS.md) (gates & backlog) · [PCO_MODULE.md](./PCO_MODULE.md) (PCO workflow handoff)
+
 ---
 
 ## How it fits together
@@ -246,6 +248,7 @@ You do **not** need to “sync” local data to staging — only **code and migr
 | Prisma migration error after pull | `pnpm db:migrate:deploy` — if failed migration, see `docs/RAILWAY_MIGRATION_FIX.md` patterns for local DB reset: `docker compose down -v` then migrate + seed again |
 | Empty team table | `pnpm db:seed` |
 | Web shows old UI | Hard refresh; restart `pnpm dev` |
+| `Cannot GET /pco/...` (or other new API routes) | Run `pnpm db:migrate:deploy`, rebuild shared (`pnpm --filter @mygaragepro/shared build`), restart API (`pnpm dev`) — stale process may lack new routes |
 | Blank page / **500** / `Cannot find module './NNN.js'` | **Dev + production build mixed** — stop dev, run `pnpm dev:reset`. `pnpm dev` now auto-clears production `.next` if you ran `next build` earlier. **Never run `pnpm build` while `pnpm dev` is running.** |
 | `EADDRINUSE` on 3011 or 4000 | `lsof -ti:3011 \| xargs kill -9` and same for `:4000`, then `pnpm dev` |
 

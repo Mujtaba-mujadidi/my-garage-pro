@@ -1,10 +1,13 @@
+import type { PaymentMethod } from "./invoice-types";
+
 /** PCO booking job type — garage service category for this appointment. */
 export type PcoJobType =
   | "RENEWAL"
   | "NEW"
   | "ADMIN"
   | "LOGBOOK_EXPIRING"
-  | "RETEST";
+  | "RETEST"
+  | "RESCHEDULE";
 
 export const PCO_JOB_TYPE_LABEL: Record<PcoJobType, string> = {
   RENEWAL: "Renewal",
@@ -12,6 +15,7 @@ export const PCO_JOB_TYPE_LABEL: Record<PcoJobType, string> = {
   ADMIN: "Admin",
   LOGBOOK_EXPIRING: "Logbook expiring",
   RETEST: "Retest",
+  RESCHEDULE: "Reschedule",
 };
 
 export const PCO_JOB_TYPES: PcoJobType[] = [
@@ -20,7 +24,49 @@ export const PCO_JOB_TYPES: PcoJobType[] = [
   "ADMIN",
   "LOGBOOK_EXPIRING",
   "RETEST",
+  "RESCHEDULE",
 ];
+
+/** TfL / centre booking slot fee (Add booking details only — not the customer service charge). */
+export const PCO_DEFAULT_BOOKING_CHARGE = 140;
+
+/** Who pays the TfL / centre booking slot fee (Add booking details only). */
+export type PcoBookingSlotPaidBy = "US" | "CUSTOMER" | "NA" | "TFL_CREDIT";
+
+export const PCO_BOOKING_SLOT_PAID_BY_LABEL: Record<PcoBookingSlotPaidBy, string> = {
+  US: "Us",
+  CUSTOMER: "Customer",
+  NA: "N/A",
+  TFL_CREDIT: "TfL credit",
+};
+
+export const PCO_BOOKING_SLOT_PAID_BY_OPTIONS: PcoBookingSlotPaidBy[] = [
+  "US",
+  "CUSTOMER",
+  "NA",
+  "TFL_CREDIT",
+];
+
+export type PcoSlotFeeDisposition = "NOT_APPLICABLE" | "RETAINED" | "REFUND_REQUESTED";
+
+export const PCO_SLOT_FEE_DISPOSITION_LABEL: Record<
+  Exclude<PcoSlotFeeDisposition, "NOT_APPLICABLE">,
+  string
+> = {
+  RETAINED: "Keep fee for future booking (TfL credit)",
+  REFUND_REQUESTED: "Refund requested",
+};
+
+export type PcoSlotCreditStatus = "NOT_APPLICABLE" | "AVAILABLE" | "APPLIED";
+
+export type PcoSlotCreditDto = {
+  bookingId: string;
+  bookingNumber: string;
+  vrm: string;
+  amountGross: string;
+  cancellationNote: string | null;
+  cancelledAt: string;
+};
 
 export type PcoBookingStatus = "PENDING" | "ACTIVE" | "COMPLETED" | "CANCELLED";
 
@@ -41,6 +87,17 @@ export const PCO_PRIORITY_LABEL: Record<PcoPriority, string> = {
   MEDIUM: "Medium",
   HIGH: "High",
 };
+
+const PCO_PRIORITY_SORT: Record<PcoPriority, number> = {
+  HIGH: 0,
+  MEDIUM: 1,
+  LOW: 2,
+};
+
+/** Sort pending bookings — high priority first. */
+export function sortPcoBookingsByPriority<T extends { priority: PcoPriority }>(rows: T[]): T[] {
+  return [...rows].sort((a, b) => PCO_PRIORITY_SORT[a.priority] - PCO_PRIORITY_SORT[b.priority]);
+}
 
 /** Days before expiry to show on renewals / V5C due tabs. */
 export const PCO_DUE_SOON_DAYS = 28;
@@ -154,7 +211,21 @@ export type PcoBookingDto = {
   clientResponded: boolean;
   clientInformedAt: string | null;
   clientRespondedAt: string | null;
-  bookingPaymentMethod: string | null;
+  slotPaidBy: PcoBookingSlotPaidBy | null;
+  slotPaymentAccountId: string | null;
+  slotPaymentAccountName: string | null;
+  slotChargeGross: string | null;
+  slotCreditSourceBookingId: string | null;
+  slotCreditSourceBookingNumber: string | null;
+  slotFeeDisposition: PcoSlotFeeDisposition | null;
+  slotCreditStatus: PcoSlotCreditStatus;
+  cancellationNote: string | null;
+  cancelledAt: string | null;
+  rescheduledFromBookingId: string | null;
+  rescheduledFromBookingNumber: string | null;
+  rescheduledToBookingId: string | null;
+  rescheduledToBookingNumber: string | null;
+  notes: string | null;
   vehicle: PcoVehicleDto;
   payments: PcoBookingPaymentDto[];
   createdById: string;
@@ -163,6 +234,11 @@ export type PcoBookingDto = {
   completedByName: string | null;
   createdAt: string;
   updatedAt: string;
+};
+
+export type PcoCancelAndRescheduleResultDto = {
+  cancelled: PcoBookingDto;
+  newBooking: PcoBookingDto;
 };
 
 export type PcoBookingListDto = {
@@ -194,6 +270,7 @@ export type PcoBookingListDto = {
   firstRegistrationDate: string;
   pcoExpiryDate: string;
   logbookExpiryDate: string;
+  notes: string | null;
   createdAt: string;
 };
 
@@ -219,10 +296,32 @@ export type PcoDueVehicleDto = {
   lastBookingNumber: string | null;
 };
 
+export type PcoActiveBookingSnapshotDto = {
+  id: string;
+  bookingNumber: string;
+  bookingDate: string | null;
+  bookingTime: string | null;
+  bookingCentreId: string | null;
+  bookingCentreName: string | null;
+  slotPaidBy: PcoBookingSlotPaidBy | null;
+  chargeGross: string;
+};
+
+export type PcoOpenBookingSnapshotDto = {
+  id: string;
+  bookingNumber: string;
+  status: PcoBookingStatus;
+  jobType: PcoJobType;
+};
+
 export type PcoVrmLookupDto = {
   activeVehicle: PcoVehicleDto | null;
   /** Vehicle details from the most recent completed booking for this VRM. */
   lastCompletedVehicle: PcoVehicleDto | null;
+  /** Current booked appointment for this VRM, if any. */
+  activeBooking: PcoActiveBookingSnapshotDto | null;
+  /** Open PENDING or ACTIVE booking for this VRM — at most one should exist. */
+  openBooking: PcoOpenBookingSnapshotDto | null;
   previousCharges: { bookingNumber: string; jobType: PcoJobType; chargeGross: string; completedAt: string | null }[];
 };
 

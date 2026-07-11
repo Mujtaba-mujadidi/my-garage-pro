@@ -7,9 +7,20 @@ export type TableColumn<T> = {
   id: string;
   header: string;
   align?: "left" | "right";
+  /** Keep column visible when scrolling horizontally. */
+  sticky?: "left" | "right";
   cell: (row: T) => ReactNode;
   searchText?: (row: T) => string;
 };
+
+const STICKY_LEFT_CELL =
+  "sticky left-0 z-[2] bg-[var(--surface)] shadow-[1px_0_0_var(--border)] group-hover:bg-[var(--background)]";
+const STICKY_RIGHT_CELL =
+  "sticky right-0 z-[2] bg-[var(--surface)] shadow-[-1px_0_0_var(--border)] group-hover:bg-[var(--background)]";
+const STICKY_LEFT_HEAD =
+  "sticky left-0 z-[11] bg-[var(--background)] shadow-[1px_0_0_var(--border)]";
+const STICKY_RIGHT_HEAD =
+  "sticky right-0 z-[11] bg-[var(--background)] shadow-[-1px_0_0_var(--border)]";
 
 type SearchableTableProps<T> = {
   rows: T[];
@@ -81,7 +92,11 @@ export function SearchableTable<T>({
               {columns.map((col) => (
                 <th
                   key={col.id}
-                  className={`px-4 py-3 font-semibold ${col.align === "right" ? "text-right" : ""}`}
+                  className={`px-4 py-3 font-semibold ${
+                    col.align === "right" ? "text-right" : ""
+                  } ${col.sticky === "left" ? STICKY_LEFT_HEAD : ""} ${
+                    col.sticky === "right" ? STICKY_RIGHT_HEAD : ""
+                  }`}
                 >
                   {col.header}
                 </th>
@@ -99,12 +114,14 @@ export function SearchableTable<T>({
               pageRows.map((row) => (
                 <tr
                   key={getRowId(row)}
-                  className="border-t border-[var(--border)] hover:bg-[var(--background)]"
+                  className="group border-t border-[var(--border)] hover:bg-[var(--background)]"
                 >
                   {columns.map((col) => (
                     <td
                       key={col.id}
-                      className={`px-4 py-3 ${col.align === "right" ? "text-right" : ""}`}
+                      className={`px-4 py-3 ${col.align === "right" ? "text-right" : ""} ${
+                        col.sticky === "left" ? STICKY_LEFT_CELL : ""
+                      } ${col.sticky === "right" ? STICKY_RIGHT_CELL : ""}`}
                     >
                       {col.cell(row)}
                     </td>

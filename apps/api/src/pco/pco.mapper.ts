@@ -12,11 +12,13 @@ import type {
   PcoBookingPaymentDto,
   PcoCentreDto,
   PcoDueVehicleDto,
+  PcoSlotCreditDto,
   PcoVehicleDto,
 } from "@mygaragepro/shared";
 import {
   PCO_BOOKING_STATUS_LABEL,
   PCO_DUE_SOON_DAYS,
+  PCO_DEFAULT_BOOKING_CHARGE,
   PCO_JOB_TYPE_LABEL,
   PCO_PRIORITY_LABEL,
 } from "@mygaragepro/shared";
@@ -84,6 +86,10 @@ export function toPcoPaymentDto(row: PaymentWithAccount): PcoBookingPaymentDto {
 type BookingRow = PcoBooking & {
   vehicle: PcoVehicle;
   bookingCentre: Pick<SettingOption, "label"> | null;
+  slotPaymentAccount: Pick<PaymentAccount, "name"> | null;
+  slotCreditSourceBooking: Pick<PcoBooking, "bookingNumber"> | null;
+  rescheduledFromBooking: Pick<PcoBooking, "bookingNumber"> | null;
+  rescheduledToBooking: Pick<PcoBooking, "bookingNumber"> | null;
   payments: PaymentWithAccount[];
   createdBy: Pick<User, "displayName">;
   completedBy: Pick<User, "displayName"> | null;
@@ -111,7 +117,21 @@ export function toPcoBookingDto(row: BookingRow): PcoBookingDto {
     clientResponded: row.clientResponded,
     clientInformedAt: row.clientInformedAt?.toISOString() ?? null,
     clientRespondedAt: row.clientRespondedAt?.toISOString() ?? null,
-    bookingPaymentMethod: row.bookingPaymentMethod,
+    slotPaidBy: row.slotPaidBy,
+    slotPaymentAccountId: row.slotPaymentAccountId,
+    slotPaymentAccountName: row.slotPaymentAccount?.name ?? null,
+    slotChargeGross: row.slotChargeGross != null ? dec(row.slotChargeGross) : null,
+    slotCreditSourceBookingId: row.slotCreditSourceBookingId,
+    slotCreditSourceBookingNumber: row.slotCreditSourceBooking?.bookingNumber ?? null,
+    slotFeeDisposition: row.slotFeeDisposition,
+    slotCreditStatus: row.slotCreditStatus,
+    cancellationNote: row.cancellationNote,
+    cancelledAt: row.cancelledAt?.toISOString() ?? null,
+    rescheduledFromBookingId: row.rescheduledFromBookingId,
+    rescheduledFromBookingNumber: row.rescheduledFromBooking?.bookingNumber ?? null,
+    rescheduledToBookingId: row.rescheduledToBookingId,
+    rescheduledToBookingNumber: row.rescheduledToBooking?.bookingNumber ?? null,
+    notes: row.notes,
     vehicle: toPcoVehicleDto(row.vehicle),
     payments: row.payments.map(toPcoPaymentDto),
     createdById: row.createdById,
@@ -161,6 +181,7 @@ export function toPcoBookingListDto(row: ListRow): PcoBookingListDto {
     firstRegistrationDate: isoDate(row.vehicle.firstRegistrationDate),
     pcoExpiryDate: isoDate(row.vehicle.pcoExpiryDate),
     logbookExpiryDate: isoDate(row.vehicle.logbookExpiryDate),
+    notes: row.notes,
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -194,6 +215,21 @@ export function toPcoDueVehicleDto(
     daysUntilDue,
     lastChargeGross: lastBooking ? dec(lastBooking.chargeGross) : null,
     lastBookingNumber: lastBooking?.bookingNumber ?? null,
+  };
+}
+
+export function toPcoSlotCreditDto(
+  row: PcoBooking & { vehicle: Pick<PcoVehicle, "vrm"> },
+): PcoSlotCreditDto {
+  const amount =
+    row.slotChargeGross != null ? dec(row.slotChargeGross) : String(PCO_DEFAULT_BOOKING_CHARGE);
+  return {
+    bookingId: row.id,
+    bookingNumber: row.bookingNumber,
+    vrm: row.vehicle.vrm,
+    amountGross: amount,
+    cancellationNote: row.cancellationNote,
+    cancelledAt: row.cancelledAt?.toISOString() ?? row.updatedAt.toISOString(),
   };
 }
 

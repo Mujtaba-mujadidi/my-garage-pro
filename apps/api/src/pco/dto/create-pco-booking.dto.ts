@@ -1,4 +1,4 @@
-import { PcoJobType, PcoPriority, PaymentMethod } from "@prisma/client";
+import { PcoJobType, PcoPriority } from "@prisma/client";
 import { IsBoolean, IsEmail, IsEnum, IsInt, IsOptional, IsString, IsUUID, Matches, MaxLength, Min } from "class-validator";
 
 export class CreatePcoBookingDto {
@@ -84,6 +84,11 @@ export class CreatePcoBookingDto {
   note?: string;
 
   @IsOptional()
+  @IsString()
+  @MaxLength(4000)
+  notes?: string;
+
+  @IsOptional()
   @IsUUID()
   customerId?: string;
 
@@ -123,8 +128,4 @@ export class CreatePcoBookingDto {
   @IsOptional()
   @IsBoolean()
   clientResponded?: boolean;
-
-  @IsOptional()
-  @IsEnum(PaymentMethod)
-  bookingPaymentMethod?: PaymentMethod;
 }

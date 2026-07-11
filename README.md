@@ -2,8 +2,11 @@
 
 Modular garage and automotive business management SaaS.
 
+- **Agent / dev bootstrap:** [AGENTS.md](AGENTS.md) — or type **`/context`** in Cursor chat
+- **Coding standards:** [docs/CODING_STANDARDS.md](docs/CODING_STANDARDS.md)
 - **Plan:** [docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.md)
 - **Progress & gated testing:** [docs/PROGRESS.md](docs/PROGRESS.md)
+- **PCO module handoff:** [docs/PCO_MODULE.md](docs/PCO_MODULE.md)
 - **GitHub + staging setup:** [docs/GITHUB_SETUP.md](docs/GITHUB_SETUP.md)
 
 ## Stack

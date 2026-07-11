@@ -219,6 +219,9 @@ For brevity each module lists: **purpose · key entities · workflows · ledger 
 - Part returns (unused on job): increment stock, reverse postings.
 
 ### 8.10 PCO Booking (Module: `pco`)
+
+> **Implemented spec:** See [docs/PCO_MODULE.md](./PCO_MODULE.md) and [docs/PROGRESS.md](./PROGRESS.md) § PCO module. The bullets below are original plan context; the built product uses a two-step **Add request → To book → Active** workflow, job types including Retest/Reschedule, 28-day due lists, and ledger-only income (no invoice PDF).
+
 - Customer-light record: registered name, licence, expiry, preferred centres.
 - Job types: admin · booking · retest · renewal · document upload · other.
 - Statuses: New · Awaiting documents · Documents received · Booking required · Booked · Awaiting appointment · Retest required · Completed · Cancelled · Refunded.

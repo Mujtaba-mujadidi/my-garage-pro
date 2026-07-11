@@ -1,0 +1,35 @@
+---
+description: MyGaragePro core rules — tenancy, RBAC, scope, docs-first
+alwaysApply: true
+---
+
+# MyGaragePro
+
+Before coding: read `AGENTS.md` → `docs/PROGRESS.md` (decision log) → `docs/CODING_STANDARDS.md`. Module work → `docs/*_MODULE.md`. Spec sections → `docs/PROJECT_PLAN.md` as needed.
+
+## Do not invent
+
+Requirements come from chat + PROGRESS decision log + module docs + PROJECT_PLAN + existing code. No new fields, endpoints, or business rules without agreement.
+
+## Tenancy & auth
+
+- `garageAccountId` from `RequestUser` only — never from client body.
+- `@UseGuards(PermissionsGuard)` + `@RequirePermissions` on API routes.
+- `user.enabledModules.includes(...)` in services.
+- UI permissions hide buttons only; server enforces.
+
+## Data & finance
+
+- Soft delete (`deletedAt`); audit meaningful mutations.
+- `prisma.$transaction` for multi-table / money / stock writes.
+- Ledger rules: copy invoice/ledger services; every money event posts to ledger.
+
+## Monorepo
+
+- Types in `packages/shared`; rebuild shared before typecheck.
+- Mirror **customers** module for new entities (module → service → controller → dto → mapper).
+- Smallest correct diff; no unrelated refactors.
+
+## Done checklist
+
+Tenancy scoped · permissions on routes · shared types/migration if API changed · `pnpm typecheck` · update PROGRESS decision log if rules changed.

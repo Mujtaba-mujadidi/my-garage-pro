@@ -3,6 +3,7 @@ import { CurrentUser } from "../auth/decorators/current-user.decorator";
 import { RequirePermissions } from "../auth/decorators/permissions.decorator";
 import type { RequestUser } from "../auth/auth.types";
 import { PermissionsGuard } from "../auth/guards/permissions.guard";
+import { CancelPcoBookingDto } from "./dto/cancel-pco-booking.dto";
 import { CompletePcoBookingDto } from "./dto/complete-pco-booking.dto";
 import { CreatePcoBookingDto } from "./dto/create-pco-booking.dto";
 import { CreatePcoCentreDto } from "./dto/create-pco-centre.dto";
@@ -38,6 +39,12 @@ export class PcoController {
   @RequirePermissions("pco.read")
   lookupVrm(@CurrentUser() user: RequestUser, @Query("vrm") vrm: string) {
     return this.pco.lookupVrm(user, vrm);
+  }
+
+  @Get("slot-credits")
+  @RequirePermissions("pco.read")
+  listSlotCredits(@CurrentUser() user: RequestUser, @Query("vrm") vrm: string) {
+    return this.pco.listSlotCredits(user, vrm);
   }
 
   @Get("bookings")
@@ -78,14 +85,10 @@ export class PcoController {
     return this.pco.scheduleBooking(user, id, dto);
   }
 
-  @Post("bookings/:id/reschedule")
+  @Post("bookings/:id/return-to-book")
   @RequirePermissions("pco.write")
-  rescheduleBooking(
-    @CurrentUser() user: RequestUser,
-    @Param("id") id: string,
-    @Body() dto: SchedulePcoBookingDto,
-  ) {
-    return this.pco.rescheduleBooking(user, id, dto);
+  returnActiveToBook(@CurrentUser() user: RequestUser, @Param("id") id: string) {
+    return this.pco.returnActiveToBook(user, id);
   }
 
   @Post("bookings/:id/payments")
@@ -110,7 +113,21 @@ export class PcoController {
 
   @Post("bookings/:id/cancel")
   @RequirePermissions("pco.write")
-  cancelBooking(@CurrentUser() user: RequestUser, @Param("id") id: string) {
-    return this.pco.cancelBooking(user, id);
+  cancelBooking(
+    @CurrentUser() user: RequestUser,
+    @Param("id") id: string,
+    @Body() dto: CancelPcoBookingDto,
+  ) {
+    return this.pco.cancelBooking(user, id, dto);
+  }
+
+  @Post("bookings/:id/cancel-and-reschedule")
+  @RequirePermissions("pco.write")
+  cancelAndReschedule(
+    @CurrentUser() user: RequestUser,
+    @Param("id") id: string,
+    @Body() dto: CancelPcoBookingDto,
+  ) {
+    return this.pco.cancelAndReschedule(user, id, dto);
   }
 }

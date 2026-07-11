@@ -649,6 +649,118 @@ export class LedgerService {
     return row;
   }
 
+  /** Posted expense when the garage pays the PCO centre booking slot (Us). */
+  async createPostedExpenseForPcoSlot(
+    user: RequestUser,
+    params: {
+      pcoBookingId: string;
+      paymentAccountId: string;
+      valueDate: Date;
+      amountGross: number;
+      reference: string;
+    },
+    tx?: Prisma.TransactionClient,
+  ) {
+    const garageAccountId = this.financeGarageId(user);
+    const db = tx ?? this.prisma;
+    const account = await db.paymentAccount.findFirst({
+      where: {
+        id: params.paymentAccountId,
+        garageAccountId,
+        deletedAt: null,
+        isActive: true,
+      },
+    });
+    if (!account) throw new NotFoundException("Payment account not found");
+
+    const amounts = this.parseAmounts(params.amountGross, 0);
+    const now = new Date();
+
+    const row = await db.ledgerEntry.create({
+      data: {
+        garageAccountId,
+        paymentAccountId: params.paymentAccountId,
+        pcoBookingId: params.pcoBookingId,
+        direction: LedgerEntryDirection.EXPENSE,
+        status: LedgerEntryStatus.POSTED,
+        sourceModule: LedgerSourceModule.PCO,
+        valueDate: params.valueDate,
+        postedAt: now,
+        amountGross: amounts.amountGross,
+        vatAmount: amounts.vatAmount,
+        amountNet: amounts.amountNet,
+        category: "PCO booking slot",
+        notes: params.reference,
+        createdById: user.id,
+        checkedById: user.id,
+        checkedAt: now,
+        approvedById: user.id,
+      },
+      ...(tx ? {} : { include: this.entryInclude }),
+    });
+
+    if (!tx) {
+      await this.audit.log({
+        action: "ledger.entry.post",
+        userId: user.id,
+        garageAccountId,
+        entityType: "ledger_entry",
+        entityId: row.id,
+        metadata: { source: "pco_slot", pcoBookingId: params.pcoBookingId },
+      });
+    }
+
+    return row;
+  }
+
+  /** Reverse a posted PCO slot expense when rescheduling back to To book. */
+  async reversePcoSlotExpenseIfPosted(
+    user: RequestUser,
+    garageAccountId: string,
+    ledgerEntryId: string,
+    tx: Prisma.TransactionClient,
+  ) {
+    const original = await tx.ledgerEntry.findFirst({
+      where: {
+        id: ledgerEntryId,
+        garageAccountId,
+        status: LedgerEntryStatus.POSTED,
+        direction: LedgerEntryDirection.EXPENSE,
+        sourceModule: LedgerSourceModule.PCO,
+      },
+    });
+    if (!original) return;
+
+    const existingReversal = await tx.ledgerEntry.findFirst({
+      where: { reversesEntryId: original.id },
+    });
+    if (existingReversal) return;
+
+    const now = new Date();
+    await tx.ledgerEntry.create({
+      data: {
+        garageAccountId,
+        paymentAccountId: original.paymentAccountId,
+        pcoBookingId: original.pcoBookingId,
+        direction: LedgerEntryDirection.INCOME,
+        status: LedgerEntryStatus.POSTED,
+        sourceModule: LedgerSourceModule.PCO,
+        valueDate: original.valueDate,
+        postedAt: now,
+        amountGross: original.amountGross,
+        vatAmount: original.vatAmount,
+        amountNet: original.amountNet,
+        category: "PCO booking slot — reversal",
+        notes: `Reversal of slot expense ${original.id.slice(0, 8)}`,
+        reversesEntryId: original.id,
+        createdById: user.id,
+        checkedById: user.id,
+        checkedAt: now,
+        approvedById: user.id,
+      },
+    });
+  }
+
   /** Pending job expense — posted when the repair job is marked complete. */
   async createPendingJobPartExpense(
     user: RequestUser,
