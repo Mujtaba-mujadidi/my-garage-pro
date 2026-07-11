@@ -331,6 +331,8 @@ export function PcoPageContent() {
   const [slotFeeDisposition, setSlotFeeDisposition] = useState<PcoSlotFeeDisposition | "">("");
   const [cancellationNote, setCancellationNote] = useState("");
   const [slotCredits, setSlotCredits] = useState<PcoSlotCreditDto[]>([]);
+  const [notesOpen, setNotesOpen] = useState(false);
+  const [notesDraft, setNotesDraft] = useState("");
 
   const centreOptions = useMemo(
     () => centres.map((c) => ({ value: c.id, label: c.label })),
@@ -673,6 +675,44 @@ export function PcoPageContent() {
       );
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not update client status");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function openNotesModal() {
+    if (!detail) return;
+    setNotesDraft("");
+    setNotesOpen(true);
+    setError("");
+  }
+
+  async function saveNotes(e: FormEvent) {
+    e.preventDefault();
+    if (!detail) return;
+    const addition = notesDraft.trim();
+    if (!addition) {
+      setError("Enter a note to add");
+      return;
+    }
+    const stamped = `${formatDateTime(new Date().toISOString())}\n${addition}`;
+    const merged = detail.notes?.trim() ? `${detail.notes.trim()}\n\n${stamped}` : stamped;
+    setSaving(true);
+    setError("");
+    try {
+      const updated = await apiFetch<PcoBookingDto>(`/pco/bookings/${detail.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ notes: merged }),
+      });
+      setDetail(updated);
+      setRows((prev) =>
+        prev.map((r) => (r.id === updated.id ? { ...r, notes: updated.notes } : r)),
+      );
+      setNotesOpen(false);
+      setNotesDraft("");
+      setMessage("Note added");
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not add note");
     } finally {
       setSaving(false);
     }
@@ -1828,12 +1868,6 @@ export function PcoPageContent() {
                     <dd className="mt-0.5 whitespace-pre-wrap text-sm">{detail.jobDetails}</dd>
                   </div>
                 )}
-                {detail.notes && (
-                  <div className="border-b border-[var(--border)] py-2.5 last:border-0 sm:col-span-2">
-                    <dt className="text-sm text-[var(--muted)]">Notes</dt>
-                    <dd className="mt-0.5 whitespace-pre-wrap text-sm">{detail.notes}</dd>
-                  </div>
-                )}
               </dl>
             </section>
 
@@ -1890,6 +1924,29 @@ export function PcoPageContent() {
                   </>
                 )}
               </dl>
+            </section>
+
+            <section>
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+                  Notes
+                </h3>
+                {canWrite &&
+                  (detail.status === "PENDING" || detail.status === "ACTIVE") && (
+                    <button
+                      type="button"
+                      onClick={openNotesModal}
+                      className="text-xs font-medium text-accent hover:underline"
+                    >
+                      Add notes
+                    </button>
+                  )}
+              </div>
+              <div className="whitespace-pre-wrap rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 text-sm">
+                {detail.notes || (
+                  <span className="text-[var(--muted)]">No notes yet</span>
+                )}
+              </div>
             </section>
 
             {detail.status === "PENDING" && canWrite && (
@@ -2125,6 +2182,47 @@ export function PcoPageContent() {
               className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
             >
               {saving ? "Saving…" : "Save booking details"}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal title="Add notes" open={notesOpen} onClose={() => setNotesOpen(false)}>
+        <form onSubmit={(e) => void saveNotes(e)} className="space-y-3">
+          {detail?.notes ? (
+            <div>
+              <p className="mb-1 text-xs font-medium text-[var(--muted)]">Existing notes</p>
+              <div className="max-h-40 overflow-y-auto whitespace-pre-wrap rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 text-sm text-[var(--muted)]">
+                {detail.notes}
+              </div>
+            </div>
+          ) : null}
+          <div>
+            <label className="mb-1 block text-xs font-medium text-[var(--muted)]">New note</label>
+            <textarea
+              value={notesDraft}
+              onChange={(e) => setNotesDraft(e.target.value)}
+              rows={4}
+              className={inputClass}
+              placeholder="Write a new note…"
+              autoFocus
+              required
+            />
+          </div>
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setNotesOpen(false)}
+              className="rounded-lg border px-4 py-2 text-sm"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={saving || !notesDraft.trim()}
+              className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+            >
+              {saving ? "Saving…" : "Add note"}
             </button>
           </div>
         </form>
