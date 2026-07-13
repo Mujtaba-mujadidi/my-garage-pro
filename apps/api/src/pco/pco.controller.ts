@@ -3,8 +3,10 @@ import { CurrentUser } from "../auth/decorators/current-user.decorator";
 import { RequirePermissions } from "../auth/decorators/permissions.decorator";
 import type { RequestUser } from "../auth/auth.types";
 import { PermissionsGuard } from "../auth/guards/permissions.guard";
+import { AmendPcoPaymentDto } from "./dto/amend-pco-payment.dto";
 import { CancelPcoBookingDto } from "./dto/cancel-pco-booking.dto";
 import { CompletePcoBookingDto } from "./dto/complete-pco-booking.dto";
+import { BookPcoRetestDto } from "./dto/book-pco-retest.dto";
 import { CreatePcoBookingDto } from "./dto/create-pco-booking.dto";
 import { CreatePcoCentreDto } from "./dto/create-pco-centre.dto";
 import { RecordPcoPaymentDto } from "./dto/record-pco-payment.dto";
@@ -101,6 +103,17 @@ export class PcoController {
     return this.pco.recordPayment(user, id, dto);
   }
 
+  @Patch("bookings/:id/payments/:paymentId")
+  @RequirePermissions("pco.write", "ledger.write")
+  amendPayment(
+    @CurrentUser() user: RequestUser,
+    @Param("id") id: string,
+    @Param("paymentId") paymentId: string,
+    @Body() dto: AmendPcoPaymentDto,
+  ) {
+    return this.pco.amendPayment(user, id, paymentId, dto);
+  }
+
   @Post("bookings/:id/complete")
   @RequirePermissions("pco.write")
   completeBooking(
@@ -109,6 +122,16 @@ export class PcoController {
     @Body() dto: CompletePcoBookingDto,
   ) {
     return this.pco.completeBooking(user, id, dto);
+  }
+
+  @Post("bookings/:id/book-retest")
+  @RequirePermissions("pco.write")
+  bookRetest(
+    @CurrentUser() user: RequestUser,
+    @Param("id") id: string,
+    @Body() dto: BookPcoRetestDto,
+  ) {
+    return this.pco.bookRetest(user, id, dto);
   }
 
   @Post("bookings/:id/cancel")

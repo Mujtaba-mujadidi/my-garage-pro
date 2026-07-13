@@ -7,7 +7,9 @@ export type PcoJobType =
   | "ADMIN"
   | "LOGBOOK_EXPIRING"
   | "RETEST"
-  | "RESCHEDULE";
+  | "RESCHEDULE"
+  | "CHANGE_OF_OWNERSHIP"
+  | "FULL_TEST";
 
 export const PCO_JOB_TYPE_LABEL: Record<PcoJobType, string> = {
   RENEWAL: "Renewal",
@@ -16,6 +18,8 @@ export const PCO_JOB_TYPE_LABEL: Record<PcoJobType, string> = {
   LOGBOOK_EXPIRING: "Logbook expiring",
   RETEST: "Retest",
   RESCHEDULE: "Reschedule",
+  CHANGE_OF_OWNERSHIP: "Change of ownership",
+  FULL_TEST: "Full test",
 };
 
 export const PCO_JOB_TYPES: PcoJobType[] = [
@@ -25,6 +29,8 @@ export const PCO_JOB_TYPES: PcoJobType[] = [
   "LOGBOOK_EXPIRING",
   "RETEST",
   "RESCHEDULE",
+  "CHANGE_OF_OWNERSHIP",
+  "FULL_TEST",
 ];
 
 /** TfL / centre booking slot fee (Add booking details only — not the customer service charge). */
@@ -68,12 +74,13 @@ export type PcoSlotCreditDto = {
   cancelledAt: string;
 };
 
-export type PcoBookingStatus = "PENDING" | "ACTIVE" | "COMPLETED" | "CANCELLED";
+export type PcoBookingStatus = "PENDING" | "ACTIVE" | "COMPLETED" | "FAILED" | "CANCELLED";
 
 export const PCO_BOOKING_STATUS_LABEL: Record<PcoBookingStatus, string> = {
   PENDING: "To book",
   ACTIVE: "Booked",
   COMPLETED: "Completed",
+  FAILED: "Failed",
   CANCELLED: "Cancelled",
 };
 
@@ -108,6 +115,9 @@ export const PCO_LOGBOOK_YEARS = 10;
 /** PCO licence renewal period after a completed booking. */
 export const PCO_RENEWAL_YEARS = 1;
 
+/** Days after a failed PCO test to complete a retest. */
+export const PCO_RETEST_WINDOW_DAYS = 21;
+
 /** Parse YYYY-MM-DD as UTC date parts (calendar arithmetic, no TZ drift). */
 function parseIsoDate(iso: string): { y: number; m: number; d: number } | null {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso.trim());
@@ -117,6 +127,27 @@ function parseIsoDate(iso: string): { y: number; m: number; d: number } | null {
 
 function formatIsoDate(y: number, m: number, d: number): string {
   return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+}
+
+/** Calendar days remaining until retest deadline (negative = overdue). */
+export function daysUntilRetestDeadline(
+  failedAtIso: string,
+  today = new Date(),
+): number | null {
+  const parts = parseIsoDate(failedAtIso.slice(0, 10));
+  if (!parts) return null;
+  const failUtc = Date.UTC(parts.y, parts.m - 1, parts.d);
+  const deadlineUtc = failUtc + PCO_RETEST_WINDOW_DAYS * 86_400_000;
+  const start = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate());
+  return Math.round((deadlineUtc - start) / 86_400_000);
+}
+
+export function retestDeadlineIso(failedAtIso: string): string | null {
+  const parts = parseIsoDate(failedAtIso.slice(0, 10));
+  if (!parts) return null;
+  const d = new Date(Date.UTC(parts.y, parts.m - 1, parts.d));
+  d.setUTCDate(d.getUTCDate() + PCO_RETEST_WINDOW_DAYS);
+  return d.toISOString().slice(0, 10);
 }
 
 /** Add whole calendar years to an ISO date (YYYY-MM-DD). */
@@ -135,7 +166,8 @@ export function calculateLogbookExpiryFromFirstRegistration(firstRegistrationIso
  * Next PCO expiry after a completed booking — +1 year from the **previous** expiry,
  * not from the completion date.
  */
-export function calculateNextPcoExpiry(previousExpiryIso: string): string | null {
+export function calculateNextPcoExpiry(previousExpiryIso: string | null | undefined): string | null {
+  if (!previousExpiryIso) return null;
   return addYearsToIsoDate(previousExpiryIso, PCO_RENEWAL_YEARS);
 }
 
@@ -176,7 +208,7 @@ export type PcoVehicleDto = {
   fuelType: string | null;
   seatCount: number | null;
   firstRegistrationDate: string;
-  pcoExpiryDate: string;
+  pcoExpiryDate: string | null;
   logbookExpiryDate: string;
   note: string | null;
   status: PcoVehicleStatus;
@@ -227,6 +259,13 @@ export type PcoBookingDto = {
   rescheduledFromBookingNumber: string | null;
   rescheduledToBookingId: string | null;
   rescheduledToBookingNumber: string | null;
+  failureReason: string | null;
+  failedAt: string | null;
+  retestDeadline: string | null;
+  daysUntilRetestDeadline: number | null;
+  retestBookingId: string | null;
+  retestBookingNumber: string | null;
+  retestChargeReference: string | null;
   notes: string | null;
   vehicle: PcoVehicleDto;
   payments: PcoBookingPaymentDto[];
@@ -271,9 +310,15 @@ export type PcoBookingListDto = {
   fuelType: string | null;
   seatCount: number | null;
   firstRegistrationDate: string;
-  pcoExpiryDate: string;
+  pcoExpiryDate: string | null;
   logbookExpiryDate: string;
   notes: string | null;
+  failureReason: string | null;
+  failedAt: string | null;
+  retestDeadline: string | null;
+  daysUntilRetestDeadline: number | null;
+  retestBookingId: string | null;
+  retestBookingNumber: string | null;
   createdAt: string;
 };
 
@@ -333,5 +378,6 @@ export type PcoBookingTab =
   | "active"
   | "pending"
   | "past"
+  | "failed"
   | "v5c_expiring"
   | "renewals_due";

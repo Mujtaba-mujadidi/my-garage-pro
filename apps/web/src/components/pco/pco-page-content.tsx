@@ -35,6 +35,7 @@ import {
   PCO_DEFAULT_BOOKING_CHARGE,
   PCO_FUEL_TYPES,
   PCO_SLOT_FEE_DISPOSITION_LABEL,
+  PCO_RETEST_WINDOW_DAYS,
   calculateLogbookExpiryFromFirstRegistration,
   calculateNextPcoExpiry,
   defaultPaymentMethodForAccount,
@@ -273,7 +274,7 @@ function vehicleToDraft(v: PcoVehicleDto): Partial<ReturnType<typeof emptyDraft>
     phone: v.phone ?? "",
     pcoAccountPhone: v.pcoAccountPhone ?? "",
     firstRegistrationDate: v.firstRegistrationDate,
-    pcoExpiryDate: v.pcoExpiryDate,
+    pcoExpiryDate: v.pcoExpiryDate ?? "",
     logbookExpiryDate: v.logbookExpiryDate,
     note: v.note ?? "",
     make: v.make ?? "",
@@ -348,13 +349,21 @@ export function PcoPageContent() {
   const [renewDraft, setRenewDraft] = useState(emptyDraft());
 
   const [payOpen, setPayOpen] = useState(false);
+  const [payAmendId, setPayAmendId] = useState<string | null>(null);
   const [payAmount, setPayAmount] = useState("");
   const [payAccountId, setPayAccountId] = useState("");
   const [payMethod, setPayMethod] = useState<PaymentMethod>("BANK_TRANSFER");
   const [payDate, setPayDate] = useState(todayIso());
 
   const [completeOpen, setCompleteOpen] = useState(false);
+  const [completeOutcome, setCompleteOutcome] = useState<"PASS" | "FAIL">("PASS");
   const [nextExpiry, setNextExpiry] = useState("");
+  const [failureReason, setFailureReason] = useState("");
+  const [retestModal, setRetestModal] = useState<PcoBookingDto | PcoBookingListDto | null>(null);
+  const [retestHasCharge, setRetestHasCharge] = useState(false);
+  const [retestChargeAmount, setRetestChargeAmount] = useState("");
+  const [retestChargeRef, setRetestChargeRef] = useState("");
+  const [retestNotes, setRetestNotes] = useState("");
 
   const [centreName, setCentreName] = useState("");
   const [confirmDeleteCentre, setConfirmDeleteCentre] = useState<PcoCentreDto | null>(null);
@@ -563,7 +572,7 @@ export function PcoPageContent() {
           fuelType: draft.fuelType || undefined,
           seatCount: draft.seatCount ? Number(draft.seatCount) : undefined,
           firstRegistrationDate: draft.firstRegistrationDate,
-          pcoExpiryDate: draft.pcoExpiryDate,
+          ...(draft.pcoExpiryDate ? { pcoExpiryDate: draft.pcoExpiryDate } : {}),
           logbookExpiryDate: logbook,
           note: draft.note || undefined,
           notes: draft.notes || undefined,
@@ -586,15 +595,22 @@ export function PcoPageContent() {
 
   function openScheduleModal(booking: PcoBookingDto) {
     setDetail(booking);
+    const isRetest = booking.jobType === "RETEST";
+    const suggestedSlot =
+      booking.slotChargeGross ??
+      (isRetest ? booking.chargeGross : String(PCO_DEFAULT_BOOKING_CHARGE));
+    const suggestedAmount = Number(suggestedSlot);
+    const defaultPaidBy =
+      booking.slotPaidBy ??
+      (isRetest && suggestedAmount <= 0 ? "NA" : "US");
     setScheduleDraft({
       bookingDate: "",
       bookingTime: booking.bookingTime ?? "",
       bookingCentreId: booking.bookingCentreId ?? centres[0]?.id ?? "",
-      slotPaidBy: booking.slotPaidBy ?? "US",
+      slotPaidBy: defaultPaidBy,
       slotPaymentAccountId:
         booking.slotPaymentAccountId ?? accounts[0]?.id ?? "",
-      slotChargeGross:
-        booking.slotChargeGross ?? String(PCO_DEFAULT_BOOKING_CHARGE),
+      slotChargeGross: suggestedSlot,
       slotCreditSourceBookingId: booking.slotCreditSourceBookingId ?? "",
     });
     setScheduleOpen(true);
@@ -634,7 +650,7 @@ export function PcoPageContent() {
         city: b.vehicle.city ?? "",
         postcode: b.vehicle.postcode ?? "",
         firstRegistrationDate: b.vehicle.firstRegistrationDate,
-        pcoExpiryDate: b.vehicle.pcoExpiryDate,
+        pcoExpiryDate: b.vehicle.pcoExpiryDate ?? "",
         logbookExpiryDate: b.vehicle.logbookExpiryDate,
         note: b.vehicle.note ?? "",
         make: b.vehicle.make ?? "",
@@ -682,7 +698,7 @@ export function PcoPageContent() {
           color: editDraft.color || undefined,
           fuelType: editDraft.fuelType || undefined,
           seatCount: editDraft.seatCount ? Number(editDraft.seatCount) : undefined,
-          pcoExpiryDate: editDraft.pcoExpiryDate || undefined,
+          pcoExpiryDate: editDraft.pcoExpiryDate,
           vehicleNote: editDraft.note || undefined,
         }),
       });
@@ -892,7 +908,7 @@ export function PcoPageContent() {
           fuelType: renewDraft.fuelType || undefined,
           seatCount: renewDraft.seatCount ? Number(renewDraft.seatCount) : undefined,
           firstRegistrationDate: renewDraft.firstRegistrationDate,
-          pcoExpiryDate: renewDraft.pcoExpiryDate,
+          ...(renewDraft.pcoExpiryDate ? { pcoExpiryDate: renewDraft.pcoExpiryDate } : {}),
           logbookExpiryDate: logbook,
           note: renewDraft.note || undefined,
           notes: renewDraft.notes || undefined,
@@ -983,41 +999,140 @@ export function PcoPageContent() {
     setSaving(true);
     setError("");
     try {
-      const updated = await apiFetch<PcoBookingDto>(`/pco/bookings/${detail.id}/payments`, {
-        method: "POST",
-        body: JSON.stringify({
-          paymentAccountId: payAccountId,
-          method: payMethod,
-          amount: Number(payAmount),
-          valueDate: payDate,
-        }),
-      });
+      const body = {
+        paymentAccountId: payAccountId,
+        method: payMethod,
+        amount: Number(payAmount),
+        valueDate: payDate,
+      };
+      const updated = payAmendId
+        ? await apiFetch<PcoBookingDto>(
+            `/pco/bookings/${detail.id}/payments/${payAmendId}`,
+            { method: "PATCH", body: JSON.stringify(body) },
+          )
+        : await apiFetch<PcoBookingDto>(`/pco/bookings/${detail.id}/payments`, {
+            method: "POST",
+            body: JSON.stringify(body),
+          });
       setDetail(updated);
       setPayOpen(false);
-      setMessage("Payment recorded — ledger entry tagged PCO");
+      const wasAmend = Boolean(payAmendId);
+      setPayAmendId(null);
+      setMessage(
+        wasAmend
+          ? "Payment amended — ledger corrected"
+          : "Payment recorded — ledger entry tagged PCO",
+      );
       await load();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Could not record payment");
+      setError(
+        err instanceof ApiError
+          ? err.message
+          : payAmendId
+            ? "Could not amend payment"
+            : "Could not record payment",
+      );
     } finally {
       setSaving(false);
     }
   }
 
+  function openRecordPayment(booking: PcoBookingDto) {
+    setPayAmendId(null);
+    setPayAmount(booking.balanceDue);
+    setPayDate(todayIso());
+    setPayOpen(true);
+  }
+
+  function openAmendPayment(booking: PcoBookingDto, paymentId: string) {
+    const payment = booking.payments.find((p) => p.id === paymentId);
+    if (!payment) return;
+    setPayAmendId(payment.id);
+    setPayAmount(payment.amount);
+    setPayAccountId(payment.paymentAccountId);
+    setPayMethod(payment.method as PaymentMethod);
+    setPayDate(payment.valueDate);
+    setPayOpen(true);
+  }
+
   async function completeBooking() {
-    if (!detail || !nextExpiry) return;
+    if (!detail) return;
+    if (completeOutcome === "PASS" && !nextExpiry) {
+      setError("Next PCO expiry is required when the car passed");
+      return;
+    }
+    if (completeOutcome === "FAIL" && !failureReason.trim()) {
+      setError("Enter why the car failed");
+      return;
+    }
     setSaving(true);
     setError("");
     try {
+      const body =
+        completeOutcome === "PASS"
+          ? { outcome: "PASS", nextPcoExpiryDate: nextExpiry }
+          : { outcome: "FAIL", failureReason: failureReason.trim() };
       await apiFetch(`/pco/bookings/${detail.id}/complete`, {
         method: "POST",
-        body: JSON.stringify({ nextPcoExpiryDate: nextExpiry }),
+        body: JSON.stringify(body),
       });
       setCompleteOpen(false);
       setDetailOpen(false);
-      setMessage("Booking completed and PCO expiry updated");
+      setMessage(
+        completeOutcome === "PASS"
+          ? "Booking completed — PCO expiry updated"
+          : "Booking marked failed — see Failed / Retest",
+      );
+      if (completeOutcome === "FAIL") setTab("failed");
       await load();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not complete booking");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function openRetestModal(booking: PcoBookingDto | PcoBookingListDto) {
+    setRetestModal(booking);
+    setRetestHasCharge(false);
+    setRetestChargeAmount("");
+    setRetestChargeRef("");
+    setRetestNotes("");
+    setError("");
+  }
+
+  async function submitBookRetest(e: FormEvent) {
+    e.preventDefault();
+    if (!retestModal) return;
+    if (retestHasCharge) {
+      if (!Number(retestChargeAmount) || Number(retestChargeAmount) <= 0) {
+        setError("Enter the additional charge amount");
+        return;
+      }
+      if (!retestChargeRef.trim()) {
+        setError("Enter a reference for the additional charge");
+        return;
+      }
+    }
+    setSaving(true);
+    setError("");
+    try {
+      await apiFetch(`/pco/bookings/${retestModal.id}/book-retest`, {
+        method: "POST",
+        body: JSON.stringify({
+          hasAdditionalCharge: retestHasCharge,
+          additionalChargeGross: retestHasCharge ? Number(retestChargeAmount) : undefined,
+          chargeReference: retestHasCharge ? retestChargeRef.trim() : undefined,
+          notes: retestNotes.trim() || undefined,
+        }),
+      });
+      setRetestModal(null);
+      setDetailOpen(false);
+      setMessage("Retest added to To book");
+      setTab("pending");
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not book retest");
     } finally {
       setSaving(false);
     }
@@ -1095,6 +1210,57 @@ export function PcoPageContent() {
             } as TableColumn<PcoBookingListDto>,
           ]
         : []),
+      ...(tab === "failed"
+        ? [
+            {
+              id: "retestUrgency",
+              header: "Retest window",
+              cell: (r: PcoBookingListDto) => {
+                const days = r.daysUntilRetestDeadline;
+                if (days == null) return <span className="text-xs text-[var(--muted)]">—</span>;
+                const label =
+                  days < 0
+                    ? `Overdue by ${Math.abs(days)}d`
+                    : days === 0
+                      ? "Due today"
+                      : `${days}d left`;
+                const cls =
+                  days < 0
+                    ? "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300"
+                    : days <= 7
+                      ? "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200"
+                      : "bg-[var(--background)] text-[var(--muted)]";
+                return (
+                  <div className="text-sm">
+                    <span
+                      className={`inline-block rounded px-1.5 py-0.5 text-xs font-semibold ${cls}`}
+                    >
+                      {label}
+                    </span>
+                    {r.retestDeadline && (
+                      <p className="mt-0.5 text-xs text-[var(--muted)] tabular-nums">
+                        by {r.retestDeadline}
+                      </p>
+                    )}
+                  </div>
+                );
+              },
+            } as TableColumn<PcoBookingListDto>,
+            {
+              id: "failureReason",
+              header: "Failure reason",
+              searchText: (r: PcoBookingListDto) => r.failureReason ?? "",
+              cell: (r: PcoBookingListDto) => (
+                <span
+                  className="block max-w-[16rem] truncate text-sm"
+                  title={r.failureReason ?? ""}
+                >
+                  {r.failureReason || "—"}
+                </span>
+              ),
+            } as TableColumn<PcoBookingListDto>,
+          ]
+        : []),
       {
         id: "keeper",
         header: "Keeper",
@@ -1120,8 +1286,10 @@ export function PcoPageContent() {
       {
         id: "pcoExpiry",
         header: "PCO expiry",
-        searchText: (r) => r.pcoExpiryDate,
-        cell: (r) => <span className="text-sm tabular-nums whitespace-nowrap">{r.pcoExpiryDate}</span>,
+        searchText: (r) => r.pcoExpiryDate ?? "",
+        cell: (r) => (
+          <span className="text-sm tabular-nums whitespace-nowrap">{r.pcoExpiryDate ?? "—"}</span>
+        ),
       },
       {
         id: "logbookExpiry",
@@ -1131,7 +1299,7 @@ export function PcoPageContent() {
           <span className="text-sm tabular-nums whitespace-nowrap">{r.logbookExpiryDate}</span>
         ),
       },
-      ...(tab !== "pending"
+      ...(tab !== "pending" && tab !== "failed"
         ? [
             {
               id: "appointment",
@@ -1179,7 +1347,7 @@ export function PcoPageContent() {
           </div>
         ),
       },
-      ...(tab !== "pending"
+      ...(tab !== "pending" && tab !== "failed"
         ? [
             {
               id: "flags",
@@ -1221,6 +1389,16 @@ export function PcoPageContent() {
                   className="rounded-lg bg-accent px-2.5 py-1 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-50"
                 >
                   Book
+                </button>
+              )}
+              {tab === "failed" && canWrite && (
+                <button
+                  type="button"
+                  onClick={() => openRetestModal(r)}
+                  disabled={saving}
+                  className="rounded-lg bg-accent px-2.5 py-1 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-50"
+                >
+                  Book retest
                 </button>
               )}
               <TableRowActionsMenu
@@ -1360,6 +1538,7 @@ export function PcoPageContent() {
         tabs={[
           { id: "active", label: "Active bookings" },
           { id: "pending", label: "To book" },
+          { id: "failed", label: "Failed / Retest" },
           { id: "past", label: "Past bookings" },
           { id: "v5c_expiring", label: "V5C expiring" },
           { id: "renewals_due", label: "Due to renew (28d)" },
@@ -1562,11 +1741,21 @@ export function PcoPageContent() {
                 ? "No past bookings"
                 : tab === "pending"
                   ? "No cars waiting to be booked"
+                  : tab === "failed"
+                    ? "No failed bookings waiting for retest"
                   : activeDateFilter
                     ? "No active bookings on this date"
                     : "No active bookings — book from the To book tab"
             }
-            minWidth={tab === "pending" ? "68rem" : tab === "past" ? "80rem" : "88rem"}
+            minWidth={
+              tab === "pending"
+                ? "68rem"
+                : tab === "failed"
+                  ? "76rem"
+                  : tab === "past"
+                    ? "80rem"
+                    : "88rem"
+            }
           />
         </>
       )}
@@ -1696,14 +1885,16 @@ export function PcoPageContent() {
               />
             </div>
             <div>
-              <label className="mb-1 block text-xs font-medium text-[var(--muted)]">PCO expiry</label>
+              <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
+                PCO expiry <span className="font-normal">(optional)</span>
+              </label>
               <input
                 type="date"
                 value={draft.pcoExpiryDate}
                 onChange={(e) => setDraft((d) => ({ ...d, pcoExpiryDate: e.target.value }))}
                 className={inputClass}
-                required
               />
+              <p className="mt-1 text-xs text-[var(--muted)]">Leave blank for brand-new vehicles</p>
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
@@ -1898,7 +2089,7 @@ export function PcoPageContent() {
                 {vrmConfirmVehicle.pcoAccountPhone ?? "—"}
               </DetailRow>
               <DetailRow label="Email">{vrmConfirmVehicle.email ?? "—"}</DetailRow>
-              <DetailRow label="PCO expiry">{vrmConfirmVehicle.pcoExpiryDate}</DetailRow>
+              <DetailRow label="PCO expiry">{vrmConfirmVehicle.pcoExpiryDate ?? "—"}</DetailRow>
               <DetailRow label="V5C expiry">{vrmConfirmVehicle.logbookExpiryDate}</DetailRow>
             </dl>
             <div className="flex justify-end gap-2">
@@ -1939,6 +2130,8 @@ export function PcoPageContent() {
                     ? "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-200"
                     : detail.status === "COMPLETED"
                       ? "bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300"
+                      : detail.status === "FAILED"
+                        ? "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300"
                       : "bg-[var(--background)] text-[var(--muted)]"
                 }`}
               >
@@ -1976,7 +2169,7 @@ export function PcoPageContent() {
                 {detail.vehicle.seatCount != null && (
                   <DetailRow label="Seats">{detail.vehicle.seatCount}</DetailRow>
                 )}
-                <DetailRow label="PCO expiry">{detail.vehicle.pcoExpiryDate}</DetailRow>
+                <DetailRow label="PCO expiry">{detail.vehicle.pcoExpiryDate ?? "—"}</DetailRow>
                 <DetailRow label="Logbook expiry">{detail.vehicle.logbookExpiryDate}</DetailRow>
                 {detail.vehicle.note && (
                   <div className="border-b border-[var(--border)] py-2.5 last:border-0 sm:col-span-2">
@@ -1995,6 +2188,40 @@ export function PcoPageContent() {
                 <DetailRow label="Booking number">{detail.bookingNumber}</DetailRow>
                 <DetailRow label="Job type">{PCO_JOB_TYPE_LABEL[detail.jobType]}</DetailRow>
                 <DetailRow label="Priority">{PCO_PRIORITY_LABEL[detail.priority]}</DetailRow>
+                {detail.status === "FAILED" && (
+                  <>
+                    <DetailRow label="Failed at">
+                      {detail.failedAt ? formatDateTime(detail.failedAt) : "—"}
+                    </DetailRow>
+                    <DetailRow label="Retest deadline">
+                      {detail.retestDeadline ?? "—"}
+                      {detail.daysUntilRetestDeadline != null && (
+                        <span
+                          className={`ml-2 text-xs font-semibold ${
+                            detail.daysUntilRetestDeadline < 0
+                              ? "text-red-700 dark:text-red-400"
+                              : detail.daysUntilRetestDeadline <= 7
+                                ? "text-amber-700 dark:text-amber-400"
+                                : "text-[var(--muted)]"
+                          }`}
+                        >
+                          {detail.daysUntilRetestDeadline < 0
+                            ? `(overdue ${Math.abs(detail.daysUntilRetestDeadline)}d)`
+                            : `(${detail.daysUntilRetestDeadline}d left)`}
+                        </span>
+                      )}
+                    </DetailRow>
+                    {detail.failureReason && (
+                      <div className="border-b border-[var(--border)] py-2.5 last:border-0 sm:col-span-2">
+                        <dt className="text-sm text-[var(--muted)]">Failure reason</dt>
+                        <dd className="mt-0.5 whitespace-pre-wrap text-sm">{detail.failureReason}</dd>
+                      </div>
+                    )}
+                    {detail.retestBookingNumber && (
+                      <DetailRow label="Retest booking">{detail.retestBookingNumber}</DetailRow>
+                    )}
+                  </>
+                )}
                 <DetailRow label="Appointment">
                   {detail.bookingDate
                     ? `${detail.bookingDate}${detail.bookingTime ? ` ${detail.bookingTime}` : ""}`
@@ -2104,6 +2331,9 @@ export function PcoPageContent() {
                         <th className="px-3 py-2 font-medium">Amount</th>
                         <th className="px-3 py-2 font-medium">Method</th>
                         <th className="px-3 py-2 font-medium">Account</th>
+                        {canPay && detail.status !== "CANCELLED" && (
+                          <th className="px-3 py-2 font-medium" />
+                        )}
                       </tr>
                     </thead>
                     <tbody>
@@ -2113,6 +2343,17 @@ export function PcoPageContent() {
                           <td className="px-3 py-2 font-mono tabular-nums">{formatGbp(p.amount)}</td>
                           <td className="px-3 py-2">{p.method}</td>
                           <td className="px-3 py-2">{p.paymentAccountName}</td>
+                          {canPay && detail.status !== "CANCELLED" && (
+                            <td className="px-3 py-2 text-right">
+                              <button
+                                type="button"
+                                onClick={() => openAmendPayment(detail, p.id)}
+                                className="text-xs font-medium text-accent hover:underline"
+                              >
+                                Amend
+                              </button>
+                            </td>
+                          )}
                         </tr>
                       ))}
                     </tbody>
@@ -2160,6 +2401,18 @@ export function PcoPageContent() {
               </div>
             </section>
 
+            {detail.status === "FAILED" && canWrite && !detail.retestBookingId && (
+              <div className="flex flex-wrap gap-2 border-t border-[var(--border)] pt-4">
+                <button
+                  type="button"
+                  onClick={() => openRetestModal(detail)}
+                  className="rounded-lg bg-accent px-3 py-1.5 text-sm font-semibold text-white"
+                >
+                  Book retest
+                </button>
+              </div>
+            )}
+
             {detail.status === "PENDING" && canWrite && (
               <div className="flex flex-wrap gap-2 border-t border-[var(--border)] pt-4">
                 <button
@@ -2191,10 +2444,7 @@ export function PcoPageContent() {
                 {canPay && Number(detail.balanceDue) > 0 && (
                   <button
                     type="button"
-                    onClick={() => {
-                      setPayAmount(detail.balanceDue);
-                      setPayOpen(true);
-                    }}
+                    onClick={() => openRecordPayment(detail)}
                     className="rounded-lg bg-accent px-3 py-1.5 text-sm font-semibold text-white"
                   >
                     Record payment
@@ -2210,9 +2460,12 @@ export function PcoPageContent() {
                 <button
                   type="button"
                   onClick={() => {
+                    setCompleteOutcome("PASS");
+                    setFailureReason("");
                     const next =
                       calculateNextPcoExpiry(detail.vehicle.pcoExpiryDate) ??
-                      detail.vehicle.pcoExpiryDate;
+                      detail.vehicle.pcoExpiryDate ??
+                      "";
                     setNextExpiry(next);
                     setCompleteOpen(true);
                   }}
@@ -2237,6 +2490,15 @@ export function PcoPageContent() {
         <form onSubmit={(e) => void scheduleBooking(e)} className="space-y-3">
           <p className="text-sm text-[var(--muted)]">
             Centre, date, time, and who pays for the TfL booking slot.
+            {detail?.jobType === "RETEST" && (
+              <>
+                {" "}
+                For retests, slot expense defaults to the TfL fee from Book retest
+                {Number(scheduleDraft.slotChargeGross) <= 0
+                  ? " (none — N/A selected)."
+                  : ` (£${scheduleDraft.slotChargeGross}).`}
+              </>
+            )}
           </p>
           <div>
             <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
@@ -2439,10 +2701,23 @@ export function PcoPageContent() {
         </form>
       </Modal>
 
-      <Modal title="Record payment" open={payOpen} onClose={() => setPayOpen(false)}>
+      <Modal
+        title={payAmendId ? "Amend payment" : "Record payment"}
+        open={payOpen}
+        onClose={() => {
+          setPayOpen(false);
+          setPayAmendId(null);
+        }}
+      >
         <form onSubmit={(e) => void recordPayment(e)} className="space-y-3">
           <p className="text-sm text-[var(--muted)]">
-            Posts income to the ledger with source <strong>PCO</strong> (no VAT).
+            {payAmendId
+              ? "Corrects method and amount. Reverses the previous ledger income and posts a new PCO entry."
+              : (
+                <>
+                  Posts income to the ledger with source <strong>PCO</strong> (no VAT).
+                </>
+              )}
           </p>
           <div>
             <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Amount</label>
@@ -2486,7 +2761,14 @@ export function PcoPageContent() {
             />
           </div>
           <div className="flex justify-end gap-2">
-            <button type="button" onClick={() => setPayOpen(false)} className="rounded-lg border px-4 py-2 text-sm">
+            <button
+              type="button"
+              onClick={() => {
+                setPayOpen(false);
+                setPayAmendId(null);
+              }}
+              className="rounded-lg border px-4 py-2 text-sm"
+            >
               Cancel
             </button>
             <button
@@ -2494,37 +2776,207 @@ export function PcoPageContent() {
               disabled={saving}
               className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
             >
-              Record
+              {payAmendId ? "Save amendment" : "Record"}
             </button>
           </div>
         </form>
       </Modal>
 
       <Modal title="Complete booking" open={completeOpen} onClose={() => setCompleteOpen(false)}>
-        <p className="mb-3 text-sm text-[var(--muted)]">
-          Moves this booking to past and updates the vehicle PCO expiry (default: previous expiry + 1
-          year).
-        </p>
-        <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Next PCO expiry</label>
-        <input
-          type="date"
-          value={nextExpiry}
-          onChange={(e) => setNextExpiry(e.target.value)}
-          className={inputClass}
-        />
-        <div className="mt-4 flex justify-end gap-2">
-          <button type="button" onClick={() => setCompleteOpen(false)} className="rounded-lg border px-4 py-2 text-sm">
-            Cancel
-          </button>
-          <button
-            type="button"
-            disabled={saving || !nextExpiry}
-            onClick={() => void completeBooking()}
-            className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-          >
-            Complete
-          </button>
+        <div className="space-y-3">
+          <p className="text-sm text-[var(--muted)]">
+            Did the car pass or fail the PCO test?
+          </p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setCompleteOutcome("PASS")}
+              className={`rounded-lg px-3 py-1.5 text-sm ${
+                completeOutcome === "PASS"
+                  ? "bg-accent text-white"
+                  : "border border-[var(--border)]"
+              }`}
+            >
+              Passed
+            </button>
+            <button
+              type="button"
+              onClick={() => setCompleteOutcome("FAIL")}
+              className={`rounded-lg px-3 py-1.5 text-sm ${
+                completeOutcome === "FAIL"
+                  ? "bg-red-600 text-white"
+                  : "border border-[var(--border)]"
+              }`}
+            >
+              Failed
+            </button>
+          </div>
+          {completeOutcome === "PASS" ? (
+            <div>
+              <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
+                Next PCO expiry
+              </label>
+              <input
+                type="date"
+                value={nextExpiry}
+                onChange={(e) => setNextExpiry(e.target.value)}
+                className={inputClass}
+                required
+              />
+              <p className="mt-1 text-xs text-[var(--muted)]">
+                Default is previous expiry + 1 year.
+              </p>
+            </div>
+          ) : (
+            <div>
+              <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
+                Failure reason
+              </label>
+              <textarea
+                value={failureReason}
+                onChange={(e) => setFailureReason(e.target.value)}
+                rows={3}
+                className={inputClass}
+                placeholder="Why did the car fail?"
+                required
+              />
+              <p className="mt-1 text-xs text-[var(--muted)]">
+                Failed bookings go to Failed / Retest. Retest window is{" "}
+                {PCO_RETEST_WINDOW_DAYS} days from the fail date.
+              </p>
+            </div>
+          )}
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setCompleteOpen(false)}
+              className="rounded-lg border px-4 py-2 text-sm"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={
+                saving ||
+                (completeOutcome === "PASS" ? !nextExpiry : !failureReason.trim())
+              }
+              onClick={() => void completeBooking()}
+              className={`rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-50 ${
+                completeOutcome === "FAIL" ? "bg-red-600" : "bg-accent"
+              }`}
+            >
+              {saving
+                ? "Saving…"
+                : completeOutcome === "PASS"
+                  ? "Complete — passed"
+                  : "Complete — failed"}
+            </button>
+          </div>
         </div>
+      </Modal>
+
+      <Modal
+        title="Book retest"
+        open={!!retestModal}
+        onClose={() => setRetestModal(null)}
+      >
+        {retestModal && (
+          <form onSubmit={(e) => void submitBookRetest(e)} className="space-y-3">
+            <p className="text-sm text-[var(--muted)]">
+              Creates a <strong>Retest</strong> entry on <strong>To book</strong> for{" "}
+              <strong>
+                {"vehicle" in retestModal
+                  ? formatRegistrationDisplay(retestModal.vehicle.vrm)
+                  : formatRegistrationDisplay(retestModal.vrm)}
+              </strong>
+              .
+              {"daysUntilRetestDeadline" in retestModal &&
+                retestModal.daysUntilRetestDeadline != null && (
+                  <>
+                    {" "}
+                    Retest window:{" "}
+                    <strong>
+                      {retestModal.daysUntilRetestDeadline < 0
+                        ? `overdue by ${Math.abs(retestModal.daysUntilRetestDeadline)} days`
+                        : `${retestModal.daysUntilRetestDeadline} days left`}
+                    </strong>
+                    .
+                  </>
+                )}
+            </p>
+            {"failureReason" in retestModal && retestModal.failureReason && (
+              <p className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-2 text-sm">
+                <span className="text-[var(--muted)]">Failure reason: </span>
+                {retestModal.failureReason}
+              </p>
+            )}
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={retestHasCharge}
+                onChange={(e) => setRetestHasCharge(e.target.checked)}
+              />
+              Additional charge required for this retest
+            </label>
+            {retestHasCharge && (
+              <>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
+                    Additional charge (£)
+                  </label>
+                  <input
+                    type="number"
+                    min="0.01"
+                    step="0.01"
+                    value={retestChargeAmount}
+                    onChange={(e) => setRetestChargeAmount(e.target.value)}
+                    className={inputClass}
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
+                    Charge reference
+                  </label>
+                  <input
+                    value={retestChargeRef}
+                    onChange={(e) => setRetestChargeRef(e.target.value)}
+                    className={inputClass}
+                    placeholder="e.g. invoice / TfL reference"
+                    required
+                  />
+                </div>
+              </>
+            )}
+            <div>
+              <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
+                Notes (optional)
+              </label>
+              <textarea
+                value={retestNotes}
+                onChange={(e) => setRetestNotes(e.target.value)}
+                rows={2}
+                className={inputClass}
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setRetestModal(null)}
+                className="rounded-lg border px-4 py-2 text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={saving}
+                className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+              >
+                {saving ? "Saving…" : "Add to To book"}
+              </button>
+            </div>
+          </form>
+        )}
       </Modal>
 
       <Modal
@@ -2589,7 +3041,7 @@ export function PcoPageContent() {
                     {renewDraft.pcoAccountPhone || "—"}
                   </DetailRow>
                   <DetailRow label="Email">{renewDraft.email || "—"}</DetailRow>
-                  <DetailRow label="PCO expiry">{renewDraft.pcoExpiryDate}</DetailRow>
+                  <DetailRow label="PCO expiry">{renewDraft.pcoExpiryDate || "—"}</DetailRow>
                   {(renewDraft.make || renewDraft.model) && (
                     <DetailRow label="Vehicle">
                       {[renewDraft.make, renewDraft.model].filter(Boolean).join(" ")}
@@ -2687,7 +3139,9 @@ export function PcoPageContent() {
                     />
                   </div>
                   <div>
-                    <label className="mb-1 block text-xs font-medium text-[var(--muted)]">PCO expiry</label>
+                    <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
+                      PCO expiry <span className="font-normal">(optional)</span>
+                    </label>
                     <input
                       type="date"
                       value={renewDraft.pcoExpiryDate}
@@ -2695,7 +3149,6 @@ export function PcoPageContent() {
                         setRenewDraft((d) => ({ ...d, pcoExpiryDate: e.target.value }))
                       }
                       className={inputClass}
-                      required
                     />
                   </div>
                   <div>
@@ -2817,7 +3270,9 @@ export function PcoPageContent() {
               />
             </div>
             <div>
-              <label className="mb-1 block text-xs font-medium text-[var(--muted)]">PCO expiry</label>
+              <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
+                PCO expiry <span className="font-normal">(optional)</span>
+              </label>
               <input
                 type="date"
                 value={editDraft.pcoExpiryDate}

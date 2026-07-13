@@ -526,6 +526,11 @@ Two-step: **Add request** → **To book** (`PENDING`) → **Add booking details*
 | 2026-06-02 | **PCO notes + priority** | Notes on bookings; To book sorted by priority | Stakeholder |
 | 2026-07-11 | **PCO client informed/confirmed** | Only on **Active** bookings after appointment is booked — not on Add request / To book | Stakeholder |
 | 2026-07-13 | **PCO two phone numbers** | `phone` = client contact; `pcoAccountPhone` = number on TfL / PCO centre account | Stakeholder |
+| 2026-07-13 | **PCO pass/fail + retest** | Complete → Pass (expiry) or Fail (reason). Failed tab (21d window); Book retest → PENDING RETEST on To book | Stakeholder |
+| 2026-07-13 | **PCO expiry optional** | Brand-new vehicles may have no PCO expiry yet; renewals-due skips null | Stakeholder |
+| 2026-07-13 | **PCO job types: change of ownership + full test** | Added to job type dropdown | Stakeholder |
+| 2026-07-13 | **PCO amend payment** | Correct method/amount after mistakes; reverse prior ledger income + post new | Stakeholder |
+| 2026-07-13 | **PCO retest slot expense** | On schedule, retest slot fee defaults to Book-retest TfL charge (or £0 → N/A), not £140 | Stakeholder |
 
 ---
 

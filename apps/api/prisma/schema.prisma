@@ -257,12 +257,15 @@ enum PcoJobType {
   LOGBOOK_EXPIRING
   RETEST
   RESCHEDULE
+  CHANGE_OF_OWNERSHIP
+  FULL_TEST
 }
 
 enum PcoBookingStatus {
   PENDING
   ACTIVE
   COMPLETED
+  FAILED
   CANCELLED
 }
 
@@ -1152,7 +1155,7 @@ model PcoVehicle {
   fuelType              String?          @map("fuel_type")
   seatCount             Int?             @map("seat_count")
   firstRegistrationDate DateTime         @map("first_registration_date") @db.Date
-  pcoExpiryDate         DateTime         @map("pco_expiry_date") @db.Date
+  pcoExpiryDate         DateTime?        @map("pco_expiry_date") @db.Date
   logbookExpiryDate     DateTime         @map("logbook_expiry_date") @db.Date
   note                  String?
   status                PcoVehicleStatus @default(ACTIVE)
@@ -1200,6 +1203,10 @@ model PcoBooking {
   cancelledById         String?          @map("cancelled_by_id") @db.Uuid
   rescheduledFromBookingId String?       @unique @map("rescheduled_from_booking_id") @db.Uuid
   rescheduledToBookingId   String?       @unique @map("rescheduled_to_booking_id") @db.Uuid
+  failureReason         String?          @map("failure_reason")
+  failedAt              DateTime?        @map("failed_at")
+  retestBookingId       String?          @unique @map("retest_booking_id") @db.Uuid
+  retestChargeReference String?          @map("retest_charge_reference")
   notes                 String?
   createdById           String           @map("created_by_id") @db.Uuid
   completedAt           DateTime?        @map("completed_at")
@@ -1219,6 +1226,8 @@ model PcoBooking {
   rescheduledFromSuccessor PcoBooking? @relation("PcoRescheduleFrom")
   rescheduledToBooking   PcoBooking?   @relation("PcoRescheduleTo", fields: [rescheduledToBookingId], references: [id], onDelete: SetNull)
   rescheduledToPredecessor PcoBooking? @relation("PcoRescheduleTo")
+  retestBooking          PcoBooking?   @relation("PcoRetestFromFailed", fields: [retestBookingId], references: [id], onDelete: SetNull)
+  retestedFromFailed     PcoBooking?   @relation("PcoRetestFromFailed")
   createdBy       User               @relation("PcoBookingCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
   completedBy     User?              @relation("PcoBookingCompletedBy", fields: [completedById], references: [id], onDelete: SetNull)
   payments        PcoBookingPayment[]

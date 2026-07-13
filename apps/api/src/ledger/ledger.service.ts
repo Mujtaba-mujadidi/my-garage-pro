@@ -713,6 +713,55 @@ export class LedgerService {
     return row;
   }
 
+  /** Reverse posted PCO customer payment income (amend / correct payment). */
+  async reversePcoPaymentIncomeIfPosted(
+    user: RequestUser,
+    garageAccountId: string,
+    ledgerEntryId: string,
+    tx: Prisma.TransactionClient,
+  ) {
+    const original = await tx.ledgerEntry.findFirst({
+      where: {
+        id: ledgerEntryId,
+        garageAccountId,
+        status: LedgerEntryStatus.POSTED,
+        direction: LedgerEntryDirection.INCOME,
+        sourceModule: LedgerSourceModule.PCO,
+      },
+    });
+    if (!original) return;
+
+    const existingReversal = await tx.ledgerEntry.findFirst({
+      where: { reversesEntryId: original.id },
+    });
+    if (existingReversal) return;
+
+    const now = new Date();
+    await tx.ledgerEntry.create({
+      data: {
+        garageAccountId,
+        paymentAccountId: original.paymentAccountId,
+        paymentMethod: original.paymentMethod,
+        pcoBookingId: original.pcoBookingId,
+        direction: LedgerEntryDirection.EXPENSE,
+        status: LedgerEntryStatus.POSTED,
+        sourceModule: LedgerSourceModule.PCO,
+        valueDate: original.valueDate,
+        postedAt: now,
+        amountGross: original.amountGross,
+        vatAmount: original.vatAmount,
+        amountNet: original.amountNet,
+        category: "PCO service — payment correction",
+        notes: `Reversal of payment income ${original.id.slice(0, 8)}`,
+        reversesEntryId: original.id,
+        createdById: user.id,
+        checkedById: user.id,
+        checkedAt: now,
+        approvedById: user.id,
+      },
+    });
+  }
+
   /** Reverse a posted PCO slot expense when rescheduling back to To book. */
   async reversePcoSlotExpenseIfPosted(
     user: RequestUser,

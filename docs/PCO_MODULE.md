@@ -52,10 +52,11 @@ flowchart LR
 
 ## Job types
 
-`RENEWAL` · `NEW` · `ADMIN` · `LOGBOOK_EXPIRING` · `RETEST` · **`RESCHEDULE`**
+`RENEWAL` · `NEW` · `ADMIN` · `LOGBOOK_EXPIRING` · `RETEST` · **`RESCHEDULE`** · **`CHANGE_OF_OWNERSHIP`** · **`FULL_TEST`**
 
 - **RESCHEDULE:** On active booking → **Reschedule** moves row back to **To book** (clears centre/date; appends previous appointment to notes). On **Add request**, selecting RESCHEDULE with an active booking on the VRM prefills current booking details in notes; if active booking exists at create time, API calls `return-to-book` instead of duplicating.
 - **ADMIN:** Free-text job details field.
+- **CHANGE_OF_OWNERSHIP** / **FULL_TEST:** Selectable on Add request / Edit like other job types.
 
 ---
 
@@ -72,7 +73,8 @@ flowchart LR
 | **Slot payment methods** | Bank transfer, Card, Cash, Cheque, Other, **Customer paid** |
 | **Notes** | Textarea on add request, edit, renew-due modal; shown in detail view |
 | **Edit** | Pending bookings editable via ⋮ or detail modal |
-| **Vehicle fields** | Optional make, model, colour, fuel type, seats |
+| **Vehicle fields** | Optional make, model, colour, fuel type, seats; **PCO expiry optional** (blank for brand-new vehicles) |
+| **Amend payment** | View → Payments → **Amend** (method, amount, account, date); reverses prior PCO ledger income and posts corrected entry |
 
 **Slot payment vs ledger:** `PcoBookingSlotPaymentMethod` (incl. `CUSTOMER_PAID`) is **metadata for how the TfL/centre slot was paid** — not the same as ledger `PaymentMethod` on income entries. Ledger income still uses standard methods when recording customer payments.
 
@@ -89,7 +91,8 @@ flowchart LR
 | `POST` | `/pco/bookings/:id/schedule` | **PENDING → ACTIVE** |
 | `POST` | `/pco/bookings/:id/return-to-book` | **ACTIVE → PENDING** (reschedule) |
 | `POST` | `/pco/bookings/:id/payments` | Ledger income (`sourceModule: PCO`) |
-| `POST` | `/pco/bookings/:id/complete` | **ACTIVE → COMPLETED**; roll PCO expiry +1 year |
+| `PATCH` | `/pco/bookings/:id/payments/:paymentId` | Amend payment (method/amount/account/date); reverse + re-post income |
+| `POST` | `/pco/bookings/:id/complete` | **ACTIVE → COMPLETED** (pass) or **FAILED**; roll PCO expiry on pass |
 | `POST` | `/pco/bookings/:id/cancel` | Cancel |
 | `GET` | `/pco/lookup?vrm=` | Previous charges, active booking snapshot |
 | `GET/POST/DELETE` | `/pco/centres` | Booking centre settings |
@@ -123,6 +126,7 @@ flowchart LR
 | `20260617140000_pco_reschedule_job_type` | `PcoJobType.RESCHEDULE` |
 | `20260617140100_pco_booking_notes_payment` | `pco_booking.notes` column |
 | `20260617140200_pco_slot_payment_enum` | `PcoBookingSlotPaymentMethod` enum (incl. `CUSTOMER_PAID`) |
+| `20260713200000_pco_optional_expiry_job_types` | Nullable PCO expiry; `CHANGE_OF_OWNERSHIP` + `FULL_TEST` job types |
 
 Local: `cd apps/api && npx prisma migrate deploy`  
 Railway: runs on API container start (`prisma migrate deploy` in start command).

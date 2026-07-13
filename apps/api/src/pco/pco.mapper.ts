@@ -21,6 +21,8 @@ import {
   PCO_DEFAULT_BOOKING_CHARGE,
   PCO_JOB_TYPE_LABEL,
   PCO_PRIORITY_LABEL,
+  daysUntilRetestDeadline,
+  retestDeadlineIso,
 } from "@mygaragepro/shared";
 
 function dec(v: { toString(): string }) {
@@ -49,7 +51,7 @@ export function toPcoVehicleDto(row: PcoVehicle): PcoVehicleDto {
     fuelType: row.fuelType,
     seatCount: row.seatCount,
     firstRegistrationDate: isoDate(row.firstRegistrationDate),
-    pcoExpiryDate: isoDate(row.pcoExpiryDate),
+    pcoExpiryDate: row.pcoExpiryDate ? isoDate(row.pcoExpiryDate) : null,
     logbookExpiryDate: isoDate(row.logbookExpiryDate),
     note: row.note,
     status: row.status,
@@ -91,6 +93,7 @@ type BookingRow = PcoBooking & {
   slotCreditSourceBooking: Pick<PcoBooking, "bookingNumber"> | null;
   rescheduledFromBooking: Pick<PcoBooking, "bookingNumber"> | null;
   rescheduledToBooking: Pick<PcoBooking, "bookingNumber"> | null;
+  retestBooking: Pick<PcoBooking, "bookingNumber"> | null;
   payments: PaymentWithAccount[];
   createdBy: Pick<User, "displayName">;
   completedBy: Pick<User, "displayName"> | null;
@@ -132,6 +135,15 @@ export function toPcoBookingDto(row: BookingRow): PcoBookingDto {
     rescheduledFromBookingNumber: row.rescheduledFromBooking?.bookingNumber ?? null,
     rescheduledToBookingId: row.rescheduledToBookingId,
     rescheduledToBookingNumber: row.rescheduledToBooking?.bookingNumber ?? null,
+    failureReason: row.failureReason,
+    failedAt: row.failedAt?.toISOString() ?? null,
+    retestDeadline: row.failedAt ? retestDeadlineIso(row.failedAt.toISOString()) : null,
+    daysUntilRetestDeadline: row.failedAt
+      ? daysUntilRetestDeadline(row.failedAt.toISOString())
+      : null,
+    retestBookingId: row.retestBookingId,
+    retestBookingNumber: row.retestBooking?.bookingNumber ?? null,
+    retestChargeReference: row.retestChargeReference,
     notes: row.notes,
     vehicle: toPcoVehicleDto(row.vehicle),
     payments: row.payments.map(toPcoPaymentDto),
@@ -147,6 +159,7 @@ export function toPcoBookingDto(row: BookingRow): PcoBookingDto {
 type ListRow = PcoBooking & {
   vehicle: PcoVehicle;
   bookingCentre: Pick<SettingOption, "label"> | null;
+  retestBooking?: Pick<PcoBooking, "bookingNumber"> | null;
 };
 
 export function toPcoBookingListDto(row: ListRow): PcoBookingListDto {
@@ -181,9 +194,17 @@ export function toPcoBookingListDto(row: ListRow): PcoBookingListDto {
     fuelType: row.vehicle.fuelType,
     seatCount: row.vehicle.seatCount,
     firstRegistrationDate: isoDate(row.vehicle.firstRegistrationDate),
-    pcoExpiryDate: isoDate(row.vehicle.pcoExpiryDate),
+    pcoExpiryDate: row.vehicle.pcoExpiryDate ? isoDate(row.vehicle.pcoExpiryDate) : null,
     logbookExpiryDate: isoDate(row.vehicle.logbookExpiryDate),
     notes: row.notes,
+    failureReason: row.failureReason,
+    failedAt: row.failedAt?.toISOString() ?? null,
+    retestDeadline: row.failedAt ? retestDeadlineIso(row.failedAt.toISOString()) : null,
+    daysUntilRetestDeadline: row.failedAt
+      ? daysUntilRetestDeadline(row.failedAt.toISOString())
+      : null,
+    retestBookingId: row.retestBookingId,
+    retestBookingNumber: row.retestBooking?.bookingNumber ?? null,
     createdAt: row.createdAt.toISOString(),
   };
 }

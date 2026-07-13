@@ -1,5 +1,16 @@
 import { PcoJobType, PcoPriority } from "@prisma/client";
-import { IsBoolean, IsEnum, IsInt, IsOptional, IsString, IsUUID, Matches, MaxLength, Min } from "class-validator";
+import {
+  IsBoolean,
+  IsEnum,
+  IsInt,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Matches,
+  MaxLength,
+  Min,
+  ValidateIf,
+} from "class-validator";
 
 export class UpdatePcoBookingDto {
   @IsOptional()
@@ -115,8 +126,9 @@ export class UpdatePcoBookingDto {
   @Min(1)
   seatCount?: number;
 
+  /** Empty string clears expiry (e.g. brand-new vehicle). */
   @IsOptional()
-  @IsString()
+  @ValidateIf((_, v) => typeof v === "string" && v.length > 0)
   @Matches(/^\d{4}-\d{2}-\d{2}$/)
   pcoExpiryDate?: string;
 }

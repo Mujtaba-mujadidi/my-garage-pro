@@ -13,14 +13,16 @@ import {
   PcoVehicleStatus,
   Prisma,
 } from "@prisma/client";
-import { calculateLogbookExpiryFromFirstRegistration, PCO_DUE_SOON_DAYS, PCO_DEFAULT_BOOKING_CHARGE, sortPcoBookingsByPriority } from "@mygaragepro/shared";
+import { calculateLogbookExpiryFromFirstRegistration, PCO_DUE_SOON_DAYS, PCO_DEFAULT_BOOKING_CHARGE, PCO_RETEST_WINDOW_DAYS, sortPcoBookingsByPriority } from "@mygaragepro/shared";
 import { AuditService } from "../audit/audit.service";
 import type { RequestUser } from "../auth/auth.types";
 import { normalizeRegistration } from "../customers/customers.mapper";
 import { roundMoney } from "../invoices/invoice-calculations";
 import { LedgerService } from "../ledger/ledger.service";
 import { PrismaService } from "../prisma/prisma.service";
+import { AmendPcoPaymentDto } from "./dto/amend-pco-payment.dto";
 import { CompletePcoBookingDto } from "./dto/complete-pco-booking.dto";
+import { BookPcoRetestDto } from "./dto/book-pco-retest.dto";
 import { CancelPcoBookingDto } from "./dto/cancel-pco-booking.dto";
 import { CreatePcoBookingDto } from "./dto/create-pco-booking.dto";
 import { CreatePcoCentreDto } from "./dto/create-pco-centre.dto";
@@ -61,6 +63,7 @@ export class PcoService {
     slotCreditSourceBooking: { select: { bookingNumber: true } },
     rescheduledFromBooking: { select: { bookingNumber: true } },
     rescheduledToBooking: { select: { bookingNumber: true } },
+    retestBooking: { select: { bookingNumber: true } },
     payments: { include: { paymentAccount: { select: { name: true } } }, orderBy: { createdAt: "asc" } },
     createdBy: { select: { displayName: true } },
     completedBy: { select: { displayName: true } },
@@ -69,6 +72,7 @@ export class PcoService {
   private listInclude = {
     vehicle: true,
     bookingCentre: { select: { label: true } },
+    retestBooking: { select: { bookingNumber: true } },
   } as const;
 
   private parseDate(iso: string): Date {
@@ -125,6 +129,17 @@ export class PcoService {
       (booking.slotPaidBy === PcoBookingSlotPaidBy.US ||
         booking.slotPaidBy === PcoBookingSlotPaidBy.CUSTOMER)
     );
+  }
+
+  /** Retest slot expense defaults to the TfL additional charge entered on Book retest (else £140). */
+  private defaultSlotCharge(booking: {
+    jobType: PcoJobType;
+    chargeGross: Prisma.Decimal | number | string;
+  }) {
+    if (booking.jobType === PcoJobType.RETEST) {
+      return Number(booking.chargeGross);
+    }
+    return PCO_DEFAULT_BOOKING_CHARGE;
   }
 
   private validateCancellationInput(
@@ -195,7 +210,7 @@ export class PcoService {
       fuelType: dto.fuelType?.trim() || null,
       seatCount: dto.seatCount ?? null,
       firstRegistrationDate: this.parseDate(dto.firstRegistrationDate),
-      pcoExpiryDate: this.parseDate(dto.pcoExpiryDate),
+      pcoExpiryDate: dto.pcoExpiryDate ? this.parseDate(dto.pcoExpiryDate) : null,
       logbookExpiryDate: this.parseDate(logbookExpiry),
       note: dto.note?.trim() || null,
       customerId: dto.customerId ?? null,
@@ -383,7 +398,7 @@ export class PcoService {
       for (const v of vehicles) {
         const dueDate =
           dueTab === "renewals_due" ? v.pcoExpiryDate : v.logbookExpiryDate;
-        if (dueDate < today || dueDate > end) continue;
+        if (!dueDate || dueDate < today || dueDate > end) continue;
 
         const openBooking = await this.prisma.pcoBooking.findFirst({
           where: {
@@ -414,23 +429,37 @@ export class PcoService {
       pending: PcoBookingStatus.PENDING,
       active: PcoBookingStatus.ACTIVE,
       past: PcoBookingStatus.COMPLETED,
+      failed: PcoBookingStatus.FAILED,
     };
     const status = statusByTab[tab];
     if (!status) throw new BadRequestException("Invalid tab");
 
     const rows = await this.prisma.pcoBooking.findMany({
-      where: { garageAccountId, status },
+      where: {
+        garageAccountId,
+        status,
+        ...(tab === "failed" ? { retestBookingId: null } : {}),
+      },
       include: this.listInclude,
       orderBy:
         tab === "past"
           ? [{ completedAt: "desc" }, { createdAt: "desc" }]
           : tab === "active"
             ? [{ bookingDate: "asc" }, { createdAt: "desc" }]
-            : [{ createdAt: "desc" }],
+            : tab === "failed"
+              ? [{ failedAt: "asc" }, { createdAt: "desc" }]
+              : [{ createdAt: "desc" }],
       take: 300,
     });
 
     const mapped = rows.map(toPcoBookingListDto);
+    if (tab === "failed") {
+      return [...mapped].sort((a, b) => {
+        const da = a.daysUntilRetestDeadline ?? 999;
+        const db = b.daysUntilRetestDeadline ?? 999;
+        return da - db;
+      });
+    }
     if (tab === "pending") {
       const activeForVrm = await this.prisma.pcoBooking.findMany({
         where: { garageAccountId, status: PcoBookingStatus.ACTIVE },
@@ -563,7 +592,9 @@ export class PcoService {
     if (dto.seatCount !== undefined) vehicleData.seatCount = dto.seatCount ?? null;
     if (dto.vehicleNote !== undefined) vehicleData.note = dto.vehicleNote?.trim() || null;
     if (dto.pcoExpiryDate !== undefined) {
-      vehicleData.pcoExpiryDate = this.parseDate(dto.pcoExpiryDate);
+      vehicleData.pcoExpiryDate = dto.pcoExpiryDate
+        ? this.parseDate(dto.pcoExpiryDate)
+        : null;
     }
 
     const row = await this.prisma.$transaction(async (tx) => {
@@ -629,7 +660,7 @@ export class PcoService {
       if (!dto.slotPaymentAccountId) {
         throw new BadRequestException("Payment account is required when the garage pays the slot");
       }
-      const amount = Number(roundMoney(dto.slotChargeGross ?? PCO_DEFAULT_BOOKING_CHARGE));
+      const amount = Number(roundMoney(dto.slotChargeGross ?? this.defaultSlotCharge(existing)));
       if (amount <= 0) {
         throw new BadRequestException("Slot expense amount must be greater than zero");
       }
@@ -651,7 +682,7 @@ export class PcoService {
       let slotCreditSourceBookingId: string | null = null;
 
       if (dto.slotPaidBy === PcoBookingSlotPaidBy.US) {
-        const amount = Number(roundMoney(dto.slotChargeGross ?? PCO_DEFAULT_BOOKING_CHARGE));
+        const amount = Number(roundMoney(dto.slotChargeGross ?? this.defaultSlotCharge(existing)));
         const ledgerRow = await this.ledger.createPostedExpenseForPcoSlot(
           user,
           {
@@ -874,10 +905,102 @@ export class PcoService {
     return this.getBooking(user, id);
   }
 
+  async amendPayment(
+    user: RequestUser,
+    bookingId: string,
+    paymentId: string,
+    dto: AmendPcoPaymentDto,
+  ) {
+    const garageAccountId = this.garageId(user);
+    if (!user.enabledModules.includes("ledger")) {
+      throw new ForbiddenException("Ledger module is required to amend PCO payments");
+    }
+
+    const booking = await this.prisma.pcoBooking.findFirst({
+      where: { id: bookingId, garageAccountId },
+      include: { vehicle: true, payments: true },
+    });
+    if (!booking) throw new NotFoundException("PCO booking not found");
+    if (booking.status === PcoBookingStatus.CANCELLED) {
+      throw new BadRequestException("Cannot amend payment on a cancelled booking");
+    }
+
+    const existingPayment = booking.payments.find((p) => p.id === paymentId);
+    if (!existingPayment) throw new NotFoundException("Payment not found");
+
+    const newAmount = roundMoney(dto.amount);
+    const charge = Number(booking.chargeGross);
+    const paidWithoutThis =
+      Number(booking.amountPaid) - Number(existingPayment.amount);
+    if (paidWithoutThis + Number(newAmount) > charge + 0.009) {
+      throw new BadRequestException("Amended payment would exceed booking balance");
+    }
+
+    const valueDate = dto.valueDate ? this.parseDate(dto.valueDate) : existingPayment.valueDate;
+
+    await this.prisma.$transaction(async (tx) => {
+      if (existingPayment.ledgerEntryId) {
+        await this.ledger.reversePcoPaymentIncomeIfPosted(
+          user,
+          garageAccountId,
+          existingPayment.ledgerEntryId,
+          tx,
+        );
+      }
+
+      const ledgerRow = await this.ledger.createPostedIncomeForPcoPayment(
+        user,
+        {
+          pcoBookingId: bookingId,
+          pcoBookingPaymentId: paymentId,
+          paymentAccountId: dto.paymentAccountId,
+          method: dto.method,
+          valueDate,
+          amountGross: Number(newAmount),
+          reference: `PCO ${booking.bookingNumber} — ${booking.vehicle.vrm} (amended)`,
+        },
+        tx,
+      );
+
+      await tx.pcoBookingPayment.update({
+        where: { id: paymentId },
+        data: {
+          paymentAccountId: dto.paymentAccountId,
+          method: dto.method,
+          amount: newAmount,
+          valueDate,
+          ledgerEntryId: ledgerRow.id,
+        },
+      });
+
+      await tx.pcoBooking.update({
+        where: { id: bookingId },
+        data: { amountPaid: roundMoney(paidWithoutThis + Number(newAmount)) },
+      });
+    });
+
+    await this.audit.log({
+      action: "pco.booking.payment_amend",
+      userId: user.id,
+      garageAccountId,
+      entityType: "pco_booking",
+      entityId: bookingId,
+      metadata: {
+        paymentId,
+        previousAmount: existingPayment.amount.toString(),
+        amount: newAmount.toString(),
+        method: dto.method,
+      },
+    });
+
+    return this.getBooking(user, bookingId);
+  }
+
   async completeBooking(user: RequestUser, id: string, dto: CompletePcoBookingDto) {
     const garageAccountId = this.garageId(user);
     const existing = await this.prisma.pcoBooking.findFirst({
       where: { id, garageAccountId },
+      include: { vehicle: true },
     });
     if (!existing) throw new NotFoundException("PCO booking not found");
     if (existing.status !== PcoBookingStatus.ACTIVE) {
@@ -885,33 +1008,158 @@ export class PcoService {
     }
 
     const now = new Date();
-    const nextExpiry = this.parseDate(dto.nextPcoExpiryDate);
 
-    await this.prisma.$transaction(async (tx) => {
-      await tx.pcoBooking.update({
-        where: { id },
-        data: {
-          status: PcoBookingStatus.COMPLETED,
-          completedAt: now,
-          completedById: user.id,
-        },
+    if (dto.outcome === "PASS") {
+      if (!dto.nextPcoExpiryDate) {
+        throw new BadRequestException("Next PCO expiry date is required when the car passed");
+      }
+      const nextExpiry = this.parseDate(dto.nextPcoExpiryDate);
+      await this.prisma.$transaction(async (tx) => {
+        await tx.pcoBooking.update({
+          where: { id },
+          data: {
+            status: PcoBookingStatus.COMPLETED,
+            completedAt: now,
+            completedById: user.id,
+          },
+        });
+        await tx.pcoVehicle.update({
+          where: { id: existing.pcoVehicleId },
+          data: { pcoExpiryDate: nextExpiry },
+        });
       });
-      await tx.pcoVehicle.update({
-        where: { id: existing.pcoVehicleId },
-        data: { pcoExpiryDate: nextExpiry },
+      await this.audit.log({
+        action: "pco.booking.complete_pass",
+        userId: user.id,
+        garageAccountId,
+        entityType: "pco_booking",
+        entityId: id,
+        metadata: { nextPcoExpiryDate: dto.nextPcoExpiryDate },
       });
+      return this.getBooking(user, id);
+    }
+
+    const reason = dto.failureReason?.trim();
+    if (!reason) {
+      throw new BadRequestException("A failure reason is required when the car failed");
+    }
+
+    await this.prisma.pcoBooking.update({
+      where: { id },
+      data: {
+        status: PcoBookingStatus.FAILED,
+        failureReason: reason,
+        failedAt: now,
+        completedAt: now,
+        completedById: user.id,
+      },
     });
 
     await this.audit.log({
-      action: "pco.booking.complete",
+      action: "pco.booking.complete_fail",
       userId: user.id,
       garageAccountId,
       entityType: "pco_booking",
       entityId: id,
-      metadata: { nextPcoExpiryDate: dto.nextPcoExpiryDate },
+      metadata: {
+        failureReason: reason,
+        retestWindowDays: PCO_RETEST_WINDOW_DAYS,
+      },
     });
 
     return this.getBooking(user, id);
+  }
+
+  async bookRetest(user: RequestUser, id: string, dto: BookPcoRetestDto) {
+    const garageAccountId = this.garageId(user);
+    const existing = await this.prisma.pcoBooking.findFirst({
+      where: { id, garageAccountId },
+      include: { vehicle: true },
+    });
+    if (!existing) throw new NotFoundException("PCO booking not found");
+    if (existing.status !== PcoBookingStatus.FAILED) {
+      throw new BadRequestException("Only failed bookings can be queued for retest");
+    }
+    if (existing.retestBookingId) {
+      throw new BadRequestException("A retest booking has already been created for this failure");
+    }
+
+    const vrm = existing.vehicle.vrm;
+    const open = await this.findOpenBookingByVrm(garageAccountId, vrm);
+    if (open) {
+      throw new BadRequestException(this.openBookingErrorMessage(vrm, open));
+    }
+
+    if (dto.hasAdditionalCharge) {
+      if (dto.additionalChargeGross == null || Number(dto.additionalChargeGross) <= 0) {
+        throw new BadRequestException("Enter the additional charge amount");
+      }
+      if (!dto.chargeReference?.trim()) {
+        throw new BadRequestException("A charge reference is required when there is an additional charge");
+      }
+    }
+
+    const charge = dto.hasAdditionalCharge
+      ? roundMoney(dto.additionalChargeGross!)
+      : roundMoney(0);
+    const chargeRef = dto.hasAdditionalCharge ? dto.chargeReference!.trim() : null;
+    const failDate = existing.failedAt
+      ? existing.failedAt.toISOString().slice(0, 10)
+      : new Date().toISOString().slice(0, 10);
+    const noteParts = [
+      `Retest after failed booking ${existing.bookingNumber} (${failDate}).`,
+      existing.failureReason ? `Failure reason: ${existing.failureReason}` : null,
+      chargeRef ? `Additional charge reference: ${chargeRef}` : null,
+      dto.notes?.trim() || null,
+      existing.notes,
+    ].filter(Boolean);
+    const daysLeft = existing.failedAt
+      ? Math.round(
+          (existing.failedAt.getTime() + PCO_RETEST_WINDOW_DAYS * 86_400_000 - Date.now()) /
+            86_400_000,
+        )
+      : PCO_RETEST_WINDOW_DAYS;
+    const priority = daysLeft <= 7 ? "HIGH" : "MEDIUM";
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      const bookingNumber = await this.nextBookingNumber(tx, garageAccountId);
+      const newBooking = await tx.pcoBooking.create({
+        data: {
+          garageAccountId,
+          pcoVehicleId: existing.pcoVehicleId,
+          bookingNumber,
+          jobType: PcoJobType.RETEST,
+          status: PcoBookingStatus.PENDING,
+          priority,
+          chargeGross: charge,
+          retestChargeReference: chargeRef,
+          notes: noteParts.join("\n") || null,
+          createdById: user.id,
+        },
+        include: this.bookingInclude,
+      });
+      await tx.pcoBooking.update({
+        where: { id },
+        data: { retestBookingId: newBooking.id },
+      });
+      return newBooking;
+    });
+
+    await this.audit.log({
+      action: "pco.booking.book_retest",
+      userId: user.id,
+      garageAccountId,
+      entityType: "pco_booking",
+      entityId: id,
+      metadata: {
+        failedBookingNumber: existing.bookingNumber,
+        retestBookingNumber: result.bookingNumber,
+        hasAdditionalCharge: dto.hasAdditionalCharge,
+        additionalChargeGross: charge.toString(),
+      },
+    });
+
+    return toPcoBookingDto(result);
   }
 
   async listSlotCredits(user: RequestUser, vrm: string) {

@@ -75,9 +75,11 @@ export class CreatePcoBookingDto {
   @Matches(/^\d{4}-\d{2}-\d{2}$/)
   firstRegistrationDate!: string;
 
+  /** Optional — omit for brand-new vehicles without a PCO expiry yet. */
+  @IsOptional()
   @IsString()
   @Matches(/^\d{4}-\d{2}-\d{2}$/)
-  pcoExpiryDate!: string;
+  pcoExpiryDate?: string;
 
   @IsOptional()
   @IsString()
