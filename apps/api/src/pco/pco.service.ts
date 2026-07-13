@@ -13,13 +13,14 @@ import {
   PcoVehicleStatus,
   Prisma,
 } from "@prisma/client";
-import { calculateLogbookExpiryFromFirstRegistration, PCO_DUE_SOON_DAYS, PCO_DEFAULT_BOOKING_CHARGE, PCO_RETEST_WINDOW_DAYS, sortPcoBookingsByPriority } from "@mygaragepro/shared";
+import { calculateLogbookExpiryFromFirstRegistration, PCO_DUE_SOON_DAYS, PCO_DEFAULT_BOOKING_CHARGE, PCO_RETEST_WINDOW_DAYS, pcoCustomerTotalDue, sortPcoBookingsByPriority } from "@mygaragepro/shared";
 import { AuditService } from "../audit/audit.service";
 import type { RequestUser } from "../auth/auth.types";
 import { normalizeRegistration } from "../customers/customers.mapper";
 import { roundMoney } from "../invoices/invoice-calculations";
 import { LedgerService } from "../ledger/ledger.service";
 import { PrismaService } from "../prisma/prisma.service";
+import { AmendPcoChargesDto } from "./dto/amend-pco-charges.dto";
 import { AmendPcoPaymentDto } from "./dto/amend-pco-payment.dto";
 import { CompletePcoBookingDto } from "./dto/complete-pco-booking.dto";
 import { BookPcoRetestDto } from "./dto/book-pco-retest.dto";
@@ -131,11 +132,15 @@ export class PcoService {
     );
   }
 
-  /** Retest slot expense defaults to the TfL additional charge entered on Book retest (else £140). */
+  /** Retest / pending suggested slot, else standard £140 centre fee. */
   private defaultSlotCharge(booking: {
     jobType: PcoJobType;
     chargeGross: Prisma.Decimal | number | string;
+    slotChargeGross?: Prisma.Decimal | number | string | null;
   }) {
+    if (booking.slotChargeGross != null && Number(booking.slotChargeGross) > 0) {
+      return Number(booking.slotChargeGross);
+    }
     if (booking.jobType === PcoJobType.RETEST) {
       return Number(booking.chargeGross);
     }
@@ -614,6 +619,118 @@ export class PcoService {
     return toPcoBookingDto(row);
   }
 
+  async amendCharges(user: RequestUser, id: string, dto: AmendPcoChargesDto) {
+    const garageAccountId = this.garageId(user);
+    const existing = await this.prisma.pcoBooking.findFirst({
+      where: { id, garageAccountId },
+      include: { vehicle: true },
+    });
+    if (!existing) throw new NotFoundException("PCO booking not found");
+    if (
+      existing.status !== PcoBookingStatus.PENDING &&
+      existing.status !== PcoBookingStatus.ACTIVE
+    ) {
+      throw new BadRequestException("Only pending or active bookings can amend charges");
+    }
+
+    const newService = roundMoney(dto.chargeGross);
+    const amendingSlot = dto.slotChargeGross !== undefined;
+    const newSlot = amendingSlot ? roundMoney(dto.slotChargeGross!) : existing.slotChargeGross;
+
+    if (amendingSlot) {
+      const canEditSlot =
+        existing.slotPaidBy === PcoBookingSlotPaidBy.US ||
+        existing.status === PcoBookingStatus.PENDING;
+      if (!canEditSlot) {
+        throw new BadRequestException(
+          "Slot expense can only be amended when the garage pays the slot, or before booking",
+        );
+      }
+      if (Number(newSlot) <= 0) {
+        throw new BadRequestException("Slot expense amount must be greater than zero");
+      }
+    }
+
+    const totalDue = pcoCustomerTotalDue({
+      chargeGross: newService,
+      slotPaidBy: existing.slotPaidBy,
+      slotChargeGross:
+        existing.slotPaidBy === PcoBookingSlotPaidBy.US
+          ? newSlot
+          : existing.slotChargeGross,
+    });
+    if (totalDue + 0.009 < Number(existing.amountPaid)) {
+      throw new BadRequestException(
+        "Charges cannot be less than the amount already paid — amend payments first if needed",
+      );
+    }
+
+    const slotAmountChanged =
+      amendingSlot &&
+      existing.slotPaidBy === PcoBookingSlotPaidBy.US &&
+      existing.slotLedgerEntryId &&
+      Number(existing.slotChargeGross ?? 0) !== Number(newSlot);
+
+    if (slotAmountChanged && !user.enabledModules.includes("ledger")) {
+      throw new ForbiddenException("Ledger module is required to amend a posted slot expense");
+    }
+
+    const row = await this.prisma.$transaction(async (tx) => {
+      let slotLedgerEntryId = existing.slotLedgerEntryId;
+
+      if (slotAmountChanged && existing.slotLedgerEntryId && existing.slotPaymentAccountId) {
+        await this.ledger.reversePcoSlotExpenseIfPosted(
+          user,
+          garageAccountId,
+          existing.slotLedgerEntryId,
+          tx,
+        );
+        const valueDate = existing.bookingDate ?? new Date();
+        const ledgerRow = await this.ledger.createPostedExpenseForPcoSlot(
+          user,
+          {
+            pcoBookingId: id,
+            paymentAccountId: existing.slotPaymentAccountId,
+            valueDate,
+            amountGross: Number(newSlot),
+            reference: `PCO slot ${existing.bookingNumber} — ${existing.vehicle.vrm} (amended)`,
+          },
+          tx,
+        );
+        slotLedgerEntryId = ledgerRow.id;
+      }
+
+      return tx.pcoBooking.update({
+        where: { id },
+        data: {
+          chargeGross: newService,
+          ...(amendingSlot
+            ? {
+                slotChargeGross: newSlot,
+                ...(slotAmountChanged ? { slotLedgerEntryId } : {}),
+              }
+            : {}),
+        },
+        include: this.bookingInclude,
+      });
+    });
+
+    await this.audit.log({
+      action: "pco.booking.charges_amend",
+      userId: user.id,
+      garageAccountId,
+      entityType: "pco_booking",
+      entityId: id,
+      metadata: {
+        chargeGross: newService.toString(),
+        slotChargeGross: amendingSlot ? String(newSlot) : undefined,
+        slotLedgerCorrected: slotAmountChanged,
+      },
+    });
+
+    return toPcoBookingDto(row);
+  }
+
   async scheduleBooking(user: RequestUser, id: string, dto: SchedulePcoBookingDto) {
     const garageAccountId = this.garageId(user);
     const existing = await this.prisma.pcoBooking.findFirst({
@@ -846,9 +963,13 @@ export class PcoService {
     }
 
     const amount = roundMoney(dto.amount);
-    const charge = Number(booking.chargeGross);
+    const totalDue = pcoCustomerTotalDue({
+      chargeGross: booking.chargeGross,
+      slotPaidBy: booking.slotPaidBy,
+      slotChargeGross: booking.slotChargeGross,
+    });
     const paid = Number(booking.amountPaid);
-    if (paid + Number(amount) > charge + 0.009) {
+    if (paid + Number(amount) > totalDue + 0.009) {
       throw new BadRequestException("Payment exceeds booking balance");
     }
 
@@ -929,10 +1050,14 @@ export class PcoService {
     if (!existingPayment) throw new NotFoundException("Payment not found");
 
     const newAmount = roundMoney(dto.amount);
-    const charge = Number(booking.chargeGross);
+    const totalDue = pcoCustomerTotalDue({
+      chargeGross: booking.chargeGross,
+      slotPaidBy: booking.slotPaidBy,
+      slotChargeGross: booking.slotChargeGross,
+    });
     const paidWithoutThis =
       Number(booking.amountPaid) - Number(existingPayment.amount);
-    if (paidWithoutThis + Number(newAmount) > charge + 0.009) {
+    if (paidWithoutThis + Number(newAmount) > totalDue + 0.009) {
       throw new BadRequestException("Amended payment would exceed booking balance");
     }
 
@@ -1101,7 +1226,7 @@ export class PcoService {
 
     const charge = dto.hasAdditionalCharge
       ? roundMoney(dto.additionalChargeGross!)
-      : roundMoney(0);
+      : null;
     const chargeRef = dto.hasAdditionalCharge ? dto.chargeReference!.trim() : null;
     const failDate = existing.failedAt
       ? existing.failedAt.toISOString().slice(0, 10)
@@ -1109,7 +1234,8 @@ export class PcoService {
     const noteParts = [
       `Retest after failed booking ${existing.bookingNumber} (${failDate}).`,
       existing.failureReason ? `Failure reason: ${existing.failureReason}` : null,
-      chargeRef ? `Additional charge reference: ${chargeRef}` : null,
+      chargeRef ? `Additional TfL charge reference: ${chargeRef}` : null,
+      charge != null ? `Additional TfL charge: £${charge}` : null,
       dto.notes?.trim() || null,
       existing.notes,
     ].filter(Boolean);
@@ -1131,7 +1257,9 @@ export class PcoService {
           jobType: PcoJobType.RETEST,
           status: PcoBookingStatus.PENDING,
           priority,
-          chargeGross: charge,
+          /** Service charge — TfL fee is stored on slotChargeGross until scheduled. */
+          chargeGross: roundMoney(0),
+          slotChargeGross: charge,
           retestChargeReference: chargeRef,
           notes: noteParts.join("\n") || null,
           createdById: user.id,
@@ -1155,7 +1283,7 @@ export class PcoService {
         failedBookingNumber: existing.bookingNumber,
         retestBookingNumber: result.bookingNumber,
         hasAdditionalCharge: dto.hasAdditionalCharge,
-        additionalChargeGross: charge.toString(),
+        additionalChargeGross: charge?.toString() ?? "0",
       },
     });
 

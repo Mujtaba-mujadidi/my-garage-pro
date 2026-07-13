@@ -355,6 +355,11 @@ export function PcoPageContent() {
   const [payMethod, setPayMethod] = useState<PaymentMethod>("BANK_TRANSFER");
   const [payDate, setPayDate] = useState(todayIso());
 
+  const [chargesOpen, setChargesOpen] = useState(false);
+  const [chargesService, setChargesService] = useState("");
+  const [chargesSlot, setChargesSlot] = useState("");
+  const [chargesIncludeSlot, setChargesIncludeSlot] = useState(false);
+
   const [completeOpen, setCompleteOpen] = useState(false);
   const [completeOutcome, setCompleteOutcome] = useState<"PASS" | "FAIL">("PASS");
   const [nextExpiry, setNextExpiry] = useState("");
@@ -414,22 +419,26 @@ export function PcoPageContent() {
     return data;
   }, []);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (forTab: TabId = tab) => {
     setLoading(true);
     setError("");
     try {
-      if (tab === "settings") {
+      if (forTab === "settings") {
         await loadCentres();
         setRows([]);
         setDueRows([]);
         return;
       }
-      if (tab === "renewals_due" || tab === "v5c_expiring") {
-        const data = await apiFetch<PcoDueVehicleDto[]>(`/pco/bookings?tab=${tab}`);
+      if (forTab === "renewals_due" || forTab === "v5c_expiring") {
+        const data = await apiFetch<PcoDueVehicleDto[]>(`/pco/bookings?tab=${forTab}`, {
+          cache: "no-store",
+        });
         setDueRows(data);
         setRows([]);
       } else {
-        const data = await apiFetch<PcoBookingListDto[]>(`/pco/bookings?tab=${tab}`);
+        const data = await apiFetch<PcoBookingListDto[]>(`/pco/bookings?tab=${forTab}`, {
+          cache: "no-store",
+        });
         setRows(data);
         setDueRows([]);
       }
@@ -445,8 +454,19 @@ export function PcoPageContent() {
   }, [loadCentres]);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    void load(tab);
+  }, [tab, load]);
+
+  function changeTab(next: TabId) {
+    if (next !== "active") setActiveDateFilter(null);
+    if (next === tab) {
+      void load(next);
+      return;
+    }
+    setRows([]);
+    setDueRows([]);
+    setTab(next);
+  }
 
   useEffect(() => {
     if (!canReadLedger) return;
@@ -817,6 +837,54 @@ export function PcoPageContent() {
     }
   }
 
+  async function openCancelFromRow(bookingId: string) {
+    setSaving(true);
+    setError("");
+    try {
+      const booking = await apiFetch<PcoBookingDto>(`/pco/bookings/${bookingId}`);
+      openFeeActionModal("cancel", booking);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not load booking");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function openCompleteFromRow(bookingId: string) {
+    setSaving(true);
+    setError("");
+    try {
+      const booking = await apiFetch<PcoBookingDto>(`/pco/bookings/${bookingId}`);
+      setDetail(booking);
+      setCompleteOutcome("PASS");
+      setFailureReason("");
+      const next =
+        calculateNextPcoExpiry(booking.vehicle.pcoExpiryDate) ??
+        booking.vehicle.pcoExpiryDate ??
+        "";
+      setNextExpiry(next);
+      setCompleteOpen(true);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not load booking");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function openRecordPaymentFromRow(bookingId: string) {
+    setSaving(true);
+    setError("");
+    try {
+      const booking = await apiFetch<PcoBookingDto>(`/pco/bookings/${bookingId}`);
+      setDetail(booking);
+      openRecordPayment(booking);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not load booking");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function submitFeeAction() {
     if (!feeActionModal) return;
     const { mode, booking } = feeActionModal;
@@ -1053,6 +1121,51 @@ export function PcoPageContent() {
     setPayMethod(payment.method as PaymentMethod);
     setPayDate(payment.valueDate);
     setPayOpen(true);
+  }
+
+  function openAmendCharges(booking: PcoBookingDto) {
+    const includeSlot =
+      booking.slotPaidBy === "US" ||
+      (booking.status === "PENDING" && booking.slotChargeGross != null);
+    setChargesService(booking.chargeGross);
+    setChargesSlot(booking.slotChargeGross ?? String(PCO_DEFAULT_BOOKING_CHARGE));
+    setChargesIncludeSlot(includeSlot);
+    setChargesOpen(true);
+  }
+
+  async function submitAmendCharges(e: FormEvent) {
+    e.preventDefault();
+    if (!detail) return;
+    if (Number(chargesService) < 0) {
+      setError("Service charge cannot be negative");
+      return;
+    }
+    if (chargesIncludeSlot && (!Number(chargesSlot) || Number(chargesSlot) <= 0)) {
+      setError("Enter a valid slot expense amount");
+      return;
+    }
+    setSaving(true);
+    setError("");
+    try {
+      const body: { chargeGross: number; slotChargeGross?: number } = {
+        chargeGross: Number(chargesService),
+      };
+      if (chargesIncludeSlot) {
+        body.slotChargeGross = Number(chargesSlot);
+      }
+      const updated = await apiFetch<PcoBookingDto>(`/pco/bookings/${detail.id}/charges`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      });
+      setDetail(updated);
+      setChargesOpen(false);
+      setMessage("Charges updated");
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not amend charges");
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function completeBooking() {
@@ -1340,7 +1453,7 @@ export function PcoPageContent() {
         align: "right",
         cell: (r) => (
           <div className="text-right tabular-nums text-sm whitespace-nowrap">
-            <div>{formatGbp(r.chargeGross)}</div>
+            <div>{formatGbp(r.totalDue)}</div>
             <div className="text-xs text-[var(--muted)]">
               {Number(r.balanceDue) > 0 ? `${formatGbp(r.balanceDue)} due` : "Paid"}
             </div>
@@ -1367,40 +1480,52 @@ export function PcoPageContent() {
         align: "right",
         sticky: "right",
         cell: (r) => {
-          const actions: { label: string; onClick: () => void }[] = [
+          const actions: { label: string; onClick: () => void; variant?: "default" | "danger" }[] = [
             { label: "View", onClick: () => void openDetail(r.id) },
           ];
           if (tab === "pending" && canWrite) {
-            actions.unshift({ label: "Edit", onClick: () => void openEditPending(r.id) });
+            if (canPay && Number(r.balanceDue) > 0) {
+              actions.push({
+                label: "Record payment",
+                onClick: () => void openRecordPaymentFromRow(r.id),
+              });
+            }
+            actions.push(
+              { label: "Book", onClick: () => void quickSchedule(r.id) },
+              { label: "Edit", onClick: () => void openEditPending(r.id) },
+            );
           }
-          if (tab === "active" && canWrite) {
-            actions.unshift({
-              label: "Reschedule",
-              onClick: () => void openRescheduleModal(r.id),
+          if (tab === "failed" && canWrite) {
+            actions.push({
+              label: "Book retest",
+              onClick: () => openRetestModal(r),
             });
           }
+          if (tab === "active" && canWrite) {
+            if (canPay && Number(r.balanceDue) > 0) {
+              actions.push({
+                label: "Record payment",
+                onClick: () => void openRecordPaymentFromRow(r.id),
+              });
+            }
+            actions.push(
+              {
+                label: "Reschedule",
+                onClick: () => void openRescheduleModal(r.id),
+              },
+              {
+                label: "Complete booking",
+                onClick: () => void openCompleteFromRow(r.id),
+              },
+              {
+                label: "Cancel booking",
+                onClick: () => void openCancelFromRow(r.id),
+                variant: "danger",
+              },
+            );
+          }
           return (
-            <div className="flex items-center justify-end gap-1 whitespace-nowrap">
-              {tab === "pending" && canWrite && (
-                <button
-                  type="button"
-                  onClick={() => void quickSchedule(r.id)}
-                  disabled={saving}
-                  className="rounded-lg bg-accent px-2.5 py-1 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-50"
-                >
-                  Book
-                </button>
-              )}
-              {tab === "failed" && canWrite && (
-                <button
-                  type="button"
-                  onClick={() => openRetestModal(r)}
-                  disabled={saving}
-                  className="rounded-lg bg-accent px-2.5 py-1 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-50"
-                >
-                  Book retest
-                </button>
-              )}
+            <div className="flex items-center justify-end whitespace-nowrap">
               <TableRowActionsMenu
                 triggerLabel={`Actions for ${formatRegistrationDisplay(r.vrm)}`}
                 actions={actions}
@@ -1411,7 +1536,7 @@ export function PcoPageContent() {
       },
     ];
     return cols;
-  }, [tab, canWrite, saving, priorityUpdatingId, updatePriority]);
+  }, [tab, canWrite, canPay, saving, priorityUpdatingId, updatePriority]);
 
   const dueColumns: TableColumn<PcoDueVehicleDto>[] = useMemo(
     () => [
@@ -1545,11 +1670,7 @@ export function PcoPageContent() {
           ...(canWrite ? [{ id: "settings" as const, label: "Centres" }] : []),
         ]}
         active={tab}
-        onChange={(t) => {
-          const next = t as TabId;
-          setTab(next);
-          if (next !== "active") setActiveDateFilter(null);
-        }}
+        onChange={(t) => changeTab(t as TabId)}
         className="mb-4"
       />
 
@@ -1760,7 +1881,7 @@ export function PcoPageContent() {
         </>
       )}
 
-      <Modal title="Add request" open={modalOpen} onClose={() => setModalOpen(false)} size="lg">
+      <Modal title="Add request" open={modalOpen} onClose={() => setModalOpen(false)} size="lg" allowFullscreen>
         <form onSubmit={(e) => void saveBooking(e)} className="space-y-4">
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
@@ -2004,7 +2125,7 @@ export function PcoPageContent() {
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
-                Estimated customer charge (£)
+                Our service charge (£)
               </label>
               <input
                 type="number"
@@ -2016,9 +2137,8 @@ export function PcoPageContent() {
                 placeholder="From last job if available"
               />
               <p className="mt-1 text-xs text-[var(--muted)]">
-                What you charge the customer — prefilled from the last completed job for this reg,
-                or leave blank. The £{PCO_DEFAULT_BOOKING_CHARGE} TfL slot fee is on Add booking
-                details.
+                Garage fee only. Customer total = this + TfL slot expense when we pay the slot
+                (set on Add booking details, default £{PCO_DEFAULT_BOOKING_CHARGE}).
               </p>
             </div>
           </div>
@@ -2117,6 +2237,7 @@ export function PcoPageContent() {
         open={detailOpen}
         onClose={() => setDetailOpen(false)}
         size="xl"
+        allowFullscreen
       >
         {detail && (
           <div className="space-y-6">
@@ -2310,11 +2431,31 @@ export function PcoPageContent() {
             </section>
 
             <section>
-              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
-                Charges
-              </h3>
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+                  Charges
+                </h3>
+                {canWrite &&
+                  (detail.status === "PENDING" || detail.status === "ACTIVE") && (
+                    <button
+                      type="button"
+                      onClick={() => openAmendCharges(detail)}
+                      className="text-xs font-medium text-accent hover:underline"
+                    >
+                      Amend charges
+                    </button>
+                  )}
+              </div>
               <dl className="grid gap-x-8 sm:grid-cols-3">
-                <DetailRow label="Charge">{formatGbp(detail.chargeGross)}</DetailRow>
+                <DetailRow label="Service charge">{formatGbp(detail.chargeGross)}</DetailRow>
+                {detail.slotPaidBy === "US" && detail.slotChargeGross != null ? (
+                  <DetailRow label="Slot expense (recoverable)">
+                    {formatGbp(detail.slotChargeGross)}
+                  </DetailRow>
+                ) : (
+                  <DetailRow label="Slot expense (recoverable)">—</DetailRow>
+                )}
+                <DetailRow label="Total due">{formatGbp(detail.totalDue)}</DetailRow>
                 <DetailRow label="Paid">{formatGbp(detail.amountPaid)}</DetailRow>
                 <DetailRow label="Balance due">
                   <span className={Number(detail.balanceDue) > 0 ? "font-semibold" : ""}>
@@ -2415,10 +2556,19 @@ export function PcoPageContent() {
 
             {detail.status === "PENDING" && canWrite && (
               <div className="flex flex-wrap gap-2 border-t border-[var(--border)] pt-4">
+                {canPay && Number(detail.balanceDue) > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => openRecordPayment(detail)}
+                    className="rounded-lg bg-accent px-3 py-1.5 text-sm font-semibold text-white"
+                  >
+                    Record payment
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => openScheduleModalFromDetail(detail)}
-                  className="rounded-lg bg-accent px-3 py-1.5 text-sm font-semibold text-white"
+                  className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm font-medium"
                 >
                   Add booking details
                 </button>
@@ -2486,7 +2636,7 @@ export function PcoPageContent() {
         )}
       </Modal>
 
-      <Modal title="Add booking details" open={scheduleOpen} onClose={() => setScheduleOpen(false)}>
+      <Modal title="Add booking details" open={scheduleOpen} onClose={() => setScheduleOpen(false)} allowFullscreen>
         <form onSubmit={(e) => void scheduleBooking(e)} className="space-y-3">
           <p className="text-sm text-[var(--muted)]">
             Centre, date, time, and who pays for the TfL booking slot.
@@ -2708,6 +2858,7 @@ export function PcoPageContent() {
           setPayOpen(false);
           setPayAmendId(null);
         }}
+        allowFullscreen
       >
         <form onSubmit={(e) => void recordPayment(e)} className="space-y-3">
           <p className="text-sm text-[var(--muted)]">
@@ -2715,7 +2866,9 @@ export function PcoPageContent() {
               ? "Corrects method and amount. Reverses the previous ledger income and posts a new PCO entry."
               : (
                 <>
-                  Posts income to the ledger with source <strong>PCO</strong> (no VAT).
+                  Customer payment against <strong>service charge + recoverable slot expense</strong>
+                  {" "}(total due {detail ? formatGbp(detail.totalDue) : "—"}). Posts ledger income
+                  with source <strong>PCO</strong> (no VAT).
                 </>
               )}
           </p>
@@ -2777,6 +2930,68 @@ export function PcoPageContent() {
               className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
             >
               {payAmendId ? "Save amendment" : "Record"}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal
+        title="Amend charges"
+        open={chargesOpen}
+        onClose={() => setChargesOpen(false)}
+        allowFullscreen
+      >
+        <form onSubmit={(e) => void submitAmendCharges(e)} className="space-y-3">
+          <p className="text-sm text-[var(--muted)]">
+            Update the service charge
+            {chargesIncludeSlot
+              ? " and TfL slot expense. If the slot was already posted to the ledger, it will be corrected."
+              : ". Slot expense is only editable when we pay the slot (or before booking when a fee is set)."}
+          </p>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
+              Service charge (£)
+            </label>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={chargesService}
+              onChange={(e) => setChargesService(e.target.value)}
+              className={inputClass}
+              required
+            />
+          </div>
+          {chargesIncludeSlot && (
+            <div>
+              <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
+                Slot expense (£)
+              </label>
+              <input
+                type="number"
+                min="0.01"
+                step="0.01"
+                value={chargesSlot}
+                onChange={(e) => setChargesSlot(e.target.value)}
+                className={inputClass}
+                required
+              />
+            </div>
+          )}
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setChargesOpen(false)}
+              className="rounded-lg border px-4 py-2 text-sm"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={saving}
+              className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+            >
+              {saving ? "Saving…" : "Save charges"}
             </button>
           </div>
         </form>
@@ -2879,6 +3094,7 @@ export function PcoPageContent() {
         title="Book retest"
         open={!!retestModal}
         onClose={() => setRetestModal(null)}
+        allowFullscreen
       >
         {retestModal && (
           <form onSubmit={(e) => void submitBookRetest(e)} className="space-y-3">
@@ -2984,6 +3200,7 @@ export function PcoPageContent() {
         open={renewDueOpen}
         onClose={() => setRenewDueOpen(false)}
         size="lg"
+        allowFullscreen
       >
         {renewDueVehicle && (
           <form onSubmit={(e) => void submitRenewDue(e)} className="space-y-4">
@@ -3200,7 +3417,7 @@ export function PcoPageContent() {
         )}
       </Modal>
 
-      <Modal title="Edit request" open={editOpen} onClose={() => setEditOpen(false)} size="lg">
+      <Modal title="Edit request" open={editOpen} onClose={() => setEditOpen(false)} size="lg" allowFullscreen>
         <form onSubmit={(e) => void saveEditPending(e)} className="space-y-4">
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
@@ -3356,7 +3573,7 @@ export function PcoPageContent() {
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
-                Estimated customer charge (£)
+                Our service charge (£)
               </label>
               <input
                 type="number"
@@ -3368,7 +3585,7 @@ export function PcoPageContent() {
                 placeholder="From last job if available"
               />
               <p className="mt-1 text-xs text-[var(--muted)]">
-                Customer charge only — not the TfL slot fee (£{PCO_DEFAULT_BOOKING_CHARGE}).
+                Garage fee only. When we pay the TfL slot, customer total = service + slot expense.
               </p>
             </div>
           </div>

@@ -171,6 +171,43 @@ export function calculateNextPcoExpiry(previousExpiryIso: string | null | undefi
   return addYearsToIsoDate(previousExpiryIso, PCO_RENEWAL_YEARS);
 }
 
+type MoneyLike = string | number | { toString(): string };
+
+function moneyNumber(v: MoneyLike | null | undefined): number {
+  if (v == null || v === "") return 0;
+  const n = typeof v === "number" ? v : Number(v.toString());
+  return Number.isFinite(n) ? Math.round(n * 100) / 100 : 0;
+}
+
+/** TfL slot fee recoverable from the customer when the garage paid the slot (Us). */
+export function pcoRecoverableSlotGross(booking: {
+  slotPaidBy: PcoBookingSlotPaidBy | null | undefined;
+  slotChargeGross: MoneyLike | null | undefined;
+}): number {
+  if (booking.slotPaidBy !== "US" || booking.slotChargeGross == null || booking.slotChargeGross === "") {
+    return 0;
+  }
+  return moneyNumber(booking.slotChargeGross);
+}
+
+/** Customer total = our service charge + recoverable slot expense (when we paid TfL). */
+export function pcoCustomerTotalDue(booking: {
+  chargeGross: MoneyLike;
+  slotPaidBy: PcoBookingSlotPaidBy | null | undefined;
+  slotChargeGross: MoneyLike | null | undefined;
+}): number {
+  return Math.round((moneyNumber(booking.chargeGross) + pcoRecoverableSlotGross(booking)) * 100) / 100;
+}
+
+export function pcoBalanceDue(booking: {
+  chargeGross: MoneyLike;
+  amountPaid: MoneyLike;
+  slotPaidBy: PcoBookingSlotPaidBy | null | undefined;
+  slotChargeGross: MoneyLike | null | undefined;
+}): number {
+  return Math.max(0, Math.round((pcoCustomerTotalDue(booking) - moneyNumber(booking.amountPaid)) * 100) / 100);
+}
+
 /** True when `iso` falls within the next `withinDays` calendar days (inclusive of today). */
 export function isIsoDateDueWithinDays(iso: string, withinDays: number, today = new Date()): boolean {
   const parts = parseIsoDate(iso);
@@ -235,6 +272,8 @@ export type PcoBookingDto = {
   jobDetails: string | null;
   priority: PcoPriority;
   chargeGross: string;
+  /** Service charge + recoverable slot expense (when slot paid by Us). */
+  totalDue: string;
   amountPaid: string;
   balanceDue: string;
   bookingDate: string | null;
@@ -289,6 +328,8 @@ export type PcoBookingListDto = {
   jobType: PcoJobType;
   priority: PcoPriority;
   chargeGross: string;
+  /** Service charge + recoverable slot expense (when slot paid by Us). */
+  totalDue: string;
   amountPaid: string;
   balanceDue: string;
   bookingDate: string | null;

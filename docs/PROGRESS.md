@@ -455,6 +455,7 @@ Two-step: **Add request** → **To book** (`PENDING`) → **Add booking details*
 ### Finance
 
 - No invoice PDF; partial payments on booking → ledger income `source_module = PCO`
+- **Customer total due** = service charge (`chargeGross`) + TfL slot expense when **slot paid by Us**; Record payment / balance use this total
 - Complete: next PCO expiry = **previous expiry + 1 year**
 
 ### Build checklist
@@ -531,6 +532,8 @@ Two-step: **Add request** → **To book** (`PENDING`) → **Add booking details*
 | 2026-07-13 | **PCO job types: change of ownership + full test** | Added to job type dropdown | Stakeholder |
 | 2026-07-13 | **PCO amend payment** | Correct method/amount after mistakes; reverse prior ledger income + post new | Stakeholder |
 | 2026-07-13 | **PCO retest slot expense** | On schedule, retest slot fee defaults to Book-retest TfL charge (or £0 → N/A), not £140 | Stakeholder |
+| 2026-07-13 | **PCO customer total = service + slot** | When slot paid by Us, balance/Record payment = service charge (`chargeGross`) + slot expense; Customer/N/A/credit = service only | Stakeholder |
+| 2026-07-13 | **PCO amend charges** | View → Charges → amend service charge and (when Us/pending) slot expense; posted slot expense reversed + re-posted | Stakeholder |
 
 ---
 

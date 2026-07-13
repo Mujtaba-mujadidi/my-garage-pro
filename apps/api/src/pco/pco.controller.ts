@@ -3,6 +3,7 @@ import { CurrentUser } from "../auth/decorators/current-user.decorator";
 import { RequirePermissions } from "../auth/decorators/permissions.decorator";
 import type { RequestUser } from "../auth/auth.types";
 import { PermissionsGuard } from "../auth/guards/permissions.guard";
+import { AmendPcoChargesDto } from "./dto/amend-pco-charges.dto";
 import { AmendPcoPaymentDto } from "./dto/amend-pco-payment.dto";
 import { CancelPcoBookingDto } from "./dto/cancel-pco-booking.dto";
 import { CompletePcoBookingDto } from "./dto/complete-pco-booking.dto";
@@ -75,6 +76,16 @@ export class PcoController {
     @Body() dto: UpdatePcoBookingDto,
   ) {
     return this.pco.updateBooking(user, id, dto);
+  }
+
+  @Patch("bookings/:id/charges")
+  @RequirePermissions("pco.write")
+  amendCharges(
+    @CurrentUser() user: RequestUser,
+    @Param("id") id: string,
+    @Body() dto: AmendPcoChargesDto,
+  ) {
+    return this.pco.amendCharges(user, id, dto);
   }
 
   @Post("bookings/:id/schedule")

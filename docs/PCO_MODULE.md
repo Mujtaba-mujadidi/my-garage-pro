@@ -76,7 +76,7 @@ flowchart LR
 | **Vehicle fields** | Optional make, model, colour, fuel type, seats; **PCO expiry optional** (blank for brand-new vehicles) |
 | **Amend payment** | View → Payments → **Amend** (method, amount, account, date); reverses prior PCO ledger income and posts corrected entry |
 
-**Slot payment vs ledger:** `PcoBookingSlotPaymentMethod` (incl. `CUSTOMER_PAID`) is **metadata for how the TfL/centre slot was paid** — not the same as ledger `PaymentMethod` on income entries. Ledger income still uses standard methods when recording customer payments.
+**Slot payment vs ledger:** When **Us** pays the TfL slot, that amount is posted as a ledger **expense** at schedule time and is **added to the customer balance** with the service charge. **Record payment** posts ledger **income** for amounts collected against that total (service + recoverable slot). Customer / N/A / TfL credit → no slot recovery on the customer balance.
 
 ---
 
@@ -90,6 +90,7 @@ flowchart LR
 | `PATCH` | `/pco/bookings/:id` | Edit pending (or active fields) |
 | `POST` | `/pco/bookings/:id/schedule` | **PENDING → ACTIVE** |
 | `POST` | `/pco/bookings/:id/return-to-book` | **ACTIVE → PENDING** (reschedule) |
+| `PATCH` | `/pco/bookings/:id/charges` | Amend service charge and/or slot expense (ledger correction if slot posted) |
 | `POST` | `/pco/bookings/:id/payments` | Ledger income (`sourceModule: PCO`) |
 | `PATCH` | `/pco/bookings/:id/payments/:paymentId` | Amend payment (method/amount/account/date); reverse + re-post income |
 | `POST` | `/pco/bookings/:id/complete` | **ACTIVE → COMPLETED** (pass) or **FAILED**; roll PCO expiry on pass |

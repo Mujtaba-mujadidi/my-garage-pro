@@ -22,6 +22,8 @@ import {
   PCO_JOB_TYPE_LABEL,
   PCO_PRIORITY_LABEL,
   daysUntilRetestDeadline,
+  pcoBalanceDue,
+  pcoCustomerTotalDue,
   retestDeadlineIso,
 } from "@mygaragepro/shared";
 
@@ -100,9 +102,12 @@ type BookingRow = PcoBooking & {
 };
 
 export function toPcoBookingDto(row: BookingRow): PcoBookingDto {
-  const paid = Number(row.amountPaid);
-  const charge = Number(row.chargeGross);
-  const balanceDue = Math.max(0, Math.round((charge - paid) * 100) / 100);
+  const totals = {
+    chargeGross: row.chargeGross,
+    amountPaid: row.amountPaid,
+    slotPaidBy: row.slotPaidBy,
+    slotChargeGross: row.slotChargeGross,
+  };
   return {
     id: row.id,
     bookingNumber: row.bookingNumber,
@@ -111,8 +116,9 @@ export function toPcoBookingDto(row: BookingRow): PcoBookingDto {
     jobDetails: row.jobDetails,
     priority: row.priority,
     chargeGross: dec(row.chargeGross),
+    totalDue: pcoCustomerTotalDue(totals).toFixed(2),
     amountPaid: dec(row.amountPaid),
-    balanceDue: balanceDue.toFixed(2),
+    balanceDue: pcoBalanceDue(totals).toFixed(2),
     bookingDate: row.bookingDate ? isoDate(row.bookingDate) : null,
     bookingTime: row.bookingTime,
     bookingCentreId: row.bookingCentreId,
@@ -163,9 +169,12 @@ type ListRow = PcoBooking & {
 };
 
 export function toPcoBookingListDto(row: ListRow): PcoBookingListDto {
-  const paid = Number(row.amountPaid);
-  const charge = Number(row.chargeGross);
-  const balanceDue = Math.max(0, Math.round((charge - paid) * 100) / 100);
+  const totals = {
+    chargeGross: row.chargeGross,
+    amountPaid: row.amountPaid,
+    slotPaidBy: row.slotPaidBy,
+    slotChargeGross: row.slotChargeGross,
+  };
   return {
     id: row.id,
     bookingNumber: row.bookingNumber,
@@ -173,8 +182,9 @@ export function toPcoBookingListDto(row: ListRow): PcoBookingListDto {
     jobType: row.jobType,
     priority: row.priority,
     chargeGross: dec(row.chargeGross),
+    totalDue: pcoCustomerTotalDue(totals).toFixed(2),
     amountPaid: dec(row.amountPaid),
-    balanceDue: balanceDue.toFixed(2),
+    balanceDue: pcoBalanceDue(totals).toFixed(2),
     bookingDate: row.bookingDate ? isoDate(row.bookingDate) : null,
     bookingTime: row.bookingTime,
     bookingCentreName: row.bookingCentre?.label ?? null,
