@@ -87,6 +87,11 @@ export class UpdatePcoBookingDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(40)
+  pcoAccountPhone?: string;
+
+  @IsOptional()
+  @IsString()
   @MaxLength(80)
   make?: string;
 

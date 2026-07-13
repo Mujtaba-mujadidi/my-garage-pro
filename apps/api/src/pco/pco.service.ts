@@ -188,6 +188,7 @@ export class PcoService {
       postcode: dto.postcode?.trim() || null,
       email: dto.email?.trim() || null,
       phone: dto.phone?.trim() || null,
+      pcoAccountPhone: dto.pcoAccountPhone?.trim() || null,
       make: dto.make?.trim() || null,
       model: dto.model?.trim() || null,
       color: dto.color?.trim() || null,
@@ -552,6 +553,9 @@ export class PcoService {
     if (dto.postcode !== undefined) vehicleData.postcode = dto.postcode?.trim() || null;
     if (dto.email !== undefined) vehicleData.email = dto.email?.trim() || null;
     if (dto.phone !== undefined) vehicleData.phone = dto.phone?.trim() || null;
+    if (dto.pcoAccountPhone !== undefined) {
+      vehicleData.pcoAccountPhone = dto.pcoAccountPhone?.trim() || null;
+    }
     if (dto.make !== undefined) vehicleData.make = dto.make?.trim() || null;
     if (dto.model !== undefined) vehicleData.model = dto.model?.trim() || null;
     if (dto.color !== undefined) vehicleData.color = dto.color?.trim() || null;

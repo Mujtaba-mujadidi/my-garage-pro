@@ -525,6 +525,7 @@ Two-step: **Add request** → **To book** (`PENDING`) → **Add booking details*
 | 2026-06-02 | **PCO due list exclusion** | Hide from due-to-renew when PENDING/ACTIVE booking exists | Stakeholder |
 | 2026-06-02 | **PCO notes + priority** | Notes on bookings; To book sorted by priority | Stakeholder |
 | 2026-07-11 | **PCO client informed/confirmed** | Only on **Active** bookings after appointment is booked — not on Add request / To book | Stakeholder |
+| 2026-07-13 | **PCO two phone numbers** | `phone` = client contact; `pcoAccountPhone` = number on TfL / PCO centre account | Stakeholder |
 
 ---
 

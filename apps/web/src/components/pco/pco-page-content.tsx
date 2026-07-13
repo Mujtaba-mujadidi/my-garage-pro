@@ -77,6 +77,28 @@ function minBookingDateIso() {
   return `${y}-${m}-${day}`;
 }
 
+function formatMonthLabel(year: number, monthIndex: number) {
+  return new Date(year, monthIndex, 1).toLocaleDateString("en-GB", {
+    month: "long",
+    year: "numeric",
+  });
+}
+
+function toIsoDate(year: number, monthIndex: number, day: number) {
+  return `${year}-${String(monthIndex + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+/** Monday-first calendar cells for a month (null = padding). */
+function buildMonthCells(year: number, monthIndex: number): (number | null)[] {
+  const first = new Date(year, monthIndex, 1);
+  const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
+  const mondayBased = (first.getDay() + 6) % 7;
+  const cells: (number | null)[] = Array.from({ length: mondayBased }, () => null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+  while (cells.length % 7 !== 0) cells.push(null);
+  return cells;
+}
+
 function formatDateTime(iso: string) {
   return new Date(iso).toLocaleString("en-GB", {
     day: "numeric",
@@ -147,12 +169,21 @@ function formatTableAddress(r: {
   return [r.addressLine1, r.city, r.postcode].filter(Boolean).join(", ") || "—";
 }
 
-function formatTableContact(email?: string | null, phone?: string | null) {
-  if (!email && !phone) return "—";
+function formatTableContact(
+  email?: string | null,
+  phone?: string | null,
+  pcoAccountPhone?: string | null,
+) {
+  if (!email && !phone && !pcoAccountPhone) return "—";
   return (
     <div className="text-sm leading-snug">
       {email && <p className="truncate max-w-[12rem]">{email}</p>}
-      {phone && <p className={email ? "text-xs text-[var(--muted)]" : ""}>{phone}</p>}
+      {phone && (
+        <p className={email ? "text-xs text-[var(--muted)]" : ""}>Client: {phone}</p>
+      )}
+      {pcoAccountPhone && (
+        <p className="text-xs text-[var(--muted)]">PCO: {pcoAccountPhone}</p>
+      )}
     </div>
   );
 }
@@ -192,6 +223,7 @@ function emptyDraft() {
     postcode: "",
     email: "",
     phone: "",
+    pcoAccountPhone: "",
     firstRegistrationDate: "",
     pcoExpiryDate: "",
     logbookExpiryDate: "",
@@ -239,6 +271,7 @@ function vehicleToDraft(v: PcoVehicleDto): Partial<ReturnType<typeof emptyDraft>
     postcode: v.postcode ?? "",
     email: v.email ?? "",
     phone: v.phone ?? "",
+    pcoAccountPhone: v.pcoAccountPhone ?? "",
     firstRegistrationDate: v.firstRegistrationDate,
     pcoExpiryDate: v.pcoExpiryDate,
     logbookExpiryDate: v.logbookExpiryDate,
@@ -257,6 +290,7 @@ function dueVehicleToDraft(v: PcoDueVehicleDto): Partial<ReturnType<typeof empty
     registeredKeeper: v.registeredKeeper,
     email: v.email ?? "",
     phone: v.phone ?? "",
+    pcoAccountPhone: v.pcoAccountPhone ?? "",
     addressLine1: v.addressLine1 ?? "",
     city: v.city ?? "",
     postcode: v.postcode ?? "",
@@ -333,10 +367,36 @@ export function PcoPageContent() {
   const [slotCredits, setSlotCredits] = useState<PcoSlotCreditDto[]>([]);
   const [notesOpen, setNotesOpen] = useState(false);
   const [notesDraft, setNotesDraft] = useState("");
+  const [activeDateFilter, setActiveDateFilter] = useState<string | null>(null);
+  const [calendarOpen, setCalendarOpen] = useState(false);
+  const [calendarMonth, setCalendarMonth] = useState(() => {
+    const now = new Date();
+    return { year: now.getFullYear(), month: now.getMonth() };
+  });
 
   const centreOptions = useMemo(
     () => centres.map((c) => ({ value: c.id, label: c.label })),
     [centres],
+  );
+
+  const activeBookingCountsByDate = useMemo(() => {
+    const counts = new Map<string, number>();
+    if (tab !== "active") return counts;
+    for (const row of rows) {
+      if (!row.bookingDate) continue;
+      counts.set(row.bookingDate, (counts.get(row.bookingDate) ?? 0) + 1);
+    }
+    return counts;
+  }, [tab, rows]);
+
+  const displayedBookingRows = useMemo(() => {
+    if (tab !== "active" || !activeDateFilter) return rows;
+    return rows.filter((r) => r.bookingDate === activeDateFilter);
+  }, [tab, rows, activeDateFilter]);
+
+  const calendarCells = useMemo(
+    () => buildMonthCells(calendarMonth.year, calendarMonth.month),
+    [calendarMonth],
   );
 
   const loadCentres = useCallback(async () => {
@@ -496,6 +556,7 @@ export function PcoPageContent() {
           postcode: draft.postcode || undefined,
           email: draft.email || undefined,
           phone: draft.phone || undefined,
+          pcoAccountPhone: draft.pcoAccountPhone || undefined,
           make: draft.make || undefined,
           model: draft.model || undefined,
           color: draft.color || undefined,
@@ -567,6 +628,7 @@ export function PcoPageContent() {
         registeredKeeper: b.vehicle.registeredKeeper,
         email: b.vehicle.email ?? "",
         phone: b.vehicle.phone ?? "",
+        pcoAccountPhone: b.vehicle.pcoAccountPhone ?? "",
         addressLine1: b.vehicle.addressLine1 ?? "",
         addressLine2: b.vehicle.addressLine2 ?? "",
         city: b.vehicle.city ?? "",
@@ -611,6 +673,7 @@ export function PcoPageContent() {
           registeredKeeper: editDraft.registeredKeeper,
           email: editDraft.email || undefined,
           phone: editDraft.phone || undefined,
+          pcoAccountPhone: editDraft.pcoAccountPhone || undefined,
           addressLine1: editDraft.addressLine1 || undefined,
           city: editDraft.city || undefined,
           postcode: editDraft.postcode || undefined,
@@ -822,6 +885,7 @@ export function PcoPageContent() {
           postcode: renewDraft.postcode || undefined,
           email: renewDraft.email || undefined,
           phone: renewDraft.phone || undefined,
+          pcoAccountPhone: renewDraft.pcoAccountPhone || undefined,
           make: renewDraft.make || undefined,
           model: renewDraft.model || undefined,
           color: renewDraft.color || undefined,
@@ -1050,8 +1114,8 @@ export function PcoPageContent() {
       {
         id: "contact",
         header: "Contact",
-        searchText: (r) => [r.email, r.phone].filter(Boolean).join(" "),
-        cell: (r) => formatTableContact(r.email, r.phone),
+        searchText: (r) => [r.email, r.phone, r.pcoAccountPhone].filter(Boolean).join(" "),
+        cell: (r) => formatTableContact(r.email, r.phone, r.pcoAccountPhone),
       },
       {
         id: "pcoExpiry",
@@ -1199,8 +1263,8 @@ export function PcoPageContent() {
       {
         id: "contact",
         header: "Contact",
-        searchText: (r) => [r.email, r.phone].filter(Boolean).join(" "),
-        cell: (r) => formatTableContact(r.email, r.phone),
+        searchText: (r) => [r.email, r.phone, r.pcoAccountPhone].filter(Boolean).join(" "),
+        cell: (r) => formatTableContact(r.email, r.phone, r.pcoAccountPhone),
       },
       {
         id: "pcoExpiry",
@@ -1302,7 +1366,11 @@ export function PcoPageContent() {
           ...(canWrite ? [{ id: "settings" as const, label: "Centres" }] : []),
         ]}
         active={tab}
-        onChange={(t) => setTab(t as TabId)}
+        onChange={(t) => {
+          const next = t as TabId;
+          setTab(next);
+          if (next !== "active") setActiveDateFilter(null);
+        }}
         className="mb-4"
       />
 
@@ -1364,20 +1432,143 @@ export function PcoPageContent() {
           minWidth="72rem"
         />
       ) : (
-        <SearchableTable
-          rows={rows}
-          columns={bookingColumns}
-          getRowId={(r) => r.id}
-          searchPlaceholder="Search reg, keeper, email, booking no…"
-          emptyLabel={
-            tab === "past"
-              ? "No past bookings"
-              : tab === "pending"
-                ? "No cars waiting to be booked"
-                : "No active bookings — book from the To book tab"
-          }
-          minWidth={tab === "pending" ? "68rem" : tab === "past" ? "80rem" : "88rem"}
-        />
+        <>
+          {tab === "active" && (
+            <div className="mb-4 max-w-sm rounded-xl border border-[var(--border)] bg-[var(--surface)]">
+              <button
+                type="button"
+                onClick={() => setCalendarOpen((o) => !o)}
+                aria-expanded={calendarOpen}
+                className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left text-sm"
+              >
+                <span className="font-medium">
+                  Filter by date
+                  {activeDateFilter ? (
+                    <span className="ml-2 font-normal text-[var(--muted)]">
+                      · {activeDateFilter} ({displayedBookingRows.length})
+                    </span>
+                  ) : null}
+                </span>
+                <span className="text-[var(--muted)]" aria-hidden>
+                  {calendarOpen ? "▾" : "▸"}
+                </span>
+              </button>
+              {calendarOpen && (
+                <div className="border-t border-[var(--border)] p-3 pt-2">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <button
+                      type="button"
+                      aria-label="Previous month"
+                      onClick={() =>
+                        setCalendarMonth((m) => {
+                          const d = new Date(m.year, m.month - 1, 1);
+                          return { year: d.getFullYear(), month: d.getMonth() };
+                        })
+                      }
+                      className="rounded-lg border border-[var(--border)] px-2 py-1 text-sm"
+                    >
+                      ‹
+                    </button>
+                    <p className="text-sm font-semibold">
+                      {formatMonthLabel(calendarMonth.year, calendarMonth.month)}
+                    </p>
+                    <button
+                      type="button"
+                      aria-label="Next month"
+                      onClick={() =>
+                        setCalendarMonth((m) => {
+                          const d = new Date(m.year, m.month + 1, 1);
+                          return { year: d.getFullYear(), month: d.getMonth() };
+                        })
+                      }
+                      className="rounded-lg border border-[var(--border)] px-2 py-1 text-sm"
+                    >
+                      ›
+                    </button>
+                  </div>
+                  <div className="mb-1 grid grid-cols-7 gap-1 text-center text-[10px] font-medium uppercase tracking-wide text-[var(--muted)]">
+                    {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => (
+                      <span key={d}>{d}</span>
+                    ))}
+                  </div>
+                  <div className="grid grid-cols-7 gap-1">
+                    {calendarCells.map((day, idx) => {
+                      if (day == null) {
+                        return <span key={`pad-${idx}`} className="h-9" />;
+                      }
+                      const iso = toIsoDate(calendarMonth.year, calendarMonth.month, day);
+                      const count = activeBookingCountsByDate.get(iso) ?? 0;
+                      const selected = activeDateFilter === iso;
+                      const isToday = iso === todayIso();
+                      return (
+                        <button
+                          key={iso}
+                          type="button"
+                          onClick={() =>
+                            setActiveDateFilter((prev) => (prev === iso ? null : iso))
+                          }
+                          title={
+                            count > 0
+                              ? `${count} booking${count === 1 ? "" : "s"}`
+                              : "No bookings"
+                          }
+                          className={`relative flex h-9 flex-col items-center justify-center rounded-lg text-xs tabular-nums ${
+                            selected
+                              ? "bg-accent font-semibold text-white"
+                              : count > 0
+                                ? "bg-[var(--background)] font-medium hover:bg-accent/10"
+                                : "text-[var(--muted)] hover:bg-[var(--background)]"
+                          } ${isToday && !selected ? "ring-1 ring-[var(--border)]" : ""}`}
+                        >
+                          {day}
+                          {count > 0 && (
+                            <span
+                              className={`absolute bottom-0.5 h-1 w-1 rounded-full ${
+                                selected ? "bg-white" : "bg-accent"
+                              }`}
+                            />
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-[var(--muted)]">
+                    <span>
+                      {activeDateFilter
+                        ? `Showing ${displayedBookingRows.length} on ${activeDateFilter}`
+                        : "Click a date to filter · click again to clear"}
+                    </span>
+                    {activeDateFilter && (
+                      <button
+                        type="button"
+                        onClick={() => setActiveDateFilter(null)}
+                        className="font-medium text-accent hover:underline"
+                      >
+                        Show all
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+          <SearchableTable
+            rows={displayedBookingRows}
+            columns={bookingColumns}
+            getRowId={(r) => r.id}
+            searchPlaceholder="Search reg, keeper, email, booking no…"
+            emptyLabel={
+              tab === "past"
+                ? "No past bookings"
+                : tab === "pending"
+                  ? "No cars waiting to be booked"
+                  : activeDateFilter
+                    ? "No active bookings on this date"
+                    : "No active bookings — book from the To book tab"
+            }
+            minWidth={tab === "pending" ? "68rem" : tab === "past" ? "80rem" : "88rem"}
+          />
+        </>
       )}
 
       <Modal title="Add request" open={modalOpen} onClose={() => setModalOpen(false)} size="lg">
@@ -1438,11 +1629,25 @@ export function PcoPageContent() {
               />
             </div>
             <div>
-              <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Phone</label>
+              <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
+                Client contact number
+              </label>
               <input
                 value={draft.phone}
                 onChange={(e) => setDraft((d) => ({ ...d, phone: e.target.value }))}
                 className={inputClass}
+                placeholder="Mobile / contact for the client"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
+                PCO account number
+              </label>
+              <input
+                value={draft.pcoAccountPhone}
+                onChange={(e) => setDraft((d) => ({ ...d, pcoAccountPhone: e.target.value }))}
+                className={inputClass}
+                placeholder="Number on the PCO centre / account"
               />
             </div>
             <div className="sm:col-span-2">
@@ -1688,7 +1893,10 @@ export function PcoPageContent() {
             </p>
             <dl className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 text-sm">
               <DetailRow label="Keeper">{vrmConfirmVehicle.registeredKeeper}</DetailRow>
-              <DetailRow label="Phone">{vrmConfirmVehicle.phone ?? "—"}</DetailRow>
+              <DetailRow label="Client contact">{vrmConfirmVehicle.phone ?? "—"}</DetailRow>
+              <DetailRow label="PCO account number">
+                {vrmConfirmVehicle.pcoAccountPhone ?? "—"}
+              </DetailRow>
               <DetailRow label="Email">{vrmConfirmVehicle.email ?? "—"}</DetailRow>
               <DetailRow label="PCO expiry">{vrmConfirmVehicle.pcoExpiryDate}</DetailRow>
               <DetailRow label="V5C expiry">{vrmConfirmVehicle.logbookExpiryDate}</DetailRow>
@@ -1747,7 +1955,10 @@ export function PcoPageContent() {
                   <VrmText vrm={detail.vehicle.vrm} />
                 </DetailRow>
                 <DetailRow label="Registered keeper">{detail.vehicle.registeredKeeper}</DetailRow>
-                <DetailRow label="Phone">{detail.vehicle.phone ?? "—"}</DetailRow>
+                <DetailRow label="Client contact">{detail.vehicle.phone ?? "—"}</DetailRow>
+                <DetailRow label="PCO account number">
+                  {detail.vehicle.pcoAccountPhone ?? "—"}
+                </DetailRow>
                 <DetailRow label="Email">{detail.vehicle.email ?? "—"}</DetailRow>
                 <DetailRow label="Address">{formatKeeperAddress(detail.vehicle)}</DetailRow>
                 <DetailRow label="First registration">{detail.vehicle.firstRegistrationDate}</DetailRow>
@@ -2373,7 +2584,10 @@ export function PcoPageContent() {
               {renewDetailsCorrect === true && (
                 <dl className="grid gap-1 text-sm sm:grid-cols-2">
                   <DetailRow label="Keeper">{renewDraft.registeredKeeper}</DetailRow>
-                  <DetailRow label="Phone">{renewDraft.phone || "—"}</DetailRow>
+                  <DetailRow label="Client contact">{renewDraft.phone || "—"}</DetailRow>
+                  <DetailRow label="PCO account number">
+                    {renewDraft.pcoAccountPhone || "—"}
+                  </DetailRow>
                   <DetailRow label="Email">{renewDraft.email || "—"}</DetailRow>
                   <DetailRow label="PCO expiry">{renewDraft.pcoExpiryDate}</DetailRow>
                   {(renewDraft.make || renewDraft.model) && (
@@ -2400,10 +2614,24 @@ export function PcoPageContent() {
                     />
                   </div>
                   <div>
-                    <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Phone</label>
+                    <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
+                      Client contact number
+                    </label>
                     <input
                       value={renewDraft.phone}
                       onChange={(e) => setRenewDraft((d) => ({ ...d, phone: e.target.value }))}
+                      className={inputClass}
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
+                      PCO account number
+                    </label>
+                    <input
+                      value={renewDraft.pcoAccountPhone}
+                      onChange={(e) =>
+                        setRenewDraft((d) => ({ ...d, pcoAccountPhone: e.target.value }))
+                      }
                       className={inputClass}
                     />
                   </div>
@@ -2545,10 +2773,22 @@ export function PcoPageContent() {
               />
             </div>
             <div>
-              <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Phone</label>
+              <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
+                Client contact number
+              </label>
               <input
                 value={editDraft.phone}
                 onChange={(e) => setEditDraft((d) => ({ ...d, phone: e.target.value }))}
+                className={inputClass}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
+                PCO account number
+              </label>
+              <input
+                value={editDraft.pcoAccountPhone}
+                onChange={(e) => setEditDraft((d) => ({ ...d, pcoAccountPhone: e.target.value }))}
                 className={inputClass}
               />
             </div>

@@ -40,6 +40,12 @@ export class CreatePcoBookingDto {
   @MaxLength(40)
   phone?: string;
 
+  /** Number registered on the TfL / PCO centre account. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  pcoAccountPhone?: string;
+
   @IsOptional()
   @IsString()
   @MaxLength(80)

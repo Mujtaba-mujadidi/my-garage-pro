@@ -1144,6 +1144,8 @@ model PcoVehicle {
   postcode              String?
   email                 String?
   phone                 String?
+  // Number registered on the TfL / PCO centre account
+  pcoAccountPhone       String?          @map("pco_account_phone")
   make                  String?
   model                 String?
   color                 String?

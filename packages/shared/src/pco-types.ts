@@ -168,6 +168,8 @@ export type PcoVehicleDto = {
   postcode: string | null;
   email: string | null;
   phone: string | null;
+  /** Number registered on the TfL / PCO centre account. */
+  pcoAccountPhone: string | null;
   make: string | null;
   model: string | null;
   color: string | null;
@@ -259,6 +261,7 @@ export type PcoBookingListDto = {
   registeredKeeper: string;
   email: string | null;
   phone: string | null;
+  pcoAccountPhone: string | null;
   addressLine1: string | null;
   city: string | null;
   postcode: string | null;
@@ -280,6 +283,7 @@ export type PcoDueVehicleDto = {
   registeredKeeper: string;
   email: string | null;
   phone: string | null;
+  pcoAccountPhone: string | null;
   addressLine1: string | null;
   city: string | null;
   postcode: string | null;
