@@ -1086,11 +1086,20 @@ export function PcoPageContent() {
       setPayOpen(false);
       const wasAmend = Boolean(payAmendId);
       setPayAmendId(null);
-      setMessage(
-        wasAmend
-          ? "Payment amended — ledger corrected"
-          : "Payment recorded — ledger entry tagged PCO",
-      );
+      if (
+        !wasAmend &&
+        updated.status === "COMPLETED" &&
+        Number(updated.balanceDue) <= 0.009
+      ) {
+        setMessage("Payment recorded — balance clear; moved to Past bookings");
+        setTab("past");
+      } else {
+        setMessage(
+          wasAmend
+            ? "Payment amended — ledger corrected"
+            : "Payment recorded — ledger entry tagged PCO",
+        );
+      }
       await load();
     } catch (err) {
       setError(
@@ -1189,14 +1198,21 @@ export function PcoPageContent() {
         method: "POST",
         body: JSON.stringify(body),
       });
+      const hadOpenBalance = Number(detail.balanceDue) > 0.009;
       setCompleteOpen(false);
       setDetailOpen(false);
-      setMessage(
-        completeOutcome === "PASS"
-          ? "Booking completed — PCO expiry updated"
-          : "Booking marked failed — see Failed / Retest",
-      );
-      if (completeOutcome === "FAIL") setTab("failed");
+      if (completeOutcome === "FAIL") {
+        setMessage("Booking marked failed — see Failed / Retest");
+        setTab("failed");
+      } else if (hadOpenBalance) {
+        setMessage(
+          `Booking completed with ${formatGbp(detail.balanceDue)} still due — see Outstanding`,
+        );
+        setTab("outstanding");
+      } else {
+        setMessage("Booking completed — moved to Past bookings");
+        setTab("past");
+      }
       await load();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not complete booking");
@@ -1501,6 +1517,14 @@ export function PcoPageContent() {
               onClick: () => openRetestModal(r),
             });
           }
+          if (tab === "outstanding" && canWrite) {
+            if (canPay && Number(r.balanceDue) > 0) {
+              actions.push({
+                label: "Record payment",
+                onClick: () => void openRecordPaymentFromRow(r.id),
+              });
+            }
+          }
           if (tab === "active" && canWrite) {
             if (canPay && Number(r.balanceDue) > 0) {
               actions.push({
@@ -1664,6 +1688,7 @@ export function PcoPageContent() {
           { id: "active", label: "Active bookings" },
           { id: "pending", label: "To book" },
           { id: "failed", label: "Failed / Retest" },
+          { id: "outstanding", label: "Outstanding" },
           { id: "past", label: "Past bookings" },
           { id: "v5c_expiring", label: "V5C expiring" },
           { id: "renewals_due", label: "Due to renew (28d)" },
@@ -1860,6 +1885,8 @@ export function PcoPageContent() {
             emptyLabel={
               tab === "past"
                 ? "No past bookings"
+                : tab === "outstanding"
+                  ? "No completed bookings with an open balance"
                 : tab === "pending"
                   ? "No cars waiting to be booked"
                   : tab === "failed"
@@ -1873,7 +1900,7 @@ export function PcoPageContent() {
                 ? "68rem"
                 : tab === "failed"
                   ? "76rem"
-                  : tab === "past"
+                  : tab === "past" || tab === "outstanding"
                     ? "80rem"
                     : "88rem"
             }
@@ -2436,7 +2463,9 @@ export function PcoPageContent() {
                   Charges
                 </h3>
                 {canWrite &&
-                  (detail.status === "PENDING" || detail.status === "ACTIVE") && (
+                  (detail.status === "PENDING" ||
+                    detail.status === "ACTIVE" ||
+                    (detail.status === "COMPLETED" && Number(detail.balanceDue) > 0)) && (
                     <button
                       type="button"
                       onClick={() => openAmendCharges(detail)}
@@ -2630,6 +2659,24 @@ export function PcoPageContent() {
                 >
                   Cancel booking
                 </button>
+              </div>
+            )}
+
+            {detail.status === "COMPLETED" && canWrite && Number(detail.balanceDue) > 0 && (
+              <div className="flex flex-wrap gap-2 border-t border-[var(--border)] pt-4">
+                {canPay && (
+                  <button
+                    type="button"
+                    onClick={() => openRecordPayment(detail)}
+                    className="rounded-lg bg-accent px-3 py-1.5 text-sm font-semibold text-white"
+                  >
+                    Record payment
+                  </button>
+                )}
+                <p className="w-full text-xs text-[var(--muted)]">
+                  Job is complete but {formatGbp(detail.balanceDue)} is still owed — shown under
+                  Outstanding until paid in full.
+                </p>
               </div>
             )}
           </div>
@@ -3041,6 +3088,14 @@ export function PcoPageContent() {
               <p className="mt-1 text-xs text-[var(--muted)]">
                 Default is previous expiry + 1 year.
               </p>
+              {detail && Number(detail.balanceDue) > 0.009 && (
+                <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
+                  Booking fee not clear — {formatGbp(detail.balanceDue)} still due (total{" "}
+                  {formatGbp(detail.totalDue)}, paid {formatGbp(detail.amountPaid)}). Completing
+                  moves this to <strong>Outstanding</strong> until the balance is paid; fully paid
+                  jobs go to <strong>Past bookings</strong>.
+                </div>
+              )}
             </div>
           ) : (
             <div>
@@ -3083,7 +3138,9 @@ export function PcoPageContent() {
               {saving
                 ? "Saving…"
                 : completeOutcome === "PASS"
-                  ? "Complete — passed"
+                  ? detail && Number(detail.balanceDue) > 0.009
+                    ? "Complete — move to Outstanding"
+                    : "Complete — passed"
                   : "Complete — failed"}
             </button>
           </div>

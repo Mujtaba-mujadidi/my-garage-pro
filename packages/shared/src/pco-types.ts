@@ -419,6 +419,7 @@ export type PcoBookingTab =
   | "active"
   | "pending"
   | "past"
+  | "outstanding"
   | "failed"
   | "v5c_expiring"
   | "renewals_due";

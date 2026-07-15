@@ -447,7 +447,9 @@ Two-step: **Add request** → **To book** (`PENDING`) → **Add booking details*
 |-----|---------|
 | Active bookings | `ACTIVE` |
 | To book | `PENDING` — priority sorted high first |
-| Past bookings | `COMPLETED` |
+| Failed / Retest | `FAILED` awaiting retest |
+| Outstanding | `COMPLETED` with open customer balance |
+| Past bookings | `COMPLETED` and fully paid |
 | V5C expiring | Logbook due within 28d |
 | Due to renew (28d) | PCO expiry within 28d |
 | Centres | Booking centre settings |
@@ -534,6 +536,7 @@ Two-step: **Add request** → **To book** (`PENDING`) → **Add booking details*
 | 2026-07-13 | **PCO retest slot expense** | On schedule, retest slot fee defaults to Book-retest TfL charge (or £0 → N/A), not £140 | Stakeholder |
 | 2026-07-13 | **PCO customer total = service + slot** | When slot paid by Us, balance/Record payment = service charge (`chargeGross`) + slot expense; Customer/N/A/credit = service only | Stakeholder |
 | 2026-07-13 | **PCO amend charges** | View → Charges → amend service charge and (when Us/pending) slot expense; posted slot expense reversed + re-posted | Stakeholder |
+| 2026-07-13 | **PCO complete + balance check** | Completing with open balance allowed; goes to **Outstanding** tab until paid; **Past** = completed and fully paid | Stakeholder |
 
 ---
 

@@ -38,7 +38,7 @@ flowchart LR
 |--------|--------|---------|
 | `PENDING` | **To book** | Request added; centre/date not set yet |
 | `ACTIVE` | **Active bookings** | Centre, date, time and slot payment recorded. Mark **Client informed** / **Client confirmed** here only. |
-| `COMPLETED` | **Past bookings** | Job done; PCO expiry rolled forward |
+| `COMPLETED` | **Past bookings** (paid in full) or **Outstanding** (open balance) | Job done; PCO expiry rolled forward on pass |
 | `CANCELLED` | — | Removed from active lists |
 
 **Due lists** (28-day window, not 30):

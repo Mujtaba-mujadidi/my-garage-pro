@@ -13,7 +13,7 @@ import {
   PcoVehicleStatus,
   Prisma,
 } from "@prisma/client";
-import { calculateLogbookExpiryFromFirstRegistration, PCO_DUE_SOON_DAYS, PCO_DEFAULT_BOOKING_CHARGE, PCO_RETEST_WINDOW_DAYS, pcoCustomerTotalDue, sortPcoBookingsByPriority } from "@mygaragepro/shared";
+import { calculateLogbookExpiryFromFirstRegistration, PCO_DUE_SOON_DAYS, PCO_DEFAULT_BOOKING_CHARGE, PCO_RETEST_WINDOW_DAYS, pcoBalanceDue, pcoCustomerTotalDue, sortPcoBookingsByPriority } from "@mygaragepro/shared";
 import { AuditService } from "../audit/audit.service";
 import type { RequestUser } from "../auth/auth.types";
 import { normalizeRegistration } from "../customers/customers.mapper";
@@ -434,6 +434,7 @@ export class PcoService {
       pending: PcoBookingStatus.PENDING,
       active: PcoBookingStatus.ACTIVE,
       past: PcoBookingStatus.COMPLETED,
+      outstanding: PcoBookingStatus.COMPLETED,
       failed: PcoBookingStatus.FAILED,
     };
     const status = statusByTab[tab];
@@ -447,7 +448,7 @@ export class PcoService {
       },
       include: this.listInclude,
       orderBy:
-        tab === "past"
+        tab === "past" || tab === "outstanding"
           ? [{ completedAt: "desc" }, { createdAt: "desc" }]
           : tab === "active"
             ? [{ bookingDate: "asc" }, { createdAt: "desc" }]
@@ -458,6 +459,12 @@ export class PcoService {
     });
 
     const mapped = rows.map(toPcoBookingListDto);
+    if (tab === "outstanding") {
+      return mapped.filter((r) => Number(r.balanceDue) > 0.009);
+    }
+    if (tab === "past") {
+      return mapped.filter((r) => Number(r.balanceDue) <= 0.009);
+    }
     if (tab === "failed") {
       return [...mapped].sort((a, b) => {
         const da = a.daysUntilRetestDeadline ?? 999;
@@ -628,9 +635,10 @@ export class PcoService {
     if (!existing) throw new NotFoundException("PCO booking not found");
     if (
       existing.status !== PcoBookingStatus.PENDING &&
-      existing.status !== PcoBookingStatus.ACTIVE
+      existing.status !== PcoBookingStatus.ACTIVE &&
+      existing.status !== PcoBookingStatus.COMPLETED
     ) {
-      throw new BadRequestException("Only pending or active bookings can amend charges");
+      throw new BadRequestException("Only pending, active, or completed bookings can amend charges");
     }
 
     const newService = roundMoney(dto.chargeGross);
@@ -1153,13 +1161,23 @@ export class PcoService {
           data: { pcoExpiryDate: nextExpiry },
         });
       });
+      const openBalance = pcoBalanceDue({
+        chargeGross: existing.chargeGross,
+        amountPaid: existing.amountPaid,
+        slotPaidBy: existing.slotPaidBy,
+        slotChargeGross: existing.slotChargeGross,
+      });
       await this.audit.log({
         action: "pco.booking.complete_pass",
         userId: user.id,
         garageAccountId,
         entityType: "pco_booking",
         entityId: id,
-        metadata: { nextPcoExpiryDate: dto.nextPcoExpiryDate },
+        metadata: {
+          nextPcoExpiryDate: dto.nextPcoExpiryDate,
+          balanceDue: openBalance,
+          hasOpenBalance: openBalance > 0.009,
+        },
       });
       return this.getBooking(user, id);
     }
