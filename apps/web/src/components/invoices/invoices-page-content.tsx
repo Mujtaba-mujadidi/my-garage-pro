@@ -30,6 +30,7 @@ import type {
   InvoiceStatus,
 } from "@mygaragepro/shared";
 import {
+  formatDateUk,
   invoiceBalanceDue,
   PAYMENT_METHOD_LABELS,
   previewInvoiceTotals,
@@ -328,7 +329,7 @@ export function InvoicesPageContent() {
       {
         id: "dueDate",
         header: "Due",
-        cell: (r) => r.dueDate ?? "—",
+        cell: (r) => formatDateUk(r.dueDate),
       },
     ];
 
@@ -360,7 +361,7 @@ export function InvoicesPageContent() {
       {
         id: "date",
         header: "Date",
-        cell: (r) => r.valueDate,
+        cell: (r) => formatDateUk(r.valueDate),
       },
       {
         id: "customer",
@@ -693,13 +694,13 @@ export function InvoicesPageContent() {
               {viewInvoice.issueDate && (
                 <p>
                   <span className="text-[var(--muted)]">Issued </span>
-                  {viewInvoice.issueDate}
+                  {formatDateUk(viewInvoice.issueDate)}
                 </p>
               )}
               {viewInvoice.dueDate && (
                 <p>
                   <span className="text-[var(--muted)]">Due </span>
-                  {viewInvoice.dueDate}
+                  {formatDateUk(viewInvoice.dueDate)}
                 </p>
               )}
             </div>
@@ -790,7 +791,7 @@ export function InvoicesPageContent() {
                     <tbody>
                       {viewInvoice.payments.map((p) => (
                         <tr key={p.allocationId} className="border-t border-[var(--border)]">
-                          <td className="py-1.5">{p.valueDate}</td>
+                          <td className="py-1.5">{formatDateUk(p.valueDate)}</td>
                           <td className="py-1.5">
                             {p.method ? PAYMENT_METHOD_LABELS[p.method] : "—"}
                           </td>

@@ -24,6 +24,8 @@ import type {
 import {
   JOB_PART_USAGE_STATUS_LABEL,
   SUPPLIER_CREDIT_TRANSACTION_LABEL,
+  formatDateTimeUk,
+  formatDateUk,
 } from "@mygaragepro/shared";
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useState } from "react";
@@ -39,14 +41,6 @@ function formatMoney(value: string) {
   const n = Number(value);
   if (Number.isNaN(n)) return value;
   return new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP" }).format(n);
-}
-
-function formatDateGb(iso: string) {
-  const d = new Date(iso);
-  const day = String(d.getUTCDate()).padStart(2, "0");
-  const month = String(d.getUTCMonth() + 1).padStart(2, "0");
-  const year = d.getUTCFullYear();
-  return `${day}/${month}/${year}`;
 }
 
 function jobLink(
@@ -250,7 +244,7 @@ export function SupplierDetailContent({ supplierId }: Props) {
                 {creditHistory.map((tx) => (
                   <tr key={tx.id} className="border-t border-[var(--border)]">
                     <td className="px-3 py-2 text-[var(--muted)]">
-                      {formatDateGb(tx.createdAt)}
+                      {formatDateTimeUk(tx.createdAt)}
                     </td>
                     <td className="px-3 py-2">{SUPPLIER_CREDIT_TRANSACTION_LABEL[tx.type]}</td>
                     <td className="px-3 py-2 text-[var(--muted)]">{tx.notes ?? "—"}</td>
@@ -299,7 +293,7 @@ export function SupplierDetailContent({ supplierId }: Props) {
           <h2 className="mb-3 font-semibold">Notes</h2>
           <p className="whitespace-pre-wrap text-[var(--muted)]">{supplier.notes ?? "—"}</p>
           <p className="mt-4 text-xs text-[var(--muted)]">
-            Added {formatDateGb(supplier.createdAt)}
+            Added {formatDateTimeUk(supplier.createdAt)}
           </p>
         </section>
       </div>
@@ -328,7 +322,7 @@ export function SupplierDetailContent({ supplierId }: Props) {
                 {partOrders.map((order) => (
                   <tr key={order.id} className="border-t border-[var(--border)]">
                     <td className="px-3 py-2 text-[var(--muted)]">
-                      {formatDateGb(order.orderedAt)}
+                      {formatDateTimeUk(order.orderedAt)}
                     </td>
                     <td className="px-3 py-2">
                       <div className="font-medium">{order.partNumber}</div>
@@ -378,7 +372,7 @@ export function SupplierDetailContent({ supplierId }: Props) {
                 {purchases.map((purchase) => (
                   <tr key={purchase.id} className="border-t border-[var(--border)]">
                     <td className="px-3 py-2 text-[var(--muted)]">
-                      {formatDateGb(purchase.valueDate)}
+                      {formatDateUk(purchase.valueDate)}
                     </td>
                     <td className="px-3 py-2">
                       <div className="font-medium">{purchase.notes ?? purchase.category ?? "—"}</div>

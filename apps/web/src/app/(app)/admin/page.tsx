@@ -12,6 +12,7 @@ import { useSession } from "@/components/providers/session-provider";
 import { Modal } from "@/components/ui/modal";
 import { apiFetch, ApiError } from "@/lib/api-client";
 import type { AuditLogDto, CreateGarageRequestDto, GarageAccountDto } from "@mygaragepro/shared";
+import { formatDateTimeUk } from "@mygaragepro/shared";
 
 export default function AdminPage() {
   const { session, loading: sessionLoading } = useSession();
@@ -146,7 +147,7 @@ export default function AdminPage() {
               <span className="text-[var(--muted)]"> · {row.userEmail ?? "system"}</span>
               {row.garageName && <span className="text-[var(--muted)]"> · {row.garageName}</span>}
               <br />
-              <span className="text-[var(--muted)]">{new Date(row.createdAt).toLocaleString()}</span>
+              <span className="text-[var(--muted)]">{formatDateTimeUk(row.createdAt)}</span>
             </li>
           ))}
         </ul>

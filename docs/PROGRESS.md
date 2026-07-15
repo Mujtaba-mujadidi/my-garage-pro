@@ -540,6 +540,7 @@ Two-step: **Add request** → **To book** (`PENDING`) → **Add booking details*
 | 2026-07-15 | **PCO preferred centres + booking ref** | Add request: multi preferred centres + Any; schedule: optional booking reference; rename PCO account phone | Stakeholder |
 | 2026-07-15 | **PCO centres multi-select + TfL login** | Preferred centres = multi-select dropdown (Any + centres); TfL login email/password on vehicle; password AES-GCM via `FIELD_ENCRYPTION_KEY` | Stakeholder |
 | 2026-07-15 | **PCO edit on all tabs** | Edit missing vehicle/contact/TfL/notes on any status; charge changes after complete still via Amend charges | Stakeholder |
+| 2026-07-15 | **UK date display** | All UI (and invoice PDF) dates shown as DD/MM/YYYY via `formatDateUk` / `formatDateTimeUk`; inputs/API stay ISO | Stakeholder |
 
 ---
 

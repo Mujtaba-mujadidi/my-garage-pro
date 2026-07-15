@@ -18,6 +18,8 @@ import type {
 } from "@mygaragepro/shared";
 import {
   DEFAULT_VAT_RATE_OPTIONS,
+  formatDateTimeUk,
+  formatDateUk,
   inferVatRatePercent,
   LEDGER_SOURCE_MODULE_LABEL,
   UK_STANDARD_VAT_PERCENT,
@@ -111,11 +113,6 @@ function formatMoney(value: string) {
   const n = Number(value);
   if (Number.isNaN(n)) return value;
   return new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP" }).format(n);
-}
-
-function formatDateTime(iso: string | null) {
-  if (!iso) return "—";
-  return iso.slice(0, 16).replace("T", " ");
 }
 
 function DetailRow({ label, children }: { label: string; children: ReactNode }) {
@@ -432,7 +429,7 @@ export function LedgerPageContent() {
         id: "date",
         header: "Date",
         searchText: (e) => e.valueDate,
-        cell: (e) => e.valueDate,
+        cell: (e) => formatDateUk(e.valueDate),
       },
       {
         id: "account",
@@ -549,7 +546,7 @@ export function LedgerPageContent() {
         }
         return (
           <TableRowActionsMenu
-            triggerLabel={`Actions for ${e.valueDate} ${e.amountGross}`}
+            triggerLabel={`Actions for ${formatDateUk(e.valueDate)} ${e.amountGross}`}
             actions={actions}
           />
         );
@@ -948,7 +945,7 @@ export function LedgerPageContent() {
       >
         {viewEntry && (
           <dl className="grid gap-x-8 sm:grid-cols-2">
-            <DetailRow label="Date">{viewEntry.valueDate}</DetailRow>
+            <DetailRow label="Date">{formatDateUk(viewEntry.valueDate)}</DetailRow>
             <DetailRow label="Type">
               <span className={viewEntry.direction === "INCOME" ? "text-green-700 dark:text-green-400" : ""}>
                 {viewEntry.direction === "INCOME" ? "Income" : "Expense"}
@@ -1007,15 +1004,15 @@ export function LedgerPageContent() {
               <DetailRow label="Reference">—</DetailRow>
             )}
             <DetailRow label="Created by">{viewEntry.createdByName ?? "—"}</DetailRow>
-            <DetailRow label="Created at">{formatDateTime(viewEntry.createdAt)}</DetailRow>
+            <DetailRow label="Created at">{formatDateTimeUk(viewEntry.createdAt)}</DetailRow>
             {viewEntry.postedAt && (
-              <DetailRow label="Posted at">{formatDateTime(viewEntry.postedAt)}</DetailRow>
+              <DetailRow label="Posted at">{formatDateTimeUk(viewEntry.postedAt)}</DetailRow>
             )}
             {viewEntry.checkedAt && (
-              <DetailRow label="Checked at">{formatDateTime(viewEntry.checkedAt)}</DetailRow>
+              <DetailRow label="Checked at">{formatDateTimeUk(viewEntry.checkedAt)}</DetailRow>
             )}
             {viewEntry.voidedAt && (
-              <DetailRow label="Voided at">{formatDateTime(viewEntry.voidedAt)}</DetailRow>
+              <DetailRow label="Voided at">{formatDateTimeUk(viewEntry.voidedAt)}</DetailRow>
             )}
             {viewEntry.reversesEntryId && (
               <DetailRow label="Reverses entry">

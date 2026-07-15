@@ -1,6 +1,7 @@
 "use client";
 
 import type { GarageAccountDto, UpdateGarageRequestDto } from "@mygaragepro/shared";
+import { formatDateTimeUk } from "@mygaragepro/shared";
 import { useState } from "react";
 
 const inputClass =
@@ -211,7 +212,7 @@ export function GarageDetailsForm({ value, onChange, garage, disabled }: Props) 
         </p>
         <p className="mt-1">
           <span className="font-medium text-[var(--foreground)]">Created:</span>{" "}
-          {new Date(garage.createdAt).toLocaleString()}
+          {formatDateTimeUk(garage.createdAt)}
         </p>
       </section>
     </div>

@@ -19,7 +19,7 @@ import type {
   RepairJobListDto,
   RepairJobStatus,
 } from "@mygaragepro/shared";
-import { REPAIR_JOB_STATUS_LABEL } from "@mygaragepro/shared";
+import { REPAIR_JOB_STATUS_LABEL, formatDateTimeUk, formatDateUk } from "@mygaragepro/shared";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -38,14 +38,6 @@ function formatMoney(value: string) {
   const n = Number(value);
   if (Number.isNaN(n)) return value;
   return new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP" }).format(n);
-}
-
-function formatDateGb(iso: string) {
-  const d = new Date(iso);
-  const day = String(d.getUTCDate()).padStart(2, "0");
-  const month = String(d.getUTCMonth() + 1).padStart(2, "0");
-  const year = d.getUTCFullYear();
-  return `${day}/${month}/${year}`;
 }
 
 function jobStatusChip(status: RepairJobStatus) {
@@ -241,7 +233,7 @@ export function CustomerDetailContent({ customerId }: Props) {
       {error && <p className="mb-4 text-sm text-red-600">{error}</p>}
       {customer.deletedAt && (
         <p className="mb-4 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-950 dark:text-amber-100">
-          Archived {new Date(customer.deletedAt).toLocaleString()}
+          Archived {formatDateTimeUk(customer.deletedAt)}
         </p>
       )}
 
@@ -286,7 +278,7 @@ export function CustomerDetailContent({ customerId }: Props) {
                       <span className="font-medium">{inv.invoiceNumber}</span>
                       <span className="ml-2 text-[var(--muted)]">
                         {INVOICE_STATUS_LABEL[inv.status]}
-                        {inv.dueDate ? ` · due ${inv.dueDate}` : ""}
+                        {inv.dueDate ? ` · due ${formatDateUk(inv.dueDate)}` : ""}
                       </span>
                     </div>
                     <span className="font-mono tabular-nums">{formatMoney(inv.balanceDue)}</span>
@@ -445,7 +437,7 @@ export function CustomerDetailContent({ customerId }: Props) {
                         )}
                       </td>
                       <td className="px-4 py-3">{INVOICE_STATUS_LABEL[inv.status]}</td>
-                      <td className="px-4 py-3">{inv.issueDate ?? "—"}</td>
+                      <td className="px-4 py-3">{formatDateUk(inv.issueDate)}</td>
                       <td className="px-4 py-3 text-right font-mono tabular-nums">
                         {formatMoney(inv.amountGross)}
                       </td>
@@ -495,13 +487,13 @@ export function CustomerDetailContent({ customerId }: Props) {
               {viewInvoice.issueDate && (
                 <p>
                   <span className="text-[var(--muted)]">Issued </span>
-                  {viewInvoice.issueDate}
+                  {formatDateUk(viewInvoice.issueDate)}
                 </p>
               )}
               {viewInvoice.dueDate && (
                 <p>
                   <span className="text-[var(--muted)]">Due </span>
-                  {viewInvoice.dueDate}
+                  {formatDateUk(viewInvoice.dueDate)}
                 </p>
               )}
             </div>
@@ -632,7 +624,7 @@ function JobTable({ jobs }: { jobs: RepairJobListDto[] }) {
                   </span>
                 )}
               </td>
-              <td className="px-4 py-3 text-[var(--muted)]">{formatDateGb(job.updatedAt)}</td>
+              <td className="px-4 py-3 text-[var(--muted)]">{formatDateTimeUk(job.updatedAt)}</td>
             </tr>
           ))}
         </tbody>

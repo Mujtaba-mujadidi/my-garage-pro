@@ -1,4 +1,4 @@
-import { invoiceBalanceDue, PAYMENT_METHOD_LABELS, type PaymentMethod } from "@mygaragepro/shared";
+import { invoiceBalanceDue, PAYMENT_METHOD_LABELS, formatDateUk, type PaymentMethod } from "@mygaragepro/shared";
 import { Injectable } from "@nestjs/common";
 import type {
   Customer,
@@ -72,7 +72,8 @@ function formatGbp(value: string | number): string {
 }
 
 function formatIsoDate(date: Date | null): string | null {
-  return date ? date.toISOString().slice(0, 10) : null;
+  if (!date) return null;
+  return formatDateUk(date.toISOString().slice(0, 10));
 }
 
 function lineTypeLabel(lineType: string): string {
@@ -358,7 +359,7 @@ export class InvoicePdfService {
     return allocations
       .filter((a) => !a.deletedAt && a.payment)
       .map((a) => ({
-        date: a.payment!.valueDate.toISOString().slice(0, 10),
+        date: formatDateUk(a.payment!.valueDate.toISOString().slice(0, 10)),
         method:
           a.payment!.method != null
             ? PAYMENT_METHOD_LABELS[a.payment!.method as PaymentMethod]

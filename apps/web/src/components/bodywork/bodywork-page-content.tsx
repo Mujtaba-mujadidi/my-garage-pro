@@ -21,6 +21,7 @@ import type {
 import {
   BODYWORK_JOB_SOURCE_LABEL,
   BODYWORK_JOB_STATUS_LABEL,
+  formatDateTimeUk,
   isWorkshopStaffView,
 } from "@mygaragepro/shared";
 import { useMounted } from "@/lib/use-mounted";
@@ -69,14 +70,6 @@ function statusChip(status: BodyworkJobStatus) {
       {BODYWORK_JOB_STATUS_LABEL[status]}
     </span>
   );
-}
-
-function formatDateGb(iso: string) {
-  const d = new Date(iso);
-  const day = String(d.getUTCDate()).padStart(2, "0");
-  const month = String(d.getUTCMonth() + 1).padStart(2, "0");
-  const year = d.getUTCFullYear();
-  return `${day}/${month}/${year}`;
 }
 
 export function BodyworkPageContent() {
@@ -289,7 +282,7 @@ export function BodyworkPageContent() {
         {
           id: "updated",
           header: "Updated",
-          cell: (r) => formatDateGb(r.updatedAt),
+          cell: (r) => formatDateTimeUk(r.updatedAt),
         },
       ];
     }
@@ -346,7 +339,7 @@ export function BodyworkPageContent() {
       {
         id: "updated",
         header: "Updated",
-        cell: (r) => new Date(r.updatedAt).toLocaleDateString("en-GB"),
+        cell: (r) => formatDateTimeUk(r.updatedAt),
       },
     ];
   }, [isWorkView]);

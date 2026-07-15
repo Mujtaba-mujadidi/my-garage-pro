@@ -42,6 +42,8 @@ import {
   calculateLogbookExpiryFromFirstRegistration,
   calculateNextPcoExpiry,
   defaultPaymentMethodForAccount,
+  formatDateTimeUk,
+  formatDateUk,
   type PcoBookingSlotPaidBy,
 } from "@mygaragepro/shared";
 import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useState } from "react";
@@ -101,16 +103,6 @@ function buildMonthCells(year: number, monthIndex: number): (number | null)[] {
   for (let d = 1; d <= daysInMonth; d++) cells.push(d);
   while (cells.length % 7 !== 0) cells.push(null);
   return cells;
-}
-
-function formatDateTime(iso: string) {
-  return new Date(iso).toLocaleString("en-GB", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
 }
 
 function VrmText({ vrm }: { vrm: string }) {
@@ -625,7 +617,7 @@ export function PcoPageContent() {
           notes: [
             d.notes,
             ab.bookingCentreName && ab.bookingDate
-              ? `Current booking: ${ab.bookingCentreName}, ${ab.bookingDate}${ab.bookingTime ? ` ${ab.bookingTime}` : ""}`
+              ? `Current booking: ${ab.bookingCentreName}, ${formatDateUk(ab.bookingDate)}${ab.bookingTime ? ` ${ab.bookingTime}` : ""}`
               : "",
           ]
             .filter(Boolean)
@@ -945,7 +937,7 @@ export function PcoPageContent() {
       setError("Enter a note to add");
       return;
     }
-    const stamped = `${formatDateTime(new Date().toISOString())}\n${addition}`;
+    const stamped = `${formatDateTimeUk(new Date().toISOString())}\n${addition}`;
     const merged = detail.notes?.trim() ? `${detail.notes.trim()}\n\n${stamped}` : stamped;
     setSaving(true);
     setError("");
@@ -1522,7 +1514,7 @@ export function PcoPageContent() {
                     </span>
                     {r.retestDeadline && (
                       <p className="mt-0.5 text-xs text-[var(--muted)] tabular-nums">
-                        by {r.retestDeadline}
+                        by {formatDateUk(r.retestDeadline)}
                       </p>
                     )}
                   </div>
@@ -1571,7 +1563,7 @@ export function PcoPageContent() {
         header: "PCO expiry",
         searchText: (r) => r.pcoExpiryDate ?? "",
         cell: (r) => (
-          <span className="text-sm tabular-nums whitespace-nowrap">{r.pcoExpiryDate ?? "—"}</span>
+          <span className="text-sm tabular-nums whitespace-nowrap">{formatDateUk(r.pcoExpiryDate)}</span>
         ),
       },
       {
@@ -1579,7 +1571,7 @@ export function PcoPageContent() {
         header: "Logbook expiry",
         searchText: (r) => r.logbookExpiryDate,
         cell: (r) => (
-          <span className="text-sm tabular-nums whitespace-nowrap">{r.logbookExpiryDate}</span>
+          <span className="text-sm tabular-nums whitespace-nowrap">{formatDateUk(r.logbookExpiryDate)}</span>
         ),
       },
       ...(tab === "pending"
@@ -1620,7 +1612,7 @@ export function PcoPageContent() {
                 r.bookingDate ? (
                   <div className="text-sm tabular-nums whitespace-nowrap">
                     <p>
-                      {r.bookingDate}
+                      {formatDateUk(r.bookingDate)}
                       {r.bookingTime ? ` ${r.bookingTime}` : ""}
                     </p>
                     {r.bookingCentreName && (
@@ -1782,7 +1774,7 @@ export function PcoPageContent() {
         header: "PCO expiry",
         searchText: (r) => r.pcoExpiryDate ?? "",
         cell: (r) => (
-          <span className="text-sm tabular-nums">{r.pcoExpiryDate ?? "—"}</span>
+          <span className="text-sm tabular-nums">{formatDateUk(r.pcoExpiryDate)}</span>
         ),
       },
       {
@@ -1790,7 +1782,7 @@ export function PcoPageContent() {
         header: "Logbook expiry",
         searchText: (r) => r.logbookExpiryDate,
         cell: (r) => (
-          <span className="text-sm tabular-nums">{r.logbookExpiryDate}</span>
+          <span className="text-sm tabular-nums">{formatDateUk(r.logbookExpiryDate)}</span>
         ),
       },
       {
@@ -1954,7 +1946,7 @@ export function PcoPageContent() {
                   Filter by date
                   {activeDateFilter ? (
                     <span className="ml-2 font-normal text-[var(--muted)]">
-                      · {activeDateFilter} ({displayedBookingRows.length})
+                      · {formatDateUk(activeDateFilter)} ({displayedBookingRows.length})
                     </span>
                   ) : null}
                 </span>
@@ -2044,7 +2036,7 @@ export function PcoPageContent() {
                   <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-[var(--muted)]">
                     <span>
                       {activeDateFilter
-                        ? `Showing ${displayedBookingRows.length} on ${activeDateFilter}`
+                        ? `Showing ${displayedBookingRows.length} on ${formatDateUk(activeDateFilter)}`
                         : "Click a date to filter · click again to clear"}
                     </span>
                     {activeDateFilter && (
@@ -2391,7 +2383,7 @@ export function PcoPageContent() {
                       notes: [
                         d.notes,
                         ab.bookingCentreName && ab.bookingDate
-                          ? `Current booking: ${ab.bookingCentreName}, ${ab.bookingDate}${ab.bookingTime ? ` ${ab.bookingTime}` : ""}`
+                          ? `Current booking: ${ab.bookingCentreName}, ${formatDateUk(ab.bookingDate)}${ab.bookingTime ? ` ${ab.bookingTime}` : ""}`
                           : "",
                       ]
                         .filter(Boolean)
@@ -2499,8 +2491,8 @@ export function PcoPageContent() {
                 {vrmConfirmVehicle.pcoAccountPhone ?? "—"}
               </DetailRow>
               <DetailRow label="Email">{vrmConfirmVehicle.email ?? "—"}</DetailRow>
-              <DetailRow label="PCO expiry">{vrmConfirmVehicle.pcoExpiryDate ?? "—"}</DetailRow>
-              <DetailRow label="V5C expiry">{vrmConfirmVehicle.logbookExpiryDate}</DetailRow>
+              <DetailRow label="PCO expiry">{formatDateUk(vrmConfirmVehicle.pcoExpiryDate)}</DetailRow>
+              <DetailRow label="V5C expiry">{formatDateUk(vrmConfirmVehicle.logbookExpiryDate)}</DetailRow>
             </dl>
             <div className="flex justify-end gap-2">
               <button
@@ -2568,9 +2560,9 @@ export function PcoPageContent() {
                 </DetailRow>
                 <DetailRow label="Email">{detail.vehicle.email ?? "—"}</DetailRow>
                 <DetailRow label="Address">{formatKeeperAddress(detail.vehicle)}</DetailRow>
-                <DetailRow label="First registration">{detail.vehicle.firstRegistrationDate}</DetailRow>
-                <DetailRow label="PCO expiry">{detail.vehicle.pcoExpiryDate ?? "—"}</DetailRow>
-                <DetailRow label="Logbook expiry">{detail.vehicle.logbookExpiryDate}</DetailRow>
+                <DetailRow label="First registration">{formatDateUk(detail.vehicle.firstRegistrationDate)}</DetailRow>
+                <DetailRow label="PCO expiry">{formatDateUk(detail.vehicle.pcoExpiryDate)}</DetailRow>
+                <DetailRow label="Logbook expiry">{formatDateUk(detail.vehicle.logbookExpiryDate)}</DetailRow>
                 {detail.vehicle.note && (
                   <div className="border-b border-[var(--border)] py-2.5 last:border-0 sm:col-span-2">
                     <dt className="text-sm text-[var(--muted)]">Vehicle note</dt>
@@ -2632,10 +2624,10 @@ export function PcoPageContent() {
                 {detail.status === "FAILED" && (
                   <>
                     <DetailRow label="Failed at">
-                      {detail.failedAt ? formatDateTime(detail.failedAt) : "—"}
+                      {detail.failedAt ? formatDateTimeUk(detail.failedAt) : "—"}
                     </DetailRow>
                     <DetailRow label="Retest deadline">
-                      {detail.retestDeadline ?? "—"}
+                      {formatDateUk(detail.retestDeadline)}
                       {detail.daysUntilRetestDeadline != null && (
                         <span
                           className={`ml-2 text-xs font-semibold ${
@@ -2665,7 +2657,7 @@ export function PcoPageContent() {
                 )}
                 <DetailRow label="Appointment">
                   {detail.bookingDate
-                    ? `${detail.bookingDate}${detail.bookingTime ? ` ${detail.bookingTime}` : ""}`
+                    ? `${formatDateUk(detail.bookingDate)}${detail.bookingTime ? ` ${detail.bookingTime}` : ""}`
                     : detail.status === "PENDING"
                       ? "Not booked yet"
                       : "—"}
@@ -2731,7 +2723,7 @@ export function PcoPageContent() {
                           <span>
                             Informed
                             {detail.clientInformed && detail.clientInformedAt
-                              ? ` · ${formatDateTime(detail.clientInformedAt)}`
+                              ? ` · ${formatDateTimeUk(detail.clientInformedAt)}`
                               : ""}
                           </span>
                         </label>
@@ -2749,7 +2741,7 @@ export function PcoPageContent() {
                           <span>
                             Confirmed
                             {detail.clientResponded && detail.clientRespondedAt
-                              ? ` · ${formatDateTime(detail.clientRespondedAt)}`
+                              ? ` · ${formatDateTimeUk(detail.clientRespondedAt)}`
                               : ""}
                           </span>
                         </label>
@@ -2758,12 +2750,12 @@ export function PcoPageContent() {
                       <span>
                         {detail.clientInformed ? "Informed" : "Not informed"}
                         {detail.clientInformed && detail.clientInformedAt
-                          ? ` · ${formatDateTime(detail.clientInformedAt)}`
+                          ? ` · ${formatDateTimeUk(detail.clientInformedAt)}`
                           : ""}
                         {" · "}
                         {detail.clientResponded ? "Confirmed" : "Not confirmed"}
                         {detail.clientResponded && detail.clientRespondedAt
-                          ? ` · ${formatDateTime(detail.clientRespondedAt)}`
+                          ? ` · ${formatDateTimeUk(detail.clientRespondedAt)}`
                           : ""}
                       </span>
                     )}
@@ -2839,7 +2831,7 @@ export function PcoPageContent() {
                       <tbody>
                         {detail.garageExpenses.map((e) => (
                           <tr key={e.id} className="border-b border-[var(--border)] last:border-0">
-                            <td className="px-3 py-2 whitespace-nowrap">{e.valueDate}</td>
+                            <td className="px-3 py-2 whitespace-nowrap">{formatDateUk(e.valueDate)}</td>
                             <td className="px-3 py-2 font-mono tabular-nums">
                               {formatGbp(e.amount)}
                             </td>
@@ -2847,7 +2839,7 @@ export function PcoPageContent() {
                             <td className="px-3 py-2">{e.paymentAccountName}</td>
                             <td className="px-3 py-2">{e.createdByName ?? "—"}</td>
                             <td className="px-3 py-2 whitespace-nowrap">
-                              {formatDateTime(e.createdAt)}
+                              {formatDateTimeUk(e.createdAt)}
                             </td>
                             <td className="px-3 py-2 max-w-[12rem] truncate" title={e.notes ?? ""}>
                               {e.notes ?? "—"}
@@ -2887,7 +2879,7 @@ export function PcoPageContent() {
                       <tbody>
                         {detail.payments.map((p) => (
                           <tr key={p.id} className="border-b border-[var(--border)] last:border-0">
-                            <td className="px-3 py-2 whitespace-nowrap">{p.valueDate}</td>
+                            <td className="px-3 py-2 whitespace-nowrap">{formatDateUk(p.valueDate)}</td>
                             <td className="px-3 py-2 font-mono tabular-nums">
                               {formatGbp(p.amount)}
                             </td>
@@ -2897,7 +2889,7 @@ export function PcoPageContent() {
                             <td className="px-3 py-2">{p.paymentAccountName}</td>
                             <td className="px-3 py-2">{p.createdByName ?? "—"}</td>
                             <td className="px-3 py-2 whitespace-nowrap">
-                              {formatDateTime(p.createdAt)}
+                              {formatDateTimeUk(p.createdAt)}
                             </td>
                             {canPay && detail.status !== "CANCELLED" && (
                               <td className="px-3 py-2 text-right">
@@ -2925,11 +2917,11 @@ export function PcoPageContent() {
               </h3>
               <dl className="grid gap-x-8 sm:grid-cols-2">
                 <DetailRow label="Created by">{detail.createdByName ?? "—"}</DetailRow>
-                <DetailRow label="Created at">{formatDateTime(detail.createdAt)}</DetailRow>
+                <DetailRow label="Created at">{formatDateTimeUk(detail.createdAt)}</DetailRow>
                 {detail.completedAt && (
                   <>
                     <DetailRow label="Completed by">{detail.completedByName ?? "—"}</DetailRow>
-                    <DetailRow label="Completed at">{formatDateTime(detail.completedAt)}</DetailRow>
+                    <DetailRow label="Completed at">{formatDateTimeUk(detail.completedAt)}</DetailRow>
                   </>
                 )}
               </dl>
@@ -3752,7 +3744,7 @@ export function PcoPageContent() {
                     {renewDraft.pcoAccountPhone || "—"}
                   </DetailRow>
                   <DetailRow label="Email">{renewDraft.email || "—"}</DetailRow>
-                  <DetailRow label="PCO expiry">{renewDraft.pcoExpiryDate || "—"}</DetailRow>
+                  <DetailRow label="PCO expiry">{formatDateUk(renewDraft.pcoExpiryDate)}</DetailRow>
                   {(renewDraft.make || renewDraft.model) && (
                     <DetailRow label="Vehicle">
                       {[renewDraft.make, renewDraft.model].filter(Boolean).join(" ")}
