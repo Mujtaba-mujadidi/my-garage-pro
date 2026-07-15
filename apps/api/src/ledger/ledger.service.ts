@@ -154,6 +154,7 @@ export class LedgerService {
       where: { id },
       data: {
         ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
+        ...(dto.type !== undefined ? { type: dto.type } : {}),
         ...(dto.openingBalance !== undefined
           ? { openingBalance: new Prisma.Decimal(dto.openingBalance.toFixed(2)) }
           : {}),
