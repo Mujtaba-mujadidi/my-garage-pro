@@ -1,5 +1,17 @@
 import { PcoJobType, PcoPriority } from "@prisma/client";
-import { IsBoolean, IsEmail, IsEnum, IsInt, IsOptional, IsString, IsUUID, Matches, MaxLength, Min } from "class-validator";
+import {
+  IsArray,
+  IsBoolean,
+  IsEmail,
+  IsEnum,
+  IsInt,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Matches,
+  MaxLength,
+  Min,
+} from "class-validator";
 
 export class CreatePcoBookingDto {
   @IsString()
@@ -40,11 +52,23 @@ export class CreatePcoBookingDto {
   @MaxLength(40)
   phone?: string;
 
-  /** Number registered on the TfL / PCO centre account. */
+  /** Phone number registered on the TfL / PCO centre account. */
   @IsOptional()
   @IsString()
   @MaxLength(40)
   pcoAccountPhone?: string;
+
+  /** TfL online account email. */
+  @IsOptional()
+  @IsEmail()
+  @MaxLength(200)
+  tflLoginEmail?: string;
+
+  /** TfL online account password (encrypted at rest). */
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  tflLoginPassword?: string;
 
   @IsOptional()
   @IsString()
@@ -114,6 +138,15 @@ export class CreatePcoBookingDto {
 
   @IsOptional()
   chargeGross?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  preferredCentreAny?: boolean;
+
+  @IsOptional()
+  @IsArray()
+  @IsUUID("4", { each: true })
+  preferredCentreIds?: string[];
 
   @IsOptional()
   @IsString()

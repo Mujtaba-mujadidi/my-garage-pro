@@ -6,6 +6,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Modal } from "@/components/ui/modal";
 import { SearchableTable, type TableColumn } from "@/components/ui/searchable-table";
 import { Select } from "@/components/ui/select";
+import { MultiSelect } from "@/components/ui/multi-select";
 import { TabBar } from "@/components/ui/tab-bar";
 import { TableRowActionsMenu } from "@/components/ui/table-row-actions-menu";
 import { apiFetch, ApiError } from "@/lib/api-client";
@@ -15,6 +16,7 @@ import type {
   PaymentMethod,
   PcoBookingDto,
   PcoBookingListDto,
+  PcoBookingStatus,
   PcoBookingTab,
   PcoCentreDto,
   PcoDueVehicleDto,
@@ -36,6 +38,7 @@ import {
   PCO_FUEL_TYPES,
   PCO_SLOT_FEE_DISPOSITION_LABEL,
   PCO_RETEST_WINDOW_DAYS,
+  PAYMENT_METHOD_LABELS,
   calculateLogbookExpiryFromFirstRegistration,
   calculateNextPcoExpiry,
   defaultPaymentMethodForAccount,
@@ -153,6 +156,84 @@ function DetailRow({ label, children }: { label: string; children: ReactNode }) 
   );
 }
 
+function EyeOpenIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M1.1 12.5C2.7 8.1 7 5 12 5s9.3 3.1 10.9 7.5C21.3 16.9 17 20 12 20s-9.3-3.1-10.9-7.5z"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinejoin="round"
+      />
+      <circle cx="12" cy="12.5" r="3" stroke="currentColor" strokeWidth="1.75" />
+    </svg>
+  );
+}
+
+function EyeOffIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M3 3l18 18M10.6 10.6a2 2 0 002.8 2.8M9.9 5.1A10.5 10.5 0 0112 5c5 0 9.3 3.1 10.9 7.5a11.4 11.4 0 01-1.7 2.9M6.1 6.1A11.3 11.3 0 001.1 12.5C2.7 16.9 7 20 12 20a10.5 10.5 0 005.9-1.8"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function PasswordRevealButton({
+  revealed,
+  onToggle,
+}: {
+  revealed: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="inline-flex rounded p-1 text-[var(--muted)] hover:bg-[var(--background)] hover:text-[var(--foreground)]"
+      onClick={onToggle}
+      aria-label={revealed ? "Hide password" : "Show password"}
+      title={revealed ? "Hide password" : "Show password"}
+    >
+      {revealed ? <EyeOffIcon /> : <EyeOpenIcon />}
+    </button>
+  );
+}
+
+function PasswordInput({
+  value,
+  onChange,
+  placeholder,
+  revealed,
+  onToggleReveal,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  revealed: boolean;
+  onToggleReveal: () => void;
+}) {
+  return (
+    <div className="relative">
+      <input
+        type={revealed ? "text" : "password"}
+        autoComplete="new-password"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className={`${inputClass} pr-10`}
+        placeholder={placeholder}
+      />
+      <span className="absolute right-1.5 top-1/2 -translate-y-1/2">
+        <PasswordRevealButton revealed={revealed} onToggle={onToggleReveal} />
+      </span>
+    </div>
+  );
+}
+
 function formatKeeperAddress(v: {
   addressLine1?: string | null;
   addressLine2?: string | null;
@@ -183,7 +264,7 @@ function formatTableContact(
         <p className={email ? "text-xs text-[var(--muted)]" : ""}>Client: {phone}</p>
       )}
       {pcoAccountPhone && (
-        <p className="text-xs text-[var(--muted)]">PCO: {pcoAccountPhone}</p>
+        <p className="text-xs text-[var(--muted)]">PCO phone: {pcoAccountPhone}</p>
       )}
     </div>
   );
@@ -239,8 +320,35 @@ function emptyDraft() {
     notes: "",
     priority: "MEDIUM" as PcoPriority,
     chargeGross: "",
+    preferredCentreAny: false,
+    preferredCentreIds: [] as string[],
+    tflLoginEmail: "",
+    tflLoginPassword: "",
+    hasTflLoginPassword: false,
     clientInformed: false,
     clientResponded: false,
+  };
+}
+
+const PREFERRED_CENTRE_ANY_VALUE = "__ANY__";
+
+function preferredCentreSelectValues(any: boolean, ids: string[]): string[] {
+  return any ? [PREFERRED_CENTRE_ANY_VALUE] : ids;
+}
+
+function applyPreferredCentreSelection(
+  next: string[],
+  prevAny: boolean,
+  prevIds: string[],
+): { preferredCentreAny: boolean; preferredCentreIds: string[] } {
+  const prev = preferredCentreSelectValues(prevAny, prevIds);
+  const added = next.find((v) => !prev.includes(v));
+  if (added === PREFERRED_CENTRE_ANY_VALUE) {
+    return { preferredCentreAny: true, preferredCentreIds: [] };
+  }
+  return {
+    preferredCentreAny: false,
+    preferredCentreIds: next.filter((v) => v !== PREFERRED_CENTRE_ANY_VALUE),
   };
 }
 
@@ -249,6 +357,7 @@ function emptyScheduleDraft() {
     bookingDate: "",
     bookingTime: "",
     bookingCentreId: "",
+    bookingReference: "",
     slotPaidBy: "US" as PcoBookingSlotPaidBy,
     slotPaymentAccountId: "",
     slotChargeGross: String(PCO_DEFAULT_BOOKING_CHARGE),
@@ -273,6 +382,9 @@ function vehicleToDraft(v: PcoVehicleDto): Partial<ReturnType<typeof emptyDraft>
     email: v.email ?? "",
     phone: v.phone ?? "",
     pcoAccountPhone: v.pcoAccountPhone ?? "",
+    tflLoginEmail: v.tflLoginEmail ?? "",
+    tflLoginPassword: "",
+    hasTflLoginPassword: v.hasTflLoginPassword,
     firstRegistrationDate: v.firstRegistrationDate,
     pcoExpiryDate: v.pcoExpiryDate ?? "",
     logbookExpiryDate: v.logbookExpiryDate,
@@ -333,6 +445,9 @@ export function PcoPageContent() {
 
   const [detail, setDetail] = useState<PcoBookingDto | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
+  const [revealTflPassword, setRevealTflPassword] = useState(false);
+  const [showDraftTflPassword, setShowDraftTflPassword] = useState(false);
+  const [showEditTflPassword, setShowEditTflPassword] = useState(false);
 
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [scheduleDraft, setScheduleDraft] = useState(emptyScheduleDraft());
@@ -340,6 +455,7 @@ export function PcoPageContent() {
   const [editOpen, setEditOpen] = useState(false);
   const [editDraft, setEditDraft] = useState(emptyDraft());
   const [editBookingId, setEditBookingId] = useState<string | null>(null);
+  const [editBookingStatus, setEditBookingStatus] = useState<PcoBookingStatus | null>(null);
 
   const [renewDueOpen, setRenewDueOpen] = useState(false);
   const [renewDueVehicle, setRenewDueVehicle] = useState<PcoDueVehicleDto | null>(null);
@@ -534,6 +650,7 @@ export function PcoPageContent() {
     setVrmLookupLoading(false);
     setVrmConfirmVehicle(null);
     setVrmConfirmOpen(false);
+    setShowDraftTflPassword(false);
     setModalOpen(true);
   }
 
@@ -552,6 +669,7 @@ export function PcoPageContent() {
     setError("");
     try {
       const b = await apiFetch<PcoBookingDto>(`/pco/bookings/${id}`);
+      setRevealTflPassword(false);
       setDetail(b);
       setDetailOpen(true);
     } catch (err) {
@@ -586,6 +704,10 @@ export function PcoPageContent() {
           email: draft.email || undefined,
           phone: draft.phone || undefined,
           pcoAccountPhone: draft.pcoAccountPhone || undefined,
+          tflLoginEmail: draft.tflLoginEmail || undefined,
+          ...(draft.tflLoginPassword.trim()
+            ? { tflLoginPassword: draft.tflLoginPassword.trim() }
+            : {}),
           make: draft.make || undefined,
           model: draft.model || undefined,
           color: draft.color || undefined,
@@ -600,6 +722,8 @@ export function PcoPageContent() {
           jobDetails: draft.jobDetails || undefined,
           priority: draft.priority,
           chargeGross: draft.chargeGross ? Number(draft.chargeGross) : 0,
+          preferredCentreAny: draft.preferredCentreAny,
+          preferredCentreIds: draft.preferredCentreAny ? [] : draft.preferredCentreIds,
         }),
       });
       setModalOpen(false);
@@ -623,10 +747,16 @@ export function PcoPageContent() {
     const defaultPaidBy =
       booking.slotPaidBy ??
       (isRetest && suggestedAmount <= 0 ? "NA" : "US");
+    const preferredDefault =
+      !booking.preferredCentreAny && booking.preferredCentreIds.length === 1
+        ? booking.preferredCentreIds[0]
+        : "";
     setScheduleDraft({
       bookingDate: "",
       bookingTime: booking.bookingTime ?? "",
-      bookingCentreId: booking.bookingCentreId ?? centres[0]?.id ?? "",
+      bookingCentreId:
+        booking.bookingCentreId || preferredDefault || centres[0]?.id || "",
+      bookingReference: booking.bookingReference ?? "",
       slotPaidBy: defaultPaidBy,
       slotPaymentAccountId:
         booking.slotPaymentAccountId ?? accounts[0]?.id ?? "",
@@ -659,6 +789,7 @@ export function PcoPageContent() {
     try {
       const b = await apiFetch<PcoBookingDto>(`/pco/bookings/${bookingId}`);
       setEditBookingId(b.id);
+      setEditBookingStatus(b.status);
       setEditDraft({
         ...emptyDraft(),
         registeredKeeper: b.vehicle.registeredKeeper,
@@ -683,7 +814,13 @@ export function PcoPageContent() {
         notes: b.notes ?? "",
         priority: b.priority,
         chargeGross: b.chargeGross,
+        preferredCentreAny: b.preferredCentreAny,
+        preferredCentreIds: b.preferredCentreIds ?? [],
+        tflLoginEmail: b.vehicle.tflLoginEmail ?? "",
+        tflLoginPassword: "",
+        hasTflLoginPassword: b.vehicle.hasTflLoginPassword,
       });
+      setShowEditTflPassword(false);
       setEditOpen(true);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not load booking");
@@ -695,6 +832,8 @@ export function PcoPageContent() {
   async function saveEditPending(e: FormEvent) {
     e.preventDefault();
     if (!editBookingId) return;
+    const allowChargeEdit =
+      editBookingStatus === "PENDING" || editBookingStatus === "ACTIVE";
     setSaving(true);
     setError("");
     try {
@@ -705,11 +844,17 @@ export function PcoPageContent() {
           jobDetails: editDraft.jobDetails || undefined,
           notes: editDraft.notes || undefined,
           priority: editDraft.priority,
-          chargeGross: editDraft.chargeGross ? Number(editDraft.chargeGross) : undefined,
+          ...(allowChargeEdit && editDraft.chargeGross
+            ? { chargeGross: Number(editDraft.chargeGross) }
+            : {}),
           registeredKeeper: editDraft.registeredKeeper,
           email: editDraft.email || undefined,
           phone: editDraft.phone || undefined,
           pcoAccountPhone: editDraft.pcoAccountPhone || undefined,
+          tflLoginEmail: editDraft.tflLoginEmail || undefined,
+          ...(editDraft.tflLoginPassword.trim()
+            ? { tflLoginPassword: editDraft.tflLoginPassword.trim() }
+            : {}),
           addressLine1: editDraft.addressLine1 || undefined,
           city: editDraft.city || undefined,
           postcode: editDraft.postcode || undefined,
@@ -720,10 +865,16 @@ export function PcoPageContent() {
           seatCount: editDraft.seatCount ? Number(editDraft.seatCount) : undefined,
           pcoExpiryDate: editDraft.pcoExpiryDate,
           vehicleNote: editDraft.note || undefined,
+          preferredCentreAny: editDraft.preferredCentreAny,
+          preferredCentreIds: editDraft.preferredCentreAny ? [] : editDraft.preferredCentreIds,
         }),
       });
       setEditOpen(false);
+      setEditBookingStatus(null);
       setMessage("Booking updated");
+      if (detail?.id === editBookingId) {
+        await openDetail(editBookingId);
+      }
       await load();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not update booking");
@@ -1034,6 +1185,9 @@ export function PcoPageContent() {
         bookingCentreId: scheduleDraft.bookingCentreId,
         slotPaidBy: scheduleDraft.slotPaidBy,
       };
+      if (scheduleDraft.bookingReference.trim()) {
+        body.bookingReference = scheduleDraft.bookingReference.trim();
+      }
       if (scheduleDraft.slotPaidBy === "US") {
         body.slotPaymentAccountId = scheduleDraft.slotPaymentAccountId;
         body.slotChargeGross = Number(scheduleDraft.slotChargeGross);
@@ -1428,13 +1582,40 @@ export function PcoPageContent() {
           <span className="text-sm tabular-nums whitespace-nowrap">{r.logbookExpiryDate}</span>
         ),
       },
+      ...(tab === "pending"
+        ? [
+            {
+              id: "preferredCentres",
+              header: "Preferred centre",
+              searchText: (r: PcoBookingListDto) =>
+                r.preferredCentreAny
+                  ? "Any"
+                  : r.preferredCentreIds
+                      .map((id) => centres.find((c) => c.id === id)?.label ?? id)
+                      .join(" "),
+              cell: (r: PcoBookingListDto) => (
+                <span className="text-sm">
+                  {r.preferredCentreAny
+                    ? "Any"
+                    : r.preferredCentreIds.length > 0
+                      ? r.preferredCentreIds
+                          .map((id) => centres.find((c) => c.id === id)?.label ?? "—")
+                          .join(", ")
+                      : "—"}
+                </span>
+              ),
+            } as TableColumn<PcoBookingListDto>,
+          ]
+        : []),
       ...(tab !== "pending" && tab !== "failed"
         ? [
             {
               id: "appointment",
               header: "Booking",
               searchText: (r) =>
-                [r.bookingDate, r.bookingTime, r.bookingCentreName].filter(Boolean).join(" "),
+                [r.bookingDate, r.bookingTime, r.bookingCentreName, r.bookingReference]
+                  .filter(Boolean)
+                  .join(" "),
               cell: (r) =>
                 r.bookingDate ? (
                   <div className="text-sm tabular-nums whitespace-nowrap">
@@ -1444,6 +1625,9 @@ export function PcoPageContent() {
                     </p>
                     {r.bookingCentreName && (
                       <p className="text-xs text-[var(--muted)]">{r.bookingCentreName}</p>
+                    )}
+                    {r.bookingReference && (
+                      <p className="text-xs text-[var(--muted)]">Ref: {r.bookingReference}</p>
                     )}
                   </div>
                 ) : (
@@ -1499,6 +1683,9 @@ export function PcoPageContent() {
           const actions: { label: string; onClick: () => void; variant?: "default" | "danger" }[] = [
             { label: "View", onClick: () => void openDetail(r.id) },
           ];
+          if (canWrite) {
+            actions.push({ label: "Edit", onClick: () => void openEditPending(r.id) });
+          }
           if (tab === "pending" && canWrite) {
             if (canPay && Number(r.balanceDue) > 0) {
               actions.push({
@@ -1506,10 +1693,7 @@ export function PcoPageContent() {
                 onClick: () => void openRecordPaymentFromRow(r.id),
               });
             }
-            actions.push(
-              { label: "Book", onClick: () => void quickSchedule(r.id) },
-              { label: "Edit", onClick: () => void openEditPending(r.id) },
-            );
+            actions.push({ label: "Book", onClick: () => void quickSchedule(r.id) });
           }
           if (tab === "failed" && canWrite) {
             actions.push({
@@ -1560,7 +1744,7 @@ export function PcoPageContent() {
       },
     ];
     return cols;
-  }, [tab, canWrite, canPay, saving, priorityUpdatingId, updatePriority]);
+  }, [tab, canWrite, canPay, saving, priorityUpdatingId, updatePriority, centres]);
 
   const dueColumns: TableColumn<PcoDueVehicleDto>[] = useMemo(
     () => [
@@ -1908,7 +2092,16 @@ export function PcoPageContent() {
         </>
       )}
 
-      <Modal title="Add request" open={modalOpen} onClose={() => setModalOpen(false)} size="lg" allowFullscreen>
+      <Modal
+        title="Add request"
+        open={modalOpen}
+        onClose={() => {
+          setModalOpen(false);
+          setShowDraftTflPassword(false);
+        }}
+        size="lg"
+        allowFullscreen
+      >
         <form onSubmit={(e) => void saveBooking(e)} className="space-y-4">
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
@@ -1978,13 +2171,45 @@ export function PcoPageContent() {
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
-                PCO account number
+                PCO account phone number
               </label>
               <input
                 value={draft.pcoAccountPhone}
                 onChange={(e) => setDraft((d) => ({ ...d, pcoAccountPhone: e.target.value }))}
                 className={inputClass}
-                placeholder="Number on the PCO centre / account"
+                placeholder="Phone on the TfL / PCO centre account"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
+                Preferred centre(s)
+              </label>
+              <MultiSelect
+                aria-label="Preferred centres"
+                values={preferredCentreSelectValues(
+                  draft.preferredCentreAny,
+                  draft.preferredCentreIds,
+                )}
+                onChange={(next) =>
+                  setDraft((d) => ({
+                    ...d,
+                    ...applyPreferredCentreSelection(
+                      next,
+                      d.preferredCentreAny,
+                      d.preferredCentreIds,
+                    ),
+                  }))
+                }
+                options={[
+                  { value: PREFERRED_CENTRE_ANY_VALUE, label: "Any" },
+                  ...centres.map((c) => ({ value: c.id, label: c.label })),
+                ]}
+                placeholder={
+                  centres.length === 0
+                    ? "Add centres under the Centres tab first"
+                    : "Select centres…"
+                }
+                disabled={centres.length === 0}
               />
             </div>
             <div className="sm:col-span-2">
@@ -2112,6 +2337,44 @@ export function PcoPageContent() {
             </div>
           </details>
 
+          <details className="rounded-lg border border-[var(--border)] p-3">
+            <summary className="cursor-pointer text-sm font-medium">TfL login details</summary>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
+                  TfL email
+                </label>
+                <input
+                  type="email"
+                  autoComplete="off"
+                  value={draft.tflLoginEmail}
+                  onChange={(e) => setDraft((d) => ({ ...d, tflLoginEmail: e.target.value }))}
+                  className={inputClass}
+                  placeholder="Account email used on TfL"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
+                  TfL password
+                </label>
+                <PasswordInput
+                  value={draft.tflLoginPassword}
+                  onChange={(v) => setDraft((d) => ({ ...d, tflLoginPassword: v }))}
+                  revealed={showDraftTflPassword}
+                  onToggleReveal={() => setShowDraftTflPassword((v) => !v)}
+                  placeholder={
+                    draft.hasTflLoginPassword
+                      ? "Leave blank to keep saved password"
+                      : "Stored encrypted"
+                  }
+                />
+              </div>
+            </div>
+            <p className="mt-2 text-xs text-[var(--muted)]">
+              Password is encrypted at rest. Leave blank on updates to keep the existing password.
+            </p>
+          </details>
+
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
               <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Job type</label>
@@ -2232,7 +2495,7 @@ export function PcoPageContent() {
             <dl className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 text-sm">
               <DetailRow label="Keeper">{vrmConfirmVehicle.registeredKeeper}</DetailRow>
               <DetailRow label="Client contact">{vrmConfirmVehicle.phone ?? "—"}</DetailRow>
-              <DetailRow label="PCO account number">
+              <DetailRow label="PCO account phone number">
                 {vrmConfirmVehicle.pcoAccountPhone ?? "—"}
               </DetailRow>
               <DetailRow label="Email">{vrmConfirmVehicle.email ?? "—"}</DetailRow>
@@ -2262,7 +2525,10 @@ export function PcoPageContent() {
       <Modal
         title={detail ? detail.bookingNumber : "Booking"}
         open={detailOpen}
-        onClose={() => setDetailOpen(false)}
+        onClose={() => {
+          setDetailOpen(false);
+          setRevealTflPassword(false);
+        }}
         size="xl"
         allowFullscreen
       >
@@ -2288,7 +2554,7 @@ export function PcoPageContent() {
             </div>
 
             <section>
-              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+              <h3 className="mb-2 text-sm font-bold uppercase tracking-wide text-[var(--foreground)]">
                 Vehicle & keeper
               </h3>
               <dl className="grid gap-x-8 sm:grid-cols-2">
@@ -2297,26 +2563,12 @@ export function PcoPageContent() {
                 </DetailRow>
                 <DetailRow label="Registered keeper">{detail.vehicle.registeredKeeper}</DetailRow>
                 <DetailRow label="Client contact">{detail.vehicle.phone ?? "—"}</DetailRow>
-                <DetailRow label="PCO account number">
+                <DetailRow label="PCO account phone number">
                   {detail.vehicle.pcoAccountPhone ?? "—"}
                 </DetailRow>
                 <DetailRow label="Email">{detail.vehicle.email ?? "—"}</DetailRow>
                 <DetailRow label="Address">{formatKeeperAddress(detail.vehicle)}</DetailRow>
                 <DetailRow label="First registration">{detail.vehicle.firstRegistrationDate}</DetailRow>
-                {(detail.vehicle.make || detail.vehicle.model) && (
-                  <DetailRow label="Make / model">
-                    {[detail.vehicle.make, detail.vehicle.model].filter(Boolean).join(" ")}
-                  </DetailRow>
-                )}
-                {detail.vehicle.color && (
-                  <DetailRow label="Colour">{detail.vehicle.color}</DetailRow>
-                )}
-                {detail.vehicle.fuelType && (
-                  <DetailRow label="Fuel">{detail.vehicle.fuelType}</DetailRow>
-                )}
-                {detail.vehicle.seatCount != null && (
-                  <DetailRow label="Seats">{detail.vehicle.seatCount}</DetailRow>
-                )}
                 <DetailRow label="PCO expiry">{detail.vehicle.pcoExpiryDate ?? "—"}</DetailRow>
                 <DetailRow label="Logbook expiry">{detail.vehicle.logbookExpiryDate}</DetailRow>
                 {detail.vehicle.note && (
@@ -2329,7 +2581,48 @@ export function PcoPageContent() {
             </section>
 
             <section>
-              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+              <h3 className="mb-2 text-sm font-bold uppercase tracking-wide text-[var(--foreground)]">
+                Vehicle details
+              </h3>
+              <dl className="grid gap-x-8 sm:grid-cols-2">
+                <DetailRow label="Make">{detail.vehicle.make ?? "—"}</DetailRow>
+                <DetailRow label="Model">{detail.vehicle.model ?? "—"}</DetailRow>
+                <DetailRow label="Colour">{detail.vehicle.color ?? "—"}</DetailRow>
+                <DetailRow label="Fuel">{detail.vehicle.fuelType ?? "—"}</DetailRow>
+                <DetailRow label="Seats">
+                  {detail.vehicle.seatCount != null ? detail.vehicle.seatCount : "—"}
+                </DetailRow>
+              </dl>
+            </section>
+
+            <section>
+              <h3 className="mb-2 text-sm font-bold uppercase tracking-wide text-[var(--foreground)]">
+                TfL login details
+              </h3>
+              <dl className="grid gap-x-8 sm:grid-cols-2">
+                <DetailRow label="TfL email">{detail.vehicle.tflLoginEmail ?? "—"}</DetailRow>
+                <DetailRow label="TfL password">
+                  {detail.vehicle.hasTflLoginPassword ? (
+                    <span className="inline-flex items-center gap-2">
+                      <span className="font-mono text-sm tracking-wide">
+                        {revealTflPassword
+                          ? (detail.vehicle.tflLoginPassword ?? "—")
+                          : "••••••••"}
+                      </span>
+                      <PasswordRevealButton
+                        revealed={revealTflPassword}
+                        onToggle={() => setRevealTflPassword((v) => !v)}
+                      />
+                    </span>
+                  ) : (
+                    "—"
+                  )}
+                </DetailRow>
+              </dl>
+            </section>
+
+            <section>
+              <h3 className="mb-2 text-sm font-bold uppercase tracking-wide text-[var(--foreground)]">
                 Booking
               </h3>
               <dl className="grid gap-x-8 sm:grid-cols-2">
@@ -2378,17 +2671,45 @@ export function PcoPageContent() {
                       : "—"}
                 </DetailRow>
                 <DetailRow label="Centre">{detail.bookingCentreName ?? "—"}</DetailRow>
+                {detail.bookingReference && (
+                  <DetailRow label="Booking reference">{detail.bookingReference}</DetailRow>
+                )}
+                {(detail.status === "PENDING" ||
+                  detail.preferredCentreAny ||
+                  detail.preferredCentreIds.length > 0) && (
+                  <DetailRow label="Preferred centre(s)">
+                    {detail.preferredCentreAny
+                      ? "Any"
+                      : detail.preferredCentreIds.length > 0
+                        ? detail.preferredCentreIds
+                            .map((id) => centres.find((c) => c.id === id)?.label ?? id)
+                            .join(", ")
+                        : "—"}
+                  </DetailRow>
+                )}
                 <DetailRow label="Slot paid by">
                   {detail.slotPaidBy
                     ? PCO_BOOKING_SLOT_PAID_BY_LABEL[detail.slotPaidBy]
                     : "—"}
                 </DetailRow>
-                {detail.slotPaidBy === "US" && detail.slotChargeGross != null && (
-                  <DetailRow label="Slot expense (us)">
-                    {formatGbp(detail.slotChargeGross)}
-                    {detail.slotPaymentAccountName
-                      ? ` · ${detail.slotPaymentAccountName}`
-                      : ""}
+                {detail.slotChargeGross != null && (
+                  <DetailRow label="Slot fee amount">{formatGbp(detail.slotChargeGross)}</DetailRow>
+                )}
+                {detail.slotPaidBy === "US" && (
+                  <DetailRow label="Slot paid from account">
+                    {detail.slotPaymentAccountName ?? "—"}
+                  </DetailRow>
+                )}
+                {detail.slotPaidBy === "TFL_CREDIT" && (
+                  <DetailRow label="TfL credit from">
+                    {detail.slotCreditSourceBookingNumber ?? "—"}
+                  </DetailRow>
+                )}
+                {detail.slotFeeDisposition &&
+                  (detail.slotFeeDisposition === "RETAINED" ||
+                    detail.slotFeeDisposition === "REFUND_REQUESTED") && (
+                  <DetailRow label="Slot fee on cancel/reschedule">
+                    {PCO_SLOT_FEE_DISPOSITION_LABEL[detail.slotFeeDisposition]}
                   </DetailRow>
                 )}
                 <div className="border-b border-[var(--border)] py-2.5 last:border-0 sm:col-span-2">
@@ -2459,7 +2780,7 @@ export function PcoPageContent() {
 
             <section>
               <div className="mb-2 flex items-center justify-between gap-2">
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+                <h3 className="text-sm font-bold uppercase tracking-wide text-[var(--foreground)]">
                   Charges
                 </h3>
                 {canWrite &&
@@ -2492,48 +2813,114 @@ export function PcoPageContent() {
                   </span>
                 </DetailRow>
               </dl>
-              {detail.payments.length > 0 && (
-                <div className="mt-3 overflow-x-auto rounded-lg border border-[var(--border)]">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-[var(--border)] bg-[var(--background)] text-left text-xs text-[var(--muted)]">
-                        <th className="px-3 py-2 font-medium">Date</th>
-                        <th className="px-3 py-2 font-medium">Amount</th>
-                        <th className="px-3 py-2 font-medium">Method</th>
-                        <th className="px-3 py-2 font-medium">Account</th>
-                        {canPay && detail.status !== "CANCELLED" && (
-                          <th className="px-3 py-2 font-medium" />
-                        )}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {detail.payments.map((p) => (
-                        <tr key={p.id} className="border-b border-[var(--border)] last:border-0">
-                          <td className="px-3 py-2">{p.valueDate}</td>
-                          <td className="px-3 py-2 font-mono tabular-nums">{formatGbp(p.amount)}</td>
-                          <td className="px-3 py-2">{p.method}</td>
-                          <td className="px-3 py-2">{p.paymentAccountName}</td>
-                          {canPay && detail.status !== "CANCELLED" && (
-                            <td className="px-3 py-2 text-right">
-                              <button
-                                type="button"
-                                onClick={() => openAmendPayment(detail, p.id)}
-                                className="text-xs font-medium text-accent hover:underline"
-                              >
-                                Amend
-                              </button>
+
+              <div className="mt-4">
+                <h4 className="mb-2 text-xs font-bold uppercase tracking-wide text-[var(--foreground)]">
+                  Expenses
+                </h4>
+                {detail.garageExpenses.length === 0 ? (
+                  <p className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--muted)]">
+                    No expenses recorded (e.g. TfL slot not paid by us)
+                  </p>
+                ) : (
+                  <div className="overflow-x-auto rounded-lg border border-[var(--border)]">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-[var(--border)] bg-[var(--background)] text-left text-xs text-[var(--muted)]">
+                          <th className="px-3 py-2 font-medium">Value date</th>
+                          <th className="px-3 py-2 font-medium">Amount</th>
+                          <th className="px-3 py-2 font-medium">Category</th>
+                          <th className="px-3 py-2 font-medium">Account</th>
+                          <th className="px-3 py-2 font-medium">Recorded by</th>
+                          <th className="px-3 py-2 font-medium">Recorded at</th>
+                          <th className="px-3 py-2 font-medium">Notes</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {detail.garageExpenses.map((e) => (
+                          <tr key={e.id} className="border-b border-[var(--border)] last:border-0">
+                            <td className="px-3 py-2 whitespace-nowrap">{e.valueDate}</td>
+                            <td className="px-3 py-2 font-mono tabular-nums">
+                              {formatGbp(e.amount)}
                             </td>
+                            <td className="px-3 py-2">{e.category ?? "Expense"}</td>
+                            <td className="px-3 py-2">{e.paymentAccountName}</td>
+                            <td className="px-3 py-2">{e.createdByName ?? "—"}</td>
+                            <td className="px-3 py-2 whitespace-nowrap">
+                              {formatDateTime(e.createdAt)}
+                            </td>
+                            <td className="px-3 py-2 max-w-[12rem] truncate" title={e.notes ?? ""}>
+                              {e.notes ?? "—"}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-4">
+                <h4 className="mb-2 text-xs font-bold uppercase tracking-wide text-[var(--foreground)]">
+                  Customer payments
+                </h4>
+                {detail.payments.length === 0 ? (
+                  <p className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--muted)]">
+                    No payments recorded yet
+                  </p>
+                ) : (
+                  <div className="overflow-x-auto rounded-lg border border-[var(--border)]">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-[var(--border)] bg-[var(--background)] text-left text-xs text-[var(--muted)]">
+                          <th className="px-3 py-2 font-medium">Value date</th>
+                          <th className="px-3 py-2 font-medium">Amount</th>
+                          <th className="px-3 py-2 font-medium">Method</th>
+                          <th className="px-3 py-2 font-medium">Account</th>
+                          <th className="px-3 py-2 font-medium">Recorded by</th>
+                          <th className="px-3 py-2 font-medium">Recorded at</th>
+                          {canPay && detail.status !== "CANCELLED" && (
+                            <th className="px-3 py-2 font-medium" />
                           )}
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
+                      </thead>
+                      <tbody>
+                        {detail.payments.map((p) => (
+                          <tr key={p.id} className="border-b border-[var(--border)] last:border-0">
+                            <td className="px-3 py-2 whitespace-nowrap">{p.valueDate}</td>
+                            <td className="px-3 py-2 font-mono tabular-nums">
+                              {formatGbp(p.amount)}
+                            </td>
+                            <td className="px-3 py-2">
+                              {PAYMENT_METHOD_LABELS[p.method as PaymentMethod] ?? p.method}
+                            </td>
+                            <td className="px-3 py-2">{p.paymentAccountName}</td>
+                            <td className="px-3 py-2">{p.createdByName ?? "—"}</td>
+                            <td className="px-3 py-2 whitespace-nowrap">
+                              {formatDateTime(p.createdAt)}
+                            </td>
+                            {canPay && detail.status !== "CANCELLED" && (
+                              <td className="px-3 py-2 text-right">
+                                <button
+                                  type="button"
+                                  onClick={() => openAmendPayment(detail, p.id)}
+                                  className="text-xs font-medium text-accent hover:underline"
+                                >
+                                  Amend
+                                </button>
+                              </td>
+                            )}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
             </section>
 
             <section>
-              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+              <h3 className="mb-2 text-sm font-bold uppercase tracking-wide text-[var(--foreground)]">
                 Record
               </h3>
               <dl className="grid gap-x-8 sm:grid-cols-2">
@@ -2550,11 +2937,10 @@ export function PcoPageContent() {
 
             <section>
               <div className="mb-2 flex items-center justify-between gap-2">
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+                <h3 className="text-sm font-bold uppercase tracking-wide text-[var(--foreground)]">
                   Notes
                 </h3>
-                {canWrite &&
-                  (detail.status === "PENDING" || detail.status === "ACTIVE") && (
+                {canWrite && (
                     <button
                       type="button"
                       onClick={openNotesModal}
@@ -2571,15 +2957,24 @@ export function PcoPageContent() {
               </div>
             </section>
 
-            {detail.status === "FAILED" && canWrite && !detail.retestBookingId && (
+            {detail.status === "FAILED" && canWrite && (
               <div className="flex flex-wrap gap-2 border-t border-[var(--border)] pt-4">
                 <button
                   type="button"
-                  onClick={() => openRetestModal(detail)}
-                  className="rounded-lg bg-accent px-3 py-1.5 text-sm font-semibold text-white"
+                  onClick={() => void openEditPending(detail.id)}
+                  className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm font-medium"
                 >
-                  Book retest
+                  Edit
                 </button>
+                {!detail.retestBookingId && (
+                  <button
+                    type="button"
+                    onClick={() => openRetestModal(detail)}
+                    className="rounded-lg bg-accent px-3 py-1.5 text-sm font-semibold text-white"
+                  >
+                    Book retest
+                  </button>
+                )}
               </div>
             )}
 
@@ -2631,6 +3026,13 @@ export function PcoPageContent() {
                 )}
                 <button
                   type="button"
+                  onClick={() => void openEditPending(detail.id)}
+                  className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm font-medium"
+                >
+                  Edit
+                </button>
+                <button
+                  type="button"
                   onClick={() => openFeeActionModal("reschedule", detail)}
                   className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm font-medium"
                 >
@@ -2662,9 +3064,16 @@ export function PcoPageContent() {
               </div>
             )}
 
-            {detail.status === "COMPLETED" && canWrite && Number(detail.balanceDue) > 0 && (
+            {detail.status === "COMPLETED" && canWrite && (
               <div className="flex flex-wrap gap-2 border-t border-[var(--border)] pt-4">
-                {canPay && (
+                <button
+                  type="button"
+                  onClick={() => void openEditPending(detail.id)}
+                  className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm font-medium"
+                >
+                  Edit
+                </button>
+                {canPay && Number(detail.balanceDue) > 0 && (
                   <button
                     type="button"
                     onClick={() => openRecordPayment(detail)}
@@ -2673,10 +3082,24 @@ export function PcoPageContent() {
                     Record payment
                   </button>
                 )}
-                <p className="w-full text-xs text-[var(--muted)]">
-                  Job is complete but {formatGbp(detail.balanceDue)} is still owed — shown under
-                  Outstanding until paid in full.
-                </p>
+                {Number(detail.balanceDue) > 0 && (
+                  <p className="w-full text-xs text-[var(--muted)]">
+                    Job is complete but {formatGbp(detail.balanceDue)} is still owed — shown under
+                    Outstanding until paid in full.
+                  </p>
+                )}
+              </div>
+            )}
+
+            {detail.status === "CANCELLED" && canWrite && (
+              <div className="flex flex-wrap gap-2 border-t border-[var(--border)] pt-4">
+                <button
+                  type="button"
+                  onClick={() => void openEditPending(detail.id)}
+                  className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm font-medium"
+                >
+                  Edit
+                </button>
               </div>
             )}
           </div>
@@ -2709,6 +3132,20 @@ export function PcoPageContent() {
                   ? centreOptions
                   : [{ value: "", label: "Add a centre in Settings first" }]
               }
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
+              Booking reference <span className="font-normal">(optional)</span>
+            </label>
+            <input
+              value={scheduleDraft.bookingReference}
+              onChange={(e) =>
+                setScheduleDraft((d) => ({ ...d, bookingReference: e.target.value }))
+              }
+              className={inputClass}
+              placeholder="TfL / centre confirmation reference"
+              maxLength={120}
             />
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
@@ -3311,7 +3748,7 @@ export function PcoPageContent() {
                 <dl className="grid gap-1 text-sm sm:grid-cols-2">
                   <DetailRow label="Keeper">{renewDraft.registeredKeeper}</DetailRow>
                   <DetailRow label="Client contact">{renewDraft.phone || "—"}</DetailRow>
-                  <DetailRow label="PCO account number">
+                  <DetailRow label="PCO account phone number">
                     {renewDraft.pcoAccountPhone || "—"}
                   </DetailRow>
                   <DetailRow label="Email">{renewDraft.email || "—"}</DetailRow>
@@ -3351,7 +3788,7 @@ export function PcoPageContent() {
                   </div>
                   <div>
                     <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
-                      PCO account number
+                      PCO account phone number
                     </label>
                     <input
                       value={renewDraft.pcoAccountPhone}
@@ -3474,7 +3911,17 @@ export function PcoPageContent() {
         )}
       </Modal>
 
-      <Modal title="Edit request" open={editOpen} onClose={() => setEditOpen(false)} size="lg" allowFullscreen>
+      <Modal
+        title="Edit booking"
+        open={editOpen}
+        onClose={() => {
+          setEditOpen(false);
+          setShowEditTflPassword(false);
+          setEditBookingStatus(null);
+        }}
+        size="lg"
+        allowFullscreen
+      >
         <form onSubmit={(e) => void saveEditPending(e)} className="space-y-4">
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
@@ -3511,12 +3958,40 @@ export function PcoPageContent() {
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
-                PCO account number
+                PCO account phone number
               </label>
               <input
                 value={editDraft.pcoAccountPhone}
                 onChange={(e) => setEditDraft((d) => ({ ...d, pcoAccountPhone: e.target.value }))}
                 className={inputClass}
+                placeholder="Phone on the TfL / PCO centre account"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
+                Preferred centre(s)
+              </label>
+              <MultiSelect
+                aria-label="Preferred centres"
+                values={preferredCentreSelectValues(
+                  editDraft.preferredCentreAny,
+                  editDraft.preferredCentreIds,
+                )}
+                onChange={(next) =>
+                  setEditDraft((d) => ({
+                    ...d,
+                    ...applyPreferredCentreSelection(
+                      next,
+                      d.preferredCentreAny,
+                      d.preferredCentreIds,
+                    ),
+                  }))
+                }
+                options={[
+                  { value: PREFERRED_CENTRE_ANY_VALUE, label: "Any" },
+                  ...centres.map((c) => ({ value: c.id, label: c.label })),
+                ]}
+                placeholder="Select centres…"
               />
             </div>
             <div className="sm:col-span-2">
@@ -3608,6 +4083,45 @@ export function PcoPageContent() {
             </div>
           </details>
 
+          <details className="rounded-lg border border-[var(--border)] p-3">
+            <summary className="cursor-pointer text-sm font-medium">TfL login details</summary>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
+                  TfL email
+                </label>
+                <input
+                  type="email"
+                  autoComplete="off"
+                  value={editDraft.tflLoginEmail}
+                  onChange={(e) =>
+                    setEditDraft((d) => ({ ...d, tflLoginEmail: e.target.value }))
+                  }
+                  className={inputClass}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
+                  TfL password
+                </label>
+                <PasswordInput
+                  value={editDraft.tflLoginPassword}
+                  onChange={(v) => setEditDraft((d) => ({ ...d, tflLoginPassword: v }))}
+                  revealed={showEditTflPassword}
+                  onToggleReveal={() => setShowEditTflPassword((v) => !v)}
+                  placeholder={
+                    editDraft.hasTflLoginPassword
+                      ? "Leave blank to keep saved password"
+                      : "Stored encrypted"
+                  }
+                />
+              </div>
+            </div>
+            <p className="mt-2 text-xs text-[var(--muted)]">
+              Password is encrypted at rest. Leave blank on updates to keep the existing password.
+            </p>
+          </details>
+
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
               <label className="mb-1 block text-xs font-medium text-[var(--muted)]">Job type</label>
@@ -3632,18 +4146,36 @@ export function PcoPageContent() {
               <label className="mb-1 block text-xs font-medium text-[var(--muted)]">
                 Our service charge (£)
               </label>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={editDraft.chargeGross}
-                onChange={(e) => setEditDraft((d) => ({ ...d, chargeGross: e.target.value }))}
-                className={inputClass}
-                placeholder="From last job if available"
-              />
-              <p className="mt-1 text-xs text-[var(--muted)]">
-                Garage fee only. When we pay the TfL slot, customer total = service + slot expense.
-              </p>
+              {editBookingStatus === "PENDING" || editBookingStatus === "ACTIVE" ? (
+                <>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={editDraft.chargeGross}
+                    onChange={(e) => setEditDraft((d) => ({ ...d, chargeGross: e.target.value }))}
+                    className={inputClass}
+                    placeholder="From last job if available"
+                  />
+                  <p className="mt-1 text-xs text-[var(--muted)]">
+                    Garage fee only. When we pay the TfL slot, customer total = service + slot
+                    expense.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <input
+                    type="number"
+                    value={editDraft.chargeGross}
+                    className={inputClass}
+                    disabled
+                    readOnly
+                  />
+                  <p className="mt-1 text-xs text-[var(--muted)]">
+                    Use Amend charges on the booking to change the service charge after completion.
+                  </p>
+                </>
+              )}
             </div>
           </div>
 

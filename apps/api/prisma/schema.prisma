@@ -1149,6 +1149,10 @@ model PcoVehicle {
   phone                 String?
   // Number registered on the TfL / PCO centre account
   pcoAccountPhone       String?          @map("pco_account_phone")
+  // TfL online account email / login
+  tflLoginEmail         String?          @map("tfl_login_email")
+  // AES-GCM ciphertext (see FIELD_ENCRYPTION_KEY); never store plaintext
+  tflLoginPasswordEnc   String?          @map("tfl_login_password_enc")
   make                  String?
   model                 String?
   color                 String?
@@ -1187,6 +1191,12 @@ model PcoBooking {
   bookingDate           DateTime?        @map("booking_date") @db.Date
   bookingTime           String?          @map("booking_time")
   bookingCentreId       String?          @map("booking_centre_id") @db.Uuid
+  // Client preference before a centre is booked — true = any centre is fine
+  preferredCentreAny    Boolean          @default(false) @map("preferred_centre_any")
+  // Preferred centre SettingOption IDs (JSON string array); ignored when preferredCentreAny
+  preferredCentreIds    Json             @default("[]") @map("preferred_centre_ids")
+  // Optional reference from the TfL / centre booking confirmation
+  bookingReference      String?          @map("booking_reference")
   clientInformed        Boolean          @default(false) @map("client_informed")
   clientResponded       Boolean          @default(false) @map("client_responded")
   clientInformedAt      DateTime?        @map("client_informed_at")

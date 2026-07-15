@@ -2,6 +2,7 @@ import type {
   PcoBooking,
   PcoBookingPayment,
   PcoVehicle,
+  LedgerEntry,
   PaymentAccount,
   SettingOption,
   User,
@@ -12,6 +13,7 @@ import type {
   PcoBookingPaymentDto,
   PcoCentreDto,
   PcoDueVehicleDto,
+  PcoGarageExpenseDto,
   PcoSlotCreditDto,
   PcoVehicleDto,
 } from "@mygaragepro/shared";
@@ -26,16 +28,37 @@ import {
   pcoCustomerTotalDue,
   retestDeadlineIso,
 } from "@mygaragepro/shared";
+import { decryptField } from "../common/field-encryption";
 
 function dec(v: { toString(): string }) {
   return v.toString();
+}
+
+function preferredCentreIdsFromJson(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((id): id is string => typeof id === "string" && id.length > 0);
 }
 
 function isoDate(d: Date) {
   return d.toISOString().slice(0, 10);
 }
 
-export function toPcoVehicleDto(row: PcoVehicle): PcoVehicleDto {
+export function toPcoVehicleDto(
+  row: PcoVehicle,
+  opts?: { revealTflPassword?: boolean },
+): PcoVehicleDto {
+  const hasTflLoginPassword = Boolean(row.tflLoginPasswordEnc);
+  let tflLoginPassword: string | null | undefined;
+  if (opts?.revealTflPassword) {
+    tflLoginPassword = null;
+    if (row.tflLoginPasswordEnc) {
+      try {
+        tflLoginPassword = decryptField(row.tflLoginPasswordEnc);
+      } catch {
+        tflLoginPassword = null;
+      }
+    }
+  }
   return {
     id: row.id,
     vrm: row.vrm,
@@ -47,6 +70,9 @@ export function toPcoVehicleDto(row: PcoVehicle): PcoVehicleDto {
     email: row.email,
     phone: row.phone,
     pcoAccountPhone: row.pcoAccountPhone,
+    tflLoginEmail: row.tflLoginEmail,
+    hasTflLoginPassword,
+    ...(opts?.revealTflPassword ? { tflLoginPassword } : {}),
     make: row.make,
     model: row.model,
     color: row.color,
@@ -74,6 +100,7 @@ export function toPcoCentreDto(row: SettingOption): PcoCentreDto {
 
 type PaymentWithAccount = PcoBookingPayment & {
   paymentAccount: Pick<PaymentAccount, "name">;
+  createdBy: Pick<User, "displayName">;
 };
 
 export function toPcoPaymentDto(row: PaymentWithAccount): PcoBookingPaymentDto {
@@ -84,6 +111,27 @@ export function toPcoPaymentDto(row: PaymentWithAccount): PcoBookingPaymentDto {
     valueDate: isoDate(row.valueDate),
     paymentAccountId: row.paymentAccountId,
     paymentAccountName: row.paymentAccount.name,
+    createdByName: row.createdBy.displayName,
+    createdAt: row.createdAt.toISOString(),
+  };
+}
+
+type ExpenseWithAccount = LedgerEntry & {
+  paymentAccount: Pick<PaymentAccount, "name">;
+  createdBy: Pick<User, "displayName">;
+};
+
+export function toPcoGarageExpenseDto(row: ExpenseWithAccount): PcoGarageExpenseDto {
+  return {
+    id: row.id,
+    amount: dec(row.amountGross),
+    valueDate: isoDate(row.valueDate),
+    paymentAccountId: row.paymentAccountId,
+    paymentAccountName: row.paymentAccount.name,
+    paymentMethod: row.paymentMethod,
+    category: row.category,
+    notes: row.notes,
+    createdByName: row.createdBy.displayName,
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -97,6 +145,7 @@ type BookingRow = PcoBooking & {
   rescheduledToBooking: Pick<PcoBooking, "bookingNumber"> | null;
   retestBooking: Pick<PcoBooking, "bookingNumber"> | null;
   payments: PaymentWithAccount[];
+  ledgerEntries: ExpenseWithAccount[];
   createdBy: Pick<User, "displayName">;
   completedBy: Pick<User, "displayName"> | null;
 };
@@ -123,6 +172,9 @@ export function toPcoBookingDto(row: BookingRow): PcoBookingDto {
     bookingTime: row.bookingTime,
     bookingCentreId: row.bookingCentreId,
     bookingCentreName: row.bookingCentre?.label ?? null,
+    preferredCentreAny: row.preferredCentreAny,
+    preferredCentreIds: preferredCentreIdsFromJson(row.preferredCentreIds),
+    bookingReference: row.bookingReference,
     clientInformed: row.clientInformed,
     clientResponded: row.clientResponded,
     clientInformedAt: row.clientInformedAt?.toISOString() ?? null,
@@ -151,8 +203,9 @@ export function toPcoBookingDto(row: BookingRow): PcoBookingDto {
     retestBookingNumber: row.retestBooking?.bookingNumber ?? null,
     retestChargeReference: row.retestChargeReference,
     notes: row.notes,
-    vehicle: toPcoVehicleDto(row.vehicle),
+    vehicle: toPcoVehicleDto(row.vehicle, { revealTflPassword: true }),
     payments: row.payments.map(toPcoPaymentDto),
+    garageExpenses: row.ledgerEntries.map(toPcoGarageExpenseDto),
     createdById: row.createdById,
     createdByName: row.createdBy.displayName,
     completedAt: row.completedAt?.toISOString() ?? null,
@@ -188,6 +241,9 @@ export function toPcoBookingListDto(row: ListRow): PcoBookingListDto {
     bookingDate: row.bookingDate ? isoDate(row.bookingDate) : null,
     bookingTime: row.bookingTime,
     bookingCentreName: row.bookingCentre?.label ?? null,
+    preferredCentreAny: row.preferredCentreAny,
+    preferredCentreIds: preferredCentreIdsFromJson(row.preferredCentreIds),
+    bookingReference: row.bookingReference,
     clientInformed: row.clientInformed,
     clientResponded: row.clientResponded,
     vrm: row.vehicle.vrm,

@@ -237,8 +237,17 @@ export type PcoVehicleDto = {
   postcode: string | null;
   email: string | null;
   phone: string | null;
-  /** Number registered on the TfL / PCO centre account. */
+  /** Number registered on the TfL / PCO centre account (phone). */
   pcoAccountPhone: string | null;
+  /** TfL online account email. */
+  tflLoginEmail: string | null;
+  /** True when an encrypted TfL password is stored (plaintext never in list payloads). */
+  hasTflLoginPassword: boolean;
+  /**
+   * Decrypted TfL password — only on booking detail responses for staff to log in.
+   * Omit / null on list and lookup payloads.
+   */
+  tflLoginPassword?: string | null;
   make: string | null;
   model: string | null;
   color: string | null;
@@ -261,6 +270,22 @@ export type PcoBookingPaymentDto = {
   valueDate: string;
   paymentAccountId: string;
   paymentAccountName: string;
+  /** User who recorded this payment. */
+  createdByName: string | null;
+  createdAt: string;
+};
+
+/** Garage ledger expense on a PCO booking (e.g. TfL slot paid by Us). */
+export type PcoGarageExpenseDto = {
+  id: string;
+  amount: string;
+  valueDate: string;
+  paymentAccountId: string;
+  paymentAccountName: string;
+  paymentMethod: string | null;
+  category: string | null;
+  notes: string | null;
+  createdByName: string | null;
   createdAt: string;
 };
 
@@ -280,6 +305,12 @@ export type PcoBookingDto = {
   bookingTime: string | null;
   bookingCentreId: string | null;
   bookingCentreName: string | null;
+  /** Client preference: any centre is acceptable. */
+  preferredCentreAny: boolean;
+  /** Preferred centre IDs (from Centres settings); empty when preferredCentreAny. */
+  preferredCentreIds: string[];
+  /** Optional TfL / centre confirmation reference. */
+  bookingReference: string | null;
   clientInformed: boolean;
   clientResponded: boolean;
   clientInformedAt: string | null;
@@ -308,6 +339,8 @@ export type PcoBookingDto = {
   notes: string | null;
   vehicle: PcoVehicleDto;
   payments: PcoBookingPaymentDto[];
+  /** Posted garage expenses linked to this booking (e.g. TfL slot paid by Us). */
+  garageExpenses: PcoGarageExpenseDto[];
   createdById: string;
   createdByName: string | null;
   completedAt: string | null;
@@ -335,6 +368,9 @@ export type PcoBookingListDto = {
   bookingDate: string | null;
   bookingTime: string | null;
   bookingCentreName: string | null;
+  preferredCentreAny: boolean;
+  preferredCentreIds: string[];
+  bookingReference: string | null;
   clientInformed: boolean;
   clientResponded: boolean;
   vrm: string;

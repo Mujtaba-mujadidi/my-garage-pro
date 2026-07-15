@@ -72,8 +72,9 @@ flowchart LR
 | **Add booking details** | Centre, date, time, **how slot was paid**, charge (£140 default) |
 | **Slot payment methods** | Bank transfer, Card, Cash, Cheque, Other, **Customer paid** |
 | **Notes** | Textarea on add request, edit, renew-due modal; shown in detail view |
-| **Edit** | Pending bookings editable via ⋮ or detail modal |
-| **Vehicle fields** | Optional make, model, colour, fuel type, seats; **PCO expiry optional** (blank for brand-new vehicles) |
+| **Edit** | Any booking status (all tabs) — fill in missing keeper/vehicle/TfL/notes etc.; service charge still via Amend charges after complete |
+| **Vehicle fields** | Optional make, model, colour, fuel type, seats; **PCO expiry optional** (blank for brand-new vehicles); **PCO account phone** (TfL/centre account); **TfL login** email + encrypted password; **preferred centre(s)** multi-select (or Any) on Add request |
+| **Booking reference** | Optional on Add booking details (TfL / centre confirmation) |
 | **Amend payment** | View → Payments → **Amend** (method, amount, account, date); reverses prior PCO ledger income and posts corrected entry |
 
 **Slot payment vs ledger:** When **Us** pays the TfL slot, that amount is posted as a ledger **expense** at schedule time and is **added to the customer balance** with the service charge. **Record payment** posts ledger **income** for amounts collected against that total (service + recoverable slot). Customer / N/A / TfL credit → no slot recovery on the customer balance.
@@ -87,7 +88,7 @@ flowchart LR
 | `GET` | `/pco/bookings?tab=` | `active` \| `pending` \| `past` \| `renewals_due` \| `v5c_expiring` |
 | `POST` | `/pco/bookings` | Create **PENDING** request |
 | `GET` | `/pco/bookings/:id` | Detail |
-| `PATCH` | `/pco/bookings/:id` | Edit pending (or active fields) |
+| `PATCH` | `/pco/bookings/:id` | Edit booking details (any status; charge only on pending/active) |
 | `POST` | `/pco/bookings/:id/schedule` | **PENDING → ACTIVE** |
 | `POST` | `/pco/bookings/:id/return-to-book` | **ACTIVE → PENDING** (reschedule) |
 | `PATCH` | `/pco/bookings/:id/charges` | Amend service charge and/or slot expense (ledger correction if slot posted) |
@@ -128,6 +129,8 @@ flowchart LR
 | `20260617140100_pco_booking_notes_payment` | `pco_booking.notes` column |
 | `20260617140200_pco_slot_payment_enum` | `PcoBookingSlotPaymentMethod` enum (incl. `CUSTOMER_PAID`) |
 | `20260713200000_pco_optional_expiry_job_types` | Nullable PCO expiry; `CHANGE_OF_OWNERSHIP` + `FULL_TEST` job types |
+| `20260715120000_pco_preferred_centres_booking_ref` | Preferred centres (Any + IDs) on booking; optional `booking_reference` |
+| `20260715140000_pco_tfl_login_credentials` | `tfl_login_email` + `tfl_login_password_enc` on `pco_vehicle` |
 
 Local: `cd apps/api && npx prisma migrate deploy`  
 Railway: runs on API container start (`prisma migrate deploy` in start command).

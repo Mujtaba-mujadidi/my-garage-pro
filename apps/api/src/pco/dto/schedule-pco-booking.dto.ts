@@ -1,5 +1,5 @@
 import { PcoBookingSlotPaidBy } from "@prisma/client";
-import { IsEnum, IsNumber, IsOptional, IsString, IsUUID, Matches, Min, ValidateIf } from "class-validator";
+import { IsEnum, IsNumber, IsOptional, IsString, IsUUID, Matches, MaxLength, Min, ValidateIf } from "class-validator";
 
 /** Book a pending PCO record at a centre (moves status to ACTIVE). */
 export class SchedulePcoBookingDto {
@@ -13,6 +13,12 @@ export class SchedulePcoBookingDto {
 
   @IsUUID()
   bookingCentreId!: string;
+
+  /** Optional confirmation / reference from TfL or the booking centre. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  bookingReference?: string;
 
   @IsEnum(PcoBookingSlotPaidBy)
   slotPaidBy!: PcoBookingSlotPaidBy;

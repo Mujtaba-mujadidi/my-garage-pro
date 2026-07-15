@@ -1,6 +1,8 @@
 import { PcoJobType, PcoPriority } from "@prisma/client";
 import {
+  IsArray,
   IsBoolean,
+  IsEmail,
   IsEnum,
   IsInt,
   IsOptional,
@@ -30,6 +32,15 @@ export class UpdatePcoBookingDto {
   chargeGross?: number;
 
   @IsOptional()
+  @IsBoolean()
+  preferredCentreAny?: boolean;
+
+  @IsOptional()
+  @IsArray()
+  @IsUUID("4", { each: true })
+  preferredCentreIds?: string[];
+
+  @IsOptional()
   @IsString()
   @Matches(/^\d{4}-\d{2}-\d{2}$/)
   bookingDate?: string;
@@ -42,6 +53,11 @@ export class UpdatePcoBookingDto {
   @IsOptional()
   @IsUUID()
   bookingCentreId?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  bookingReference?: string | null;
 
   @IsOptional()
   @IsBoolean()
@@ -100,6 +116,17 @@ export class UpdatePcoBookingDto {
   @IsString()
   @MaxLength(40)
   pcoAccountPhone?: string;
+
+  @IsOptional()
+  @IsEmail()
+  @MaxLength(200)
+  tflLoginEmail?: string;
+
+  /** Omit or blank = leave existing encrypted password unchanged. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  tflLoginPassword?: string;
 
   @IsOptional()
   @IsString()

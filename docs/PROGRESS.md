@@ -537,6 +537,9 @@ Two-step: **Add request** → **To book** (`PENDING`) → **Add booking details*
 | 2026-07-13 | **PCO customer total = service + slot** | When slot paid by Us, balance/Record payment = service charge (`chargeGross`) + slot expense; Customer/N/A/credit = service only | Stakeholder |
 | 2026-07-13 | **PCO amend charges** | View → Charges → amend service charge and (when Us/pending) slot expense; posted slot expense reversed + re-posted | Stakeholder |
 | 2026-07-13 | **PCO complete + balance check** | Completing with open balance allowed; goes to **Outstanding** tab until paid; **Past** = completed and fully paid | Stakeholder |
+| 2026-07-15 | **PCO preferred centres + booking ref** | Add request: multi preferred centres + Any; schedule: optional booking reference; rename PCO account phone | Stakeholder |
+| 2026-07-15 | **PCO centres multi-select + TfL login** | Preferred centres = multi-select dropdown (Any + centres); TfL login email/password on vehicle; password AES-GCM via `FIELD_ENCRYPTION_KEY` | Stakeholder |
+| 2026-07-15 | **PCO edit on all tabs** | Edit missing vehicle/contact/TfL/notes on any status; charge changes after complete still via Amend charges | Stakeholder |
 
 ---
 

@@ -16,6 +16,7 @@ import {
 import { calculateLogbookExpiryFromFirstRegistration, PCO_DUE_SOON_DAYS, PCO_DEFAULT_BOOKING_CHARGE, PCO_RETEST_WINDOW_DAYS, pcoBalanceDue, pcoCustomerTotalDue, sortPcoBookingsByPriority } from "@mygaragepro/shared";
 import { AuditService } from "../audit/audit.service";
 import type { RequestUser } from "../auth/auth.types";
+import { encryptField } from "../common/field-encryption";
 import { normalizeRegistration } from "../customers/customers.mapper";
 import { roundMoney } from "../invoices/invoice-calculations";
 import { LedgerService } from "../ledger/ledger.service";
@@ -65,7 +66,21 @@ export class PcoService {
     rescheduledFromBooking: { select: { bookingNumber: true } },
     rescheduledToBooking: { select: { bookingNumber: true } },
     retestBooking: { select: { bookingNumber: true } },
-    payments: { include: { paymentAccount: { select: { name: true } } }, orderBy: { createdAt: "asc" } },
+    payments: {
+      include: {
+        paymentAccount: { select: { name: true } },
+        createdBy: { select: { displayName: true } },
+      },
+      orderBy: { createdAt: "asc" },
+    },
+    ledgerEntries: {
+      where: { direction: "EXPENSE", status: "POSTED" },
+      include: {
+        paymentAccount: { select: { name: true } },
+        createdBy: { select: { displayName: true } },
+      },
+      orderBy: { createdAt: "asc" },
+    },
     createdBy: { select: { displayName: true } },
     completedBy: { select: { displayName: true } },
   } as const;
@@ -118,6 +133,37 @@ export class PcoService {
 
   private keeperKey(name: string) {
     return name.trim().toLowerCase();
+  }
+
+  /** Normalise preferred centres: Any clears IDs; otherwise validate centre UUIDs exist for garage. */
+  private async resolvePreferredCentres(
+    garageAccountId: string,
+    preferredCentreAny: boolean | undefined,
+    preferredCentreIds: string[] | undefined,
+    tx?: Prisma.TransactionClient,
+  ): Promise<{ preferredCentreAny: boolean; preferredCentreIds: string[] }> {
+    const any = preferredCentreAny === true;
+    if (any) {
+      return { preferredCentreAny: true, preferredCentreIds: [] };
+    }
+    const ids = [...new Set((preferredCentreIds ?? []).filter(Boolean))];
+    if (ids.length === 0) {
+      return { preferredCentreAny: false, preferredCentreIds: [] };
+    }
+    const db = tx ?? this.prisma;
+    const found = await db.settingOption.findMany({
+      where: {
+        garageAccountId,
+        optionType: PCO_CENTRE_OPTION_TYPE,
+        deletedAt: null,
+        id: { in: ids },
+      },
+      select: { id: true },
+    });
+    if (found.length !== ids.length) {
+      throw new BadRequestException("One or more preferred centres were not found");
+    }
+    return { preferredCentreAny: false, preferredCentreIds: ids };
   }
 
   /** Active booking where the garage or customer paid a TfL slot fee (not N/A or TfL credit). */
@@ -199,7 +245,29 @@ export class PcoService {
       where: { garageAccountId, vrm, status: PcoVehicleStatus.ACTIVE },
     });
 
-    const vehicleData = {
+    const vehicleData: {
+      vrm: string;
+      registeredKeeper: string;
+      addressLine1: string | null;
+      addressLine2: string | null;
+      city: string | null;
+      postcode: string | null;
+      email: string | null;
+      phone: string | null;
+      pcoAccountPhone: string | null;
+      tflLoginEmail: string | null;
+      tflLoginPasswordEnc?: string | null;
+      make: string | null;
+      model: string | null;
+      color: string | null;
+      fuelType: string | null;
+      seatCount: number | null;
+      firstRegistrationDate: Date;
+      pcoExpiryDate: Date | null;
+      logbookExpiryDate: Date;
+      note: string | null;
+      customerId: string | null;
+    } = {
       vrm,
       registeredKeeper: dto.registeredKeeper.trim(),
       addressLine1: dto.addressLine1?.trim() || null,
@@ -209,6 +277,7 @@ export class PcoService {
       email: dto.email?.trim() || null,
       phone: dto.phone?.trim() || null,
       pcoAccountPhone: dto.pcoAccountPhone?.trim() || null,
+      tflLoginEmail: dto.tflLoginEmail?.trim() || null,
       make: dto.make?.trim() || null,
       model: dto.model?.trim() || null,
       color: dto.color?.trim() || null,
@@ -220,6 +289,13 @@ export class PcoService {
       note: dto.note?.trim() || null,
       customerId: dto.customerId ?? null,
     };
+
+    const newPassword = dto.tflLoginPassword?.trim();
+    if (newPassword) {
+      vehicleData.tflLoginPasswordEnc = encryptField(newPassword);
+    } else if (!active) {
+      vehicleData.tflLoginPasswordEnc = null;
+    }
 
     if (!active) {
       return tx.pcoVehicle.create({
@@ -233,7 +309,11 @@ export class PcoService {
         data: { status: PcoVehicleStatus.ARCHIVED, archivedAt: new Date() },
       });
       return tx.pcoVehicle.create({
-        data: { garageAccountId, ...vehicleData },
+        data: {
+          garageAccountId,
+          ...vehicleData,
+          tflLoginPasswordEnc: vehicleData.tflLoginPasswordEnc ?? null,
+        },
       });
     }
 
@@ -515,6 +595,12 @@ export class PcoService {
     const row = await this.prisma.$transaction(async (tx) => {
       const vehicle = await this.resolveVehicle(tx, garageAccountId, dto);
       const bookingNumber = await this.nextBookingNumber(tx, garageAccountId);
+      const preferred = await this.resolvePreferredCentres(
+        garageAccountId,
+        dto.preferredCentreAny,
+        dto.preferredCentreIds,
+        tx,
+      );
 
       return tx.pcoBooking.create({
         data: {
@@ -527,6 +613,8 @@ export class PcoService {
           status: PcoBookingStatus.PENDING,
           priority: dto.priority ?? "MEDIUM",
           chargeGross: roundMoney(dto.chargeGross ?? 0),
+          preferredCentreAny: preferred.preferredCentreAny,
+          preferredCentreIds: preferred.preferredCentreIds,
           clientInformed: informed,
           clientResponded: responded,
           clientInformedAt: informed ? now : null,
@@ -556,9 +644,10 @@ export class PcoService {
       include: { vehicle: true },
     });
     if (!existing) throw new NotFoundException("PCO booking not found");
-    if (existing.status !== PcoBookingStatus.PENDING && existing.status !== PcoBookingStatus.ACTIVE) {
-      throw new BadRequestException("Only pending or active bookings can be edited");
-    }
+
+    const isOpenWorkflow =
+      existing.status === PcoBookingStatus.PENDING ||
+      existing.status === PcoBookingStatus.ACTIVE;
 
     const now = new Date();
     const bookingData: Prisma.PcoBookingUpdateInput = {};
@@ -567,7 +656,36 @@ export class PcoService {
     if (dto.jobDetails !== undefined) bookingData.jobDetails = dto.jobDetails?.trim() || null;
     if (dto.notes !== undefined) bookingData.notes = dto.notes?.trim() || null;
     if (dto.priority !== undefined) bookingData.priority = dto.priority;
-    if (dto.chargeGross !== undefined) bookingData.chargeGross = roundMoney(dto.chargeGross);
+    if (dto.chargeGross !== undefined) {
+      if (!isOpenWorkflow) {
+        throw new BadRequestException(
+          "Service charge on completed, failed, or cancelled bookings must be changed via Amend charges",
+        );
+      }
+      bookingData.chargeGross = roundMoney(dto.chargeGross);
+    }
+    if (dto.preferredCentreAny !== undefined || dto.preferredCentreIds !== undefined) {
+      const preferred = await this.resolvePreferredCentres(
+        garageAccountId,
+        dto.preferredCentreAny ?? existing.preferredCentreAny,
+        dto.preferredCentreIds ??
+          (Array.isArray(existing.preferredCentreIds)
+            ? (existing.preferredCentreIds as string[])
+            : []),
+      );
+      bookingData.preferredCentreAny = preferred.preferredCentreAny;
+      bookingData.preferredCentreIds = preferred.preferredCentreIds;
+    }
+    if (dto.bookingReference !== undefined) {
+      bookingData.bookingReference = dto.bookingReference?.trim() || null;
+    }
+    if (dto.bookingDate !== undefined || dto.bookingTime !== undefined || dto.bookingCentreId !== undefined) {
+      if (!isOpenWorkflow) {
+        throw new BadRequestException(
+          "Appointment details can only be changed on pending or active bookings",
+        );
+      }
+    }
     if (dto.bookingDate !== undefined) {
       bookingData.bookingDate = dto.bookingDate ? this.parseDate(dto.bookingDate) : null;
     }
@@ -596,6 +714,12 @@ export class PcoService {
     if (dto.phone !== undefined) vehicleData.phone = dto.phone?.trim() || null;
     if (dto.pcoAccountPhone !== undefined) {
       vehicleData.pcoAccountPhone = dto.pcoAccountPhone?.trim() || null;
+    }
+    if (dto.tflLoginEmail !== undefined) {
+      vehicleData.tflLoginEmail = dto.tflLoginEmail?.trim() || null;
+    }
+    if (dto.tflLoginPassword !== undefined && dto.tflLoginPassword.trim().length > 0) {
+      vehicleData.tflLoginPasswordEnc = encryptField(dto.tflLoginPassword.trim());
     }
     if (dto.make !== undefined) vehicleData.make = dto.make?.trim() || null;
     if (dto.model !== undefined) vehicleData.model = dto.model?.trim() || null;
@@ -850,6 +974,7 @@ export class PcoService {
           bookingDate: valueDate,
           bookingTime: dto.bookingTime,
           bookingCentreId: dto.bookingCentreId,
+          bookingReference: dto.bookingReference?.trim() || null,
           slotPaidBy: dto.slotPaidBy,
           slotPaymentAccountId,
           slotLedgerEntryId,

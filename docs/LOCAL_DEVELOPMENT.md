@@ -69,6 +69,8 @@ cp apps/web/.env.example apps/web/.env.local
 
 Defaults: `DATABASE_URL` → `localhost:5433`, `API_URL=http://localhost:4000`, `WEB_ORIGIN=http://localhost:3011`.
 
+API also needs `FIELD_ENCRYPTION_KEY` (min 16 chars; see `apps/api/.env.example`) for encrypting PCO TfL passwords at rest.
+
 **Ports:** Web dev uses **3011** (macOS often reserves **7000** for AirPlay). API stays on **4000**. If you change the web port, update both `apps/web/package.json` (`dev`/`start` `--port`) and `WEB_ORIGIN` in `apps/api/.env`.
 
 ### 4. Apply migrations + seed
