@@ -2,18 +2,18 @@
 
 **Purpose:** Resume PCO work without chat history. Companion to [PROGRESS.md](./PROGRESS.md) (gates) and [PROJECT_PLAN.md](./PROJECT_PLAN.md) (product vision).
 
-**Last updated:** 2026-06-02  
-**Branch:** `feat/pco-booking-workflow` (pushed: `a795f72`; **uncommitted** refinements on disk — see below)  
-**Base on `main`:** `4cefc29` — initial PCO module (bookings, centres, ledger)
+**Last updated:** 2026-07-15  
+**Branch:** `main` (latest PCO UI/API: `bf05ddc`; UK dates: `caedb70`)  
+**Shipped:** Preferred centres multi-select + Any; booking reference; TfL login email + encrypted password (`FIELD_ENCRYPTION_KEY`); edit booking details on all tabs; View shows Expenses + Customer payments (recorded by/at).
 
 ---
 
 ## Resume next session
 
-1. `git checkout feat/pco-booking-workflow`
-2. Read **Workflow** and **UAT test script** below
-3. If API routes 404: rebuild API + run `npx prisma migrate deploy` in `apps/api`
-4. Continue: commit uncommitted work → local UAT → merge PR to `main`
+1. Stay on `main` (or pull latest)
+2. Read **Workflow** and **UAT test script** below; run local UAT
+3. Ensure `FIELD_ENCRYPTION_KEY` in `apps/api/.env` (and Railway API vars)
+4. If API routes/fields stale: rebuild shared + `npx prisma migrate deploy` in `apps/api` + restart API
 
 **Key UI:** `apps/web/src/components/pco/pco-page-content.tsx`  
 **Key API:** `apps/api/src/pco/`  

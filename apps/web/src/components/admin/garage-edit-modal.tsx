@@ -237,6 +237,7 @@ export function GarageEditModal({ garage, open, onClose, onUpdated, onMessage }:
         onClose={requestClose}
         size="lg"
         fixedHeight
+        confirmOnClose={false}
       >
         <div className="flex min-h-0 flex-1 flex-col">
           <TabBar

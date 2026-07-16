@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 type ModalProps = {
   title: string;
@@ -16,6 +17,15 @@ type ModalProps = {
   autoHeight?: boolean;
   /** Show expand / restore control for near full-screen editing. */
   allowFullscreen?: boolean;
+  /**
+   * When true (default), header Close asks for confirmation before calling `onClose`.
+   * Set false when the parent already handles discard confirmation.
+   */
+  confirmOnClose?: boolean;
+  /** Title for the close confirmation dialog. */
+  confirmCloseTitle?: string;
+  /** Body text for the close confirmation dialog. */
+  confirmCloseDescription?: string;
 };
 
 export function Modal({
@@ -28,12 +38,19 @@ export function Modal({
   fixedHeightPx = 640,
   autoHeight = false,
   allowFullscreen = false,
+  confirmOnClose = true,
+  confirmCloseTitle = "Close this window?",
+  confirmCloseDescription = "Any unsaved changes may be lost.",
 }: ModalProps) {
   const [fullscreen, setFullscreen] = useState(false);
+  const [confirmCloseOpen, setConfirmCloseOpen] = useState(false);
   const fixedPanelHeight = `min(90vh, ${fixedHeightPx}px)`;
 
   useEffect(() => {
-    if (!open) setFullscreen(false);
+    if (!open) {
+      setFullscreen(false);
+      setConfirmCloseOpen(false);
+    }
   }, [open]);
 
   useEffect(() => {
@@ -44,6 +61,14 @@ export function Modal({
       document.body.style.overflow = prev;
     };
   }, [open, fullscreen]);
+
+  function requestClose() {
+    if (confirmOnClose) {
+      setConfirmCloseOpen(true);
+      return;
+    }
+    onClose();
+  }
 
   if (!open) return null;
 
@@ -72,54 +97,69 @@ export function Modal({
   const paddingClass = fullscreen ? "flex min-h-0 flex-1 flex-col px-4 py-3 sm:px-6" : "";
 
   return (
-    <div
-      className={backdropClass}
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="modal-title"
-      onClick={(e) => {
-        if (!fullscreen && e.target === e.currentTarget) onClose();
-      }}
-    >
+    <>
       <div
-        className={`${panelClass} ${paddingClass}`}
-        style={
-          fixedHeight && !fullscreen
-            ? { height: fixedPanelHeight, maxHeight: fixedPanelHeight }
-            : undefined
-        }
+        className={backdropClass}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="modal-title"
       >
-        <div className={`mb-4 flex shrink-0 items-start justify-between gap-3 ${fullscreen ? "border-b border-[var(--border)] pb-3" : ""}`}>
-          <h2 id="modal-title" className="text-lg font-semibold text-[var(--foreground)]">
-            {title}
-          </h2>
-          <div className="flex shrink-0 items-center gap-1">
-            {allowFullscreen && (
+        <div
+          className={`${panelClass} ${paddingClass}`}
+          style={
+            fixedHeight && !fullscreen
+              ? { height: fixedPanelHeight, maxHeight: fixedPanelHeight }
+              : undefined
+          }
+        >
+          <div
+            className={`mb-4 flex shrink-0 items-start justify-between gap-3 ${fullscreen ? "border-b border-[var(--border)] pb-3" : ""}`}
+          >
+            <h2 id="modal-title" className="text-lg font-semibold text-[var(--foreground)]">
+              {title}
+            </h2>
+            <div className="flex shrink-0 items-center gap-1">
+              {allowFullscreen && (
+                <button
+                  type="button"
+                  onClick={() => setFullscreen((v) => !v)}
+                  className="rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs font-medium text-[var(--foreground)] hover:bg-[var(--background)]"
+                  aria-label={fullscreen ? "Exit full screen" : "Full screen"}
+                >
+                  {fullscreen ? "Exit full screen" : "Full screen"}
+                </button>
+              )}
               <button
                 type="button"
-                onClick={() => setFullscreen((v) => !v)}
-                className="rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs font-medium text-[var(--foreground)] hover:bg-[var(--background)]"
-                aria-label={fullscreen ? "Exit full screen" : "Full screen"}
+                onClick={requestClose}
+                className="rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs font-medium text-[var(--muted)] hover:bg-[var(--background)] hover:text-[var(--foreground)]"
+                aria-label="Close"
               >
-                {fullscreen ? "Exit full screen" : "Full screen"}
+                Close
               </button>
-            )}
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs font-medium text-[var(--muted)] hover:bg-[var(--background)] hover:text-[var(--foreground)]"
-              aria-label="Close"
-            >
-              Close
-            </button>
+            </div>
           </div>
+          {fixedHeight ? (
+            <div className="flex min-h-0 flex-1 flex-col">{children}</div>
+          ) : (
+            children
+          )}
         </div>
-        {fixedHeight ? (
-          <div className="flex min-h-0 flex-1 flex-col">{children}</div>
-        ) : (
-          children
-        )}
       </div>
-    </div>
+
+      <ConfirmDialog
+        open={confirmCloseOpen}
+        title={confirmCloseTitle}
+        description={confirmCloseDescription}
+        confirmLabel="Close"
+        cancelLabel="Keep open"
+        variant="danger"
+        onCancel={() => setConfirmCloseOpen(false)}
+        onConfirm={() => {
+          setConfirmCloseOpen(false);
+          onClose();
+        }}
+      />
+    </>
   );
 }

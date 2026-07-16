@@ -2,19 +2,19 @@
 
 Companion to [PROJECT_PLAN.md](PROJECT_PLAN.md). **Delivery model:** gated phases — build → deploy staging → **you test → sign off** → next module (see PROJECT_PLAN §25).
 
-**Last updated:** 2026-06-02  
-**Current phase:** **PCO module UAT** (workflow redesign on feature branch)  
-**Current gate:** ⏳ PCO bookings — local UAT on `feat/pco-booking-workflow`  
+**Last updated:** 2026-07-15  
+**Current focus:** **Repair / bodywork** — job cancel confirmation + money/stock rules (**open product decisions** — see Decision log)  
+**Current gate:** ⏳ PCO still UAT locally; Phases 4–8 also ⏳  
 **UAT note:** Phases 1–3 signed off on **local** (`pnpm dev`); Railway staging deferred.  
-**Latest on `main`:** `4cefc29` — PCO module (initial).  
-**Active branch:** `feat/pco-booking-workflow` @ `a795f72` (+ uncommitted refinements — reschedule, notes, priority, edit, slot payments).  
-**Resume next session:** Read [AGENTS.md](../AGENTS.md), then [PCO_MODULE.md](./PCO_MODULE.md) for full handoff, then **Decision log** and **PCO module** below.
+**Latest on `main`:** `caedb70` — UK date display (`DD/MM/YYYY`); prior `bf05ddc` — PCO preferred centres, TfL login (encrypted), edit all tabs, View expenses + customer payments.  
+**Active branch:** `main`  
+**Resume next session:** Read [AGENTS.md](../AGENTS.md) → this file (**Decision log** + backlog #1). Agree cancel rules, then implement confirm on repair + bodywork job cancel. PCO handoff: [PCO_MODULE.md](./PCO_MODULE.md).
 
 **Staging URL:** _Railway → **web** service → Settings → Networking → **Public domain**_ (verify in dashboard; stale docs URLs cause 404)
 
-**Local dev:** [LOCAL_DEVELOPMENT.md](./LOCAL_DEVELOPMENT.md) · **Railway deploy:** [RAILWAY_AUTODEPLOY.md](./RAILWAY_AUTODEPLOY.md)
+**Local env notes:** API needs `FIELD_ENCRYPTION_KEY` (min 16 chars) for PCO TfL passwords — see `apps/api/.env.example` / [LOCAL_DEVELOPMENT.md](./LOCAL_DEVELOPMENT.md). Set the same key on Railway API Variables before relying on TfL login reveal.
 
----
+**Local dev:** [LOCAL_DEVELOPMENT.md](./LOCAL_DEVELOPMENT.md) · **Railway deploy:** [RAILWAY_AUTODEPLOY.md](./RAILWAY_AUTODEPLOY.md)
 
 ## Status legend
 
@@ -411,19 +411,20 @@ Decisions from 2026-06-12 planning (VAT receipts, mobile, go-live). **Use this s
 
 ## Backlog / next build (priority order)
 
-1. **PCO module UAT** — commit uncommitted workflow refinements on `feat/pco-booking-workflow`, test locally, merge to `main`. Handoff: [PCO_MODULE.md](./PCO_MODULE.md).
-2. **Phases 4–8 local UAT** sign-off (ledger, invoices, repair, parts, tyres, bodywork).
-3. **Tyre job picker** — supplier + stock on repair jobs (Phase 9 with PWA).
-4. **Receipt upload Phase 1** — `DocumentAttachment` + API + ledger UI (Phase 14).
-5. **Notification tables + Web Push** (pre go-live).
-6. **MTD VAT export** incl. receipt links (later).
+1. **Repair / bodywork — cancel confirmation** — Require confirm when setting job (and ideally task) status to Cancelled. Agree money/stock rules in Decision log first, then implement for **both** modules. Today: repair auto-returns parts/tyres + cancels open orders; bodywork status-only; invoices/payments untouched; cancelled job is terminal (no resume).
+2. **PCO local UAT** — refinements are on `main` (`bf05ddc`+); run UAT script in [PCO_MODULE.md](./PCO_MODULE.md); ensure Railway has `FIELD_ENCRYPTION_KEY`.
+3. **Phases 4–8 local UAT** sign-off (ledger, invoices, repair, parts, tyres, bodywork).
+4. **Tyre job picker** — supplier + stock on repair jobs (Phase 9 with PWA).
+5. **Receipt upload Phase 1** — `DocumentAttachment` + API + ledger UI (Phase 14).
+6. **Notification tables + Web Push** (pre go-live).
+7. **MTD VAT export** incl. receipt links (later).
 
 ---
 
 ## PCO module — signed-off spec
 
-**Status:** `[x]` Built (initial on `main`) · `[~]` Workflow redesign on `feat/pco-booking-workflow`  
-**Gate:** ⏳ UAT  
+**Status:** `[x]` Built on `main` (workflow + July refinements through `bf05ddc`)  
+**Gate:** ⏳ UAT (local)  
 **Full handoff:** [PCO_MODULE.md](./PCO_MODULE.md) (workflow, API, migrations, UAT script)  
 **Shared types:** `packages/shared/src/pco-types.ts`
 
@@ -541,6 +542,8 @@ Two-step: **Add request** → **To book** (`PENDING`) → **Add booking details*
 | 2026-07-15 | **PCO centres multi-select + TfL login** | Preferred centres = multi-select dropdown (Any + centres); TfL login email/password on vehicle; password AES-GCM via `FIELD_ENCRYPTION_KEY` | Stakeholder |
 | 2026-07-15 | **PCO edit on all tabs** | Edit missing vehicle/contact/TfL/notes on any status; charge changes after complete still via Amend charges | Stakeholder |
 | 2026-07-15 | **UK date display** | All UI (and invoice PDF) dates shown as DD/MM/YYYY via `formatDateUk` / `formatDateTimeUk`; inputs/API stay ISO | Stakeholder |
+| 2026-07-15 | **PCO View payments + expenses** | Booking View: customer payments (method, account, recorded by/at); **Expenses** table for posted TfL slot ledger expenses | Stakeholder |
+| 2026-07-15 | **Repair/bodywork cancel — OPEN** | Need confirm before Cancelled. Proposed: cancel open orders; return fitted stock (align bodywork with repair); **no auto-refund** of customer payments; optional cancel unpaid invoice; **no resume** of cancelled job (admin reopen later if needed). Stakeholder to confirm before build. | Stakeholder (pending) |
 
 ---
 
@@ -567,3 +570,4 @@ Two-step: **Add request** → **To book** (`PENDING`) → **Add booking details*
 | 2026-06-12 | Architecture notes: Railway go-live, receipt storage, push, mobile API-only |
 | 2026-06-13 | PCO module spec signed off; Retest job type; shared `pco-types.ts`; backlog #1 |
 | 2026-06-02 | PCO on `main` (`4cefc29`); workflow branch `feat/pco-booking-workflow`; [PCO_MODULE.md](./PCO_MODULE.md) handoff doc |
+| 2026-07-15 | PCO refinements + UK dates on `main` (`bf05ddc`, `caedb70`); context switched to repair/bodywork cancel |

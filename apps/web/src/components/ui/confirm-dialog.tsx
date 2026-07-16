@@ -41,13 +41,9 @@ export function ConfirmDialog({
       aria-modal="true"
       aria-labelledby="confirm-dialog-title"
       aria-describedby="confirm-dialog-desc"
-      onClick={(e) => {
-        if (e.target === e.currentTarget && !loading) onCancel();
-      }}
     >
       <div
         className="w-full max-w-md rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-full bg-accent/15 text-xl text-accent">
           {icon ?? (variant === "danger" ? "!" : "✓")}
